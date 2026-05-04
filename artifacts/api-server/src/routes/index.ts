@@ -9,6 +9,7 @@ import dashboardRouter from "./dashboard";
 import sensitiveWordsRouter from "./sensitiveWords";
 import storageRouter from "./storage";
 import adminRouter from "./admin";
+import xhsRouter from "./xhs";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -26,5 +27,6 @@ router.use(schedulesRouter);
 router.use(dashboardRouter);
 router.use(sensitiveWordsRouter);
 router.use(storageRouter);
+router.use(xhsRouter);
 
 export default router;
