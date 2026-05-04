@@ -28,6 +28,15 @@ const STEPS = [
 
 const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚" };
 
+function proxyXhsImage(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.includes("xhscdn.com") || url.includes("xiaohongshu.com") || url.includes("sns-webpic") || url.includes("sns-img")) {
+    const base = import.meta.env.BASE_URL || "/";
+    return `${base}api/xhs/image-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 interface AiProgressStep {
   label: string;
   status: "pending" | "running" | "done";
@@ -260,7 +269,7 @@ export default function WorkflowWizard() {
       .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0));
 
     if (competitorCovers.length > 0) {
-      setReferenceImageUrl(competitorCovers[0].cover_url);
+      setReferenceImageUrl(proxyXhsImage(competitorCovers[0].cover_url) || "");
     }
 
     if (suggestion.imagePrompt) {
@@ -803,7 +812,7 @@ export default function WorkflowWizard() {
                           {note.cover_url ? (
                             <div className="aspect-[3/4] bg-muted overflow-hidden relative">
                               <img
-                                src={note.cover_url}
+                                src={proxyXhsImage(note.cover_url)}
                                 alt={note.title}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                 onError={(e) => {
@@ -1197,21 +1206,21 @@ export default function WorkflowWizard() {
                             .map((note: any, i: number) => (
                               <button
                                 key={note.id || i}
-                                onClick={() => setReferenceImageUrl(note.cover_url)}
+                                onClick={() => setReferenceImageUrl(proxyXhsImage(note.cover_url) || "")}
                                 className={`relative group rounded-lg overflow-hidden border-2 transition-all aspect-[3/4] ${
-                                  referenceImageUrl === note.cover_url
+                                  referenceImageUrl === proxyXhsImage(note.cover_url)
                                     ? "border-red-500 ring-2 ring-red-200"
                                     : "border-transparent hover:border-red-300"
                                 }`}
                               >
-                                <img src={note.cover_url} alt={note.title} className="w-full h-full object-cover"
+                                <img src={proxyXhsImage(note.cover_url)} alt={note.title} className="w-full h-full object-cover"
                                   onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }} />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                                 <div className="absolute bottom-0 left-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <p className="text-[8px] text-white leading-tight line-clamp-1">{note.title}</p>
                                   <p className="text-[7px] text-white/80">❤️{note.liked_count}</p>
                                 </div>
-                                {referenceImageUrl === note.cover_url && (
+                                {referenceImageUrl === proxyXhsImage(note.cover_url) && (
                                   <div className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-0.5">
                                     <Check className="h-2.5 w-2.5" />
                                   </div>

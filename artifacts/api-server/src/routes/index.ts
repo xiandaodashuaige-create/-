@@ -10,12 +10,14 @@ import sensitiveWordsRouter from "./sensitiveWords";
 import storageRouter from "./storage";
 import adminRouter from "./admin";
 import xhsRouter from "./xhs";
+import { xhsPublicRouter } from "./xhs";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(storageRouter);
+router.use(xhsPublicRouter);
 
 router.use(requireAuth);
 

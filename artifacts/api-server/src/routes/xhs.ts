@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+const publicRouter: IRouter = Router();
 
 const TIKHUB_API_KEY = process.env.TIKHUB_API_KEY || "";
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
@@ -212,6 +213,50 @@ export async function tryFetchXhsData(keyword: string): Promise<{ available: boo
   return { available: false, notes: [], source: "ai-only" };
 }
 
+publicRouter.get("/xhs/image-proxy", async (req, res): Promise<void> => {
+  try {
+    const url = req.query.url as string;
+    if (!url || typeof url !== "string") {
+      res.status(400).json({ error: "url parameter required" });
+      return;
+    }
+
+    const allowed = ["xhscdn.com", "xiaohongshu.com", "sns-webpic", "sns-img"];
+    const isAllowed = allowed.some((d) => url.includes(d));
+    if (!isAllowed) {
+      res.status(403).json({ error: "URL not allowed" });
+      return;
+    }
+
+    const fetchUrl = url.startsWith("//") ? `https:${url}` : url;
+    const imgRes = await fetch(fetchUrl, {
+      method: "GET",
+      redirect: "follow",
+      signal: AbortSignal.timeout(10_000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+      },
+    });
+
+    if (!imgRes.ok) {
+      res.status(imgRes.status).json({ error: "Failed to fetch image" });
+      return;
+    }
+
+    const ct = imgRes.headers.get("content-type") || "image/webp";
+    res.setHeader("Content-Type", ct);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    res.send(buffer);
+  } catch (err) {
+    logger.warn(err, "Image proxy failed");
+    res.status(500).json({ error: "Image proxy failed" });
+  }
+});
+
 router.get("/xhs/health", async (_req, res): Promise<void> => {
   const status: any = { tikhub: false, rapidapi: false, autodl: false };
 
@@ -379,3 +424,4 @@ router.get("/xhs/user/:userId/notes", async (req, res): Promise<void> => {
 });
 
 export default router;
+export { publicRouter as xhsPublicRouter };
