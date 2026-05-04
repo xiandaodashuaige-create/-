@@ -1,10 +1,20 @@
+import { getAuthToken } from "./auth";
+
 const BASE = `${import.meta.env.BASE_URL}`.replace(/\/$/, "");
 const API_BASE = "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const token = await getAuthToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers,
     ...options,
   });
   if (!res.ok) {

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { ClerkProvider, SignIn, SignUp, Show, useClerk, useUser } from "@clerk/react";
+import { ClerkProvider, SignIn, SignUp, Show, useClerk, useUser, useAuth } from "@clerk/react";
+import { setTokenProvider } from "@/lib/auth";
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -128,6 +129,14 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   );
 }
 
+function ClerkTokenProvider() {
+  const { getToken } = useAuth();
+  useEffect(() => {
+    setTokenProvider(() => getToken());
+  }, [getToken]);
+  return null;
+}
+
 function ClerkQueryClientCacheInvalidator() {
   const { addListener } = useClerk();
   const queryClient = useQueryClient();
@@ -180,6 +189,7 @@ function ClerkProviderWithRoutes() {
     >
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
+          <ClerkTokenProvider />
           <ClerkQueryClientCacheInvalidator />
           <Switch>
             <Route path="/" component={HomeRedirect} />
