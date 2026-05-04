@@ -619,6 +619,11 @@ components:
           enum: [active, inactive, banned]
         notes:
           type: ["string", "null"]
+        xhsId:
+          type: ["string", "null"]
+        authStatus:
+          type: string
+          enum: [pending, authorized]
         contentCount:
           type: integer
         lastActiveAt:
@@ -651,6 +656,11 @@ components:
           type: string
         notes:
           type: string
+        xhsId:
+          type: string
+        authStatus:
+          type: string
+          enum: [pending, authorized]
       required:
         - nickname
         - region
@@ -677,7 +687,7 @@ components:
         id:
           type: integer
         accountId:
-          type: integer
+          type: ["integer", "null"]
         title:
           type: string
         body:
@@ -716,10 +726,11 @@ components:
           type: string
           format: date-time
         account:
-          $ref: "#/components/schemas/AccountSummary"
+          oneOf:
+            - $ref: "#/components/schemas/AccountSummary"
+            - type: "null"
       required:
         - id
-        - accountId
         - title
         - body
         - tags
@@ -747,7 +758,7 @@ components:
       type: object
       properties:
         accountId:
-          type: integer
+          type: ["integer", "null"]
         title:
           type: string
         body:
@@ -765,7 +776,6 @@ components:
         videoUrl:
           type: string
       required:
-        - accountId
         - title
         - body
 

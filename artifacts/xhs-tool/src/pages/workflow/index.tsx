@@ -39,6 +39,7 @@ export default function WorkflowWizard() {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
 
+  const [selectedRegion, setSelectedRegion] = useState<string>("");
   const [form, setForm] = useState({
     accountId: 0,
     title: "",
@@ -59,7 +60,7 @@ export default function WorkflowWizard() {
   const [selectedSuggestion, setSelectedSuggestion] = useState<number | null>(null);
 
   const [showAddAccount, setShowAddAccount] = useState(false);
-  const [newAccount, setNewAccount] = useState({ nickname: "", region: "SG", xhsId: "" });
+  const [newAccount, setNewAccount] = useState({ nickname: "", region: selectedRegion || "SG", xhsId: "" });
   const [aiResult, setAiResult] = useState<any>(null);
   const [sensitivityResult, setSensitivityResult] = useState<any>(null);
   const [imagePrompt, setImagePrompt] = useState("");
@@ -97,7 +98,7 @@ export default function WorkflowWizard() {
       qc.invalidateQueries({ queryKey: ["accounts"] });
       setForm((prev) => ({ ...prev, accountId: result.id }));
       setShowAddAccount(false);
-      setNewAccount({ nickname: "", region: "SG", xhsId: "" });
+      setNewAccount({ nickname: "", region: selectedRegion || "SG", xhsId: "" });
       toast({ title: "账号添加成功" });
     },
   });
@@ -175,7 +176,7 @@ export default function WorkflowWizard() {
 
   function canProceed(): boolean {
     switch (step) {
-      case 1: return form.accountId > 0;
+      case 1: return !!selectedRegion;
       case 2: return form.title.trim().length > 0 && form.body.trim().length > 0;
       default: return true;
     }
@@ -206,12 +207,11 @@ export default function WorkflowWizard() {
       toast({ title: "请至少填写一项信息", variant: "destructive" });
       return;
     }
-    const account = selectedAccount();
     researchMutation.mutate({
       businessDescription: businessDescription || undefined,
       competitorLink: competitorLink || undefined,
       niche: niche || undefined,
-      region: account?.region,
+      region: selectedRegion || selectedAccount()?.region,
     });
   }
 
@@ -288,11 +288,10 @@ export default function WorkflowWizard() {
       toast({ title: "请输入内容或竞品参考", variant: "destructive" });
       return;
     }
-    const account = selectedAccount();
     rewriteMutation.mutate({
       originalContent: form.originalReference || form.body,
-      region: account?.region,
-      style: "engaging",
+      region: selectedRegion || selectedAccount()?.region,
+      style: "creative",
     });
   }
 
@@ -554,14 +553,58 @@ export default function WorkflowWizard() {
       {/* Step 1: Research + Account Selection */}
       {step === 1 && !aiProgress.active && (
         <div className="space-y-6">
-          {/* Quick Account Selector */}
+          {/* Region Selector */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
-                <Users className="h-4 w-4 text-red-500" />
-                选择发布账号
-                <span className="text-xs text-muted-foreground font-normal">（用于定制不同地区的内容策略）</span>
+                <Globe className="h-4 w-4 text-red-500" />
+                选择目标地区
               </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">AI将自动匹配该地区的同行爆款素材、内容风格和发布策略</p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { code: "SG", flag: "🇸🇬", name: "新加坡", desc: "东南亚华人市场" },
+                  { code: "HK", flag: "🇭🇰", name: "香港", desc: "繁體中文·港式表达" },
+                  { code: "MY", flag: "🇲🇾", name: "马来西亚", desc: "多元文化市场" },
+                ].map((r) => (
+                  <button
+                    key={r.code}
+                    onClick={() => {
+                      setSelectedRegion(r.code);
+                      const matchingAccount = accounts.find((a: any) => a.region === r.code);
+                      if (matchingAccount) setForm((prev) => ({ ...prev, accountId: matchingAccount.id }));
+                    }}
+                    className={`relative flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all ${
+                      selectedRegion === r.code
+                        ? "border-red-500 bg-red-50 shadow-sm"
+                        : "border-border hover:border-red-200 hover:bg-red-50/30"
+                    }`}
+                  >
+                    <span className="text-2xl">{r.flag}</span>
+                    <span className="font-semibold text-sm">{r.name}</span>
+                    <span className="text-[10px] text-muted-foreground">{r.desc}</span>
+                    {selectedRegion === r.code && (
+                      <div className="absolute top-2 right-2">
+                        <CheckCircle2 className="h-4 w-4 text-red-500" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Account Binding */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-4 w-4 text-blue-500" />
+                绑定小红书账号
+                <Badge variant="outline" className="text-[10px] font-normal">可选</Badge>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">绑定账号后，发布内容时可快速关联对应账号，未来支持直接发布</p>
             </CardHeader>
             <CardContent className="space-y-3">
               {accountsLoading ? (
@@ -569,79 +612,98 @@ export default function WorkflowWizard() {
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : accounts.length === 0 && !showAddAccount ? (
-                <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                  <Lightbulb className="h-5 w-5 text-amber-500 shrink-0" />
+                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <Lightbulb className="h-5 w-5 text-blue-500 shrink-0" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-amber-800">还没有添加小红书账号</p>
-                    <p className="text-xs text-amber-600">添加账号后，AI会根据地区定制内容策略</p>
+                    <p className="text-sm font-medium text-blue-800">暂未绑定小红书账号</p>
+                    <p className="text-xs text-blue-600">绑定后可管理多个账号的内容发布</p>
                   </div>
-                  <Button size="sm" onClick={() => setShowAddAccount(true)} className="bg-red-500 hover:bg-red-600 text-white shrink-0">
-                    <Plus className="h-3.5 w-3.5 mr-1" />添加账号
+                  <Button size="sm" onClick={() => setShowAddAccount(true)} variant="outline" className="shrink-0">
+                    <Plus className="h-3.5 w-3.5 mr-1" />绑定账号
                   </Button>
                 </div>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {accounts.map((a: any) => (
-                    <button
-                      key={a.id}
-                      onClick={() => setForm({ ...form, accountId: a.id })}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all text-sm ${
-                        form.accountId === a.id
-                          ? "border-red-500 bg-red-50"
-                          : "border-border hover:border-red-200"
-                      }`}
-                    >
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-medium ${
-                        form.accountId === a.id ? "bg-red-500" : "bg-gray-400"
-                      }`}>
-                        {a.nickname?.[0] || "?"}
+                <>
+                  <div className="space-y-2">
+                    {accounts.map((a: any) => (
+                      <div
+                        key={a.id}
+                        onClick={() => {
+                          setForm({ ...form, accountId: a.id });
+                          if (a.region) setSelectedRegion(a.region);
+                        }}
+                        className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                          form.accountId === a.id
+                            ? "border-blue-500 bg-blue-50/50"
+                            : "border-border hover:border-blue-200"
+                        }`}
+                      >
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0 ${
+                          form.accountId === a.id ? "bg-blue-500" : "bg-gray-400"
+                        }`}>
+                          {a.nickname?.[0] || "?"}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm truncate">{a.nickname}</span>
+                            <Badge variant="secondary" className="text-[10px] h-4 px-1.5 shrink-0" data-account-region={a.region}>
+                              {regionLabels[a.region] || a.region}
+                            </Badge>
+                          </div>
+                          {a.xhsId && <p className="text-[10px] text-muted-foreground mt-0.5">小红书号: {a.xhsId}</p>}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {a.authStatus === "authorized" ? (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">
+                              <CheckCircle2 className="h-3 w-3 mr-0.5" />已授权
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">
+                              待授权
+                            </Badge>
+                          )}
+                          {form.accountId === a.id && <CheckCircle2 className="h-4 w-4 text-blue-500" />}
+                        </div>
                       </div>
-                      <span className="font-medium">{a.nickname}</span>
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5" data-account-region={a.region}>
-                        {regionLabels[a.region] || a.region}
-                      </Badge>
-                      {form.accountId === a.id && <CheckCircle2 className="h-4 w-4 text-red-500" />}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => setShowAddAccount(!showAddAccount)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 hover:border-red-300 hover:text-red-500 text-sm transition-colors"
-                  >
-                    <Plus className="h-3.5 w-3.5" />添加
-                  </button>
-                </div>
+                    ))}
+                  </div>
+                  <Button variant="outline" size="sm" className="w-full" onClick={() => setShowAddAccount(!showAddAccount)}>
+                    <Plus className="h-3.5 w-3.5 mr-1.5" />绑定新账号
+                  </Button>
+                </>
               )}
 
               {showAddAccount && (
-                <div className="p-3 border rounded-lg border-dashed space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3 border rounded-lg border-dashed space-y-3 bg-muted/30">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
-                      <Label className="text-xs">昵称</Label>
-                      <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="客户小红书昵称" />
+                      <Label className="text-xs">小红书昵称 *</Label>
+                      <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="输入小红书昵称" />
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">地区</Label>
-                      <Select value={newAccount.region} onValueChange={(v) => setNewAccount({ ...newAccount, region: v })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="SG">新加坡</SelectItem>
-                          <SelectItem value="HK">香港</SelectItem>
-                          <SelectItem value="MY">马来西亚</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">小红书ID（可选）</Label>
-                      <Input value={newAccount.xhsId} onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })} placeholder="小红书号" />
+                      <Label className="text-xs">小红书号</Label>
+                      <Input value={newAccount.xhsId} onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })} placeholder="输入小红书号（个人主页可查看）" />
                     </div>
                   </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">账号所在地区</Label>
+                    <Select value={newAccount.region} onValueChange={(v) => setNewAccount({ ...newAccount, region: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SG">🇸🇬 新加坡</SelectItem>
+                        <SelectItem value="HK">🇭🇰 香港</SelectItem>
+                        <SelectItem value="MY">🇲🇾 马来西亚</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="flex gap-2">
-                    <Button size="sm" disabled={!newAccount.nickname.trim() || createAccountMutation.isPending} onClick={() => createAccountMutation.mutate(newAccount)} className="bg-red-500 hover:bg-red-600 text-white">
+                    <Button size="sm" disabled={!newAccount.nickname.trim() || createAccountMutation.isPending} onClick={() => createAccountMutation.mutate(newAccount)} className="bg-blue-500 hover:bg-blue-600 text-white">
                       {createAccountMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-                      确认添加
+                      确认绑定
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setShowAddAccount(false)}>取消</Button>
                   </div>
+                  <p className="text-[10px] text-muted-foreground">提示：绑定账号后，后续将支持直接通过系统发布内容到小红书</p>
                 </div>
               )}
             </CardContent>
@@ -730,13 +792,18 @@ export default function WorkflowWizard() {
                     </div>
                   </div>
 
-                  {form.accountId > 0 && (
-                    <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
-                      <span className="text-muted-foreground">发布账号：</span>
-                      <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                      <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region} data-selected-account-region={selectedAccount()?.region}>
-                        {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
+                  {selectedRegion && (
+                    <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2" data-selected-account-region={selectedRegion}>
+                      <span className="text-muted-foreground">目标地区：</span>
+                      <Badge variant="secondary" className="text-xs" data-account-region={selectedRegion}>
+                        {regionLabels[selectedRegion] || selectedRegion}
                       </Badge>
+                      {selectedAccount() && (
+                        <>
+                          <span className="text-muted-foreground ml-2">绑定账号：</span>
+                          <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
@@ -919,13 +986,18 @@ export default function WorkflowWizard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {form.accountId > 0 && (
-                  <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
-                    <span className="text-muted-foreground">发布账号：</span>
-                    <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                    <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region} data-selected-account-region={selectedAccount()?.region}>
-                      {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
+                {selectedRegion && (
+                  <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2" data-selected-account-region={selectedRegion}>
+                    <span className="text-muted-foreground">目标地区：</span>
+                    <Badge variant="secondary" className="text-xs" data-account-region={selectedRegion}>
+                      {regionLabels[selectedRegion] || selectedRegion}
                     </Badge>
+                    {selectedAccount() && (
+                      <>
+                        <span className="text-muted-foreground ml-2">绑定账号：</span>
+                        <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -1071,9 +1143,9 @@ export default function WorkflowWizard() {
                     )}
                     <div className="flex items-center gap-2 pt-2 border-t">
                       <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-[10px] font-medium">
-                        {selectedAccount()?.nickname?.[0] || "?"}
+                        {selectedAccount()?.nickname?.[0] || selectedRegion?.[0] || "?"}
                       </div>
-                      <span className="text-[10px] text-gray-500">{selectedAccount()?.nickname || "未选择账号"}</span>
+                      <span className="text-[10px] text-gray-500">{selectedAccount()?.nickname || (selectedRegion ? regionLabels[selectedRegion] : "未选择地区")}</span>
                     </div>
                   </div>
                 </div>

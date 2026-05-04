@@ -7,6 +7,8 @@ export const accountsTable = pgTable("accounts", {
   nickname: text("nickname").notNull(),
   region: text("region").notNull(),
   avatarUrl: text("avatar_url"),
+  xhsId: text("xhs_id"),
+  authStatus: text("auth_status").notNull().default("unauthorized"),
   status: text("status").notNull().default("active"),
   notes: text("notes"),
   contentCount: integer("content_count").notNull().default(0),

@@ -70,7 +70,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ## Workflow Wizard
 
 - Guided 3-step flow at `/workflow`: 灵感研究 → 创作内容 → 发布
-- Step 1 (灵感研究): Quick account selector at top + AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans with posting time recommendations → user picks one
+- Step 1 (灵感研究): Two-card layout — (1) "选择目标地区" with 3 region buttons (🇸🇬 SG, 🇭🇰 HK, 🇲🇾 MY) for AI content matching, (2) "绑定小红书账号" (optional) for XHS account authorization/binding with auth status badges. Region selection is required; account binding is optional. Then AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans with posting time recommendations → user picks one
 - Step 2 (创作内容): Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. Streamlined AI image panel: auto-detects reference mode when competitor image is uploaded, otherwise generates from text prompt. When adopting a research suggestion, AI progress animation overlay auto-fills content, runs sensitivity check, AND auto-generates a cover image — delivering a complete content package ready for review.
 - Step 3 (发布): AI-recommended posting times display, image/video download gallery with per-image download buttons and "download all" option, auto-copy content → open XHS Creator Studio → mark as published → success with "publish next" option
 - Dashboard has prominent gradient CTA card linking to workflow
@@ -130,8 +130,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 - **users** — App users synced from Clerk (clerkId, email, nickname, role, plan, credits, language, onboardingCompleted)
 - **credit_transactions** — Credit usage/recharge history (userId, amount, balanceAfter, type, operationType, description)
-- **accounts** — XHS accounts with region (SG/HK/MY), status, nickname
-- **content** — Posts with title, body, tags, imageUrls, status (draft/published/scheduled), sensitivity info
+- **accounts** — XHS accounts with region (SG/HK/MY), status, nickname, xhsId, authStatus (pending/authorized)
+- **content** — Posts with title, body, tags, imageUrls, status (draft/published/scheduled), sensitivity info; accountId is nullable (content can exist without a bound account)
 - **assets** — Uploaded images/videos with metadata
 - **schedules** — Content publishing schedule entries
 - **sensitive_words** — Custom sensitive word dictionary with category and severity
@@ -206,8 +206,9 @@ Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and Eng
 ## Region-Aware AI
 
 - AI competitor research and rewrite prompts adapt for HK region (繁體中文 + Cantonese tone)
-- AI Guide chatbot detects selected account region via `data-selected-account-region` DOM attribute
+- AI Guide chatbot detects selected region via `data-selected-account-region` DOM attribute
 - HK region triggers Traditional Chinese responses with Hong Kong cultural context
+- Region is selected independently from account binding; rewrite and research both use `selectedRegion` with account fallback
 
 ## Admin Auto-Assignment
 

@@ -92,10 +92,11 @@ router.post("/content", requireCredits("content-create"), async (req, res): Prom
       return;
     }
 
+    const accountIdVal = parsed.data.accountId && parsed.data.accountId > 0 ? parsed.data.accountId : null;
     const [content] = await db
       .insert(contentTable)
       .values({
-        accountId: parsed.data.accountId,
+        accountId: accountIdVal,
         title: parsed.data.title,
         body: parsed.data.body,
         originalReference: parsed.data.originalReference,
@@ -105,21 +106,28 @@ router.post("/content", requireCredits("content-create"), async (req, res): Prom
       })
       .returning();
 
-    await db
-      .update(accountsTable)
-      .set({ contentCount: sql`content_count + 1`, lastActiveAt: new Date() })
-      .where(eq(accountsTable.id, parsed.data.accountId));
+    if (accountIdVal) {
+      await db
+        .update(accountsTable)
+        .set({ contentCount: sql`content_count + 1`, lastActiveAt: new Date() })
+        .where(eq(accountsTable.id, accountIdVal));
+    }
 
-    const [account] = await db.select().from(accountsTable).where(eq(accountsTable.id, parsed.data.accountId));
+    let account = null;
+    if (accountIdVal) {
+      const [a] = await db.select().from(accountsTable).where(eq(accountsTable.id, accountIdVal));
+      account = a;
+    }
     await logActivity("content_created", `Created: ${content.title}`, content.id, content.accountId);
 
     const result = {
       ...content,
-      account: account ? { id: account.id, nickname: account.nickname, region: account.region } : { id: content.accountId, nickname: "Unknown", region: "SG" },
+      account: account ? { id: account.id, nickname: account.nickname, region: account.region } : null,
     };
 
+    const parsed_result = GetContentResponse.parse(result);
     await deductCredits(req, "content-create");
-    res.status(201).json(GetContentResponse.parse(result));
+    res.status(201).json(parsed_result);
   } catch (err) {
     req.log.error(err, "Failed to create content");
     res.status(500).json({ error: "Internal server error" });

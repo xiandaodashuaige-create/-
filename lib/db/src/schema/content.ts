@@ -5,7 +5,7 @@ import { accountsTable } from "./accounts";
 
 export const contentTable = pgTable("content", {
   id: serial("id").primaryKey(),
-  accountId: integer("account_id").notNull().references(() => accountsTable.id, { onDelete: "cascade" }),
+  accountId: integer("account_id").references(() => accountsTable.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   body: text("body").notNull(),
   originalReference: text("original_reference"),
