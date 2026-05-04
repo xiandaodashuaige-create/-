@@ -1022,7 +1022,7 @@ export default function WorkflowWizard() {
                       <TrendingUp className="h-3.5 w-3.5 text-red-500" />
                       参考的同行爆款封面
                     </p>
-                    <img src={referenceImageUrl} alt="参考图" className="w-full h-32 object-cover rounded-lg border" />
+                    <img src={proxyXhsImage(referenceImageUrl) || referenceImageUrl} alt="参考图" className="w-full h-32 object-cover rounded-lg border" />
                   </CardContent>
                 </Card>
               )}
