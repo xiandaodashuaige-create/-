@@ -521,10 +521,25 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       dataSource = xhsResult.source;
       if (xhsResult.available && xhsResult.notes.length > 0) {
         competitorNotes = xhsResult.notes;
-        const noteSummaries = xhsResult.notes.map((n: any, i: number) =>
-          `${i + 1}. 「${n.title}」by @${n.author} — ❤️${n.liked_count} ⭐${n.collected_count} 💬${n.comment_count} | 标签: ${(n.tags || []).join(", ")}`
+        const sorted = [...xhsResult.notes].sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0));
+        const noteSummaries = sorted.map((n: any, i: number) =>
+          `${i + 1}. 「${n.title}」by @${n.author} — ❤️${n.liked_count} ⭐${n.collected_count} 💬${n.comment_count}${n.desc ? ` | 摘要: ${n.desc.slice(0, 80)}` : ""} | 标签: ${(n.tags || []).join(", ")}`
         ).join("\n");
-        realDataContext = `\n\n📊 以下是该领域小红书真实热门笔记数据（来源：实时抓取）：\n${noteSummaries}\n\n请基于以上真实数据，分析这些爆款的共同特征（标题技巧、内容角度、标签策略），并据此生成更精准的内容方案。`;
+        const avgLikes = Math.round(sorted.reduce((s: number, n: any) => s + (n.liked_count || 0), 0) / sorted.length);
+        const avgCollected = Math.round(sorted.reduce((s: number, n: any) => s + (n.collected_count || 0), 0) / sorted.length);
+        realDataContext = `\n\n📊 以下是该领域小红书${sorted.length}篇真实爆款笔记（按点赞数排序，来源：实时抓取）：
+${noteSummaries}
+
+📈 数据概览：共${sorted.length}篇，平均点赞${avgLikes}，平均收藏${avgCollected}，最高点赞${sorted[0]?.liked_count || 0}
+
+⚠️ 核心任务：你必须深度分析以上全部${sorted.length}篇爆款笔记，完成以下工作：
+1. 【分类归纳】将这些爆款按内容方向/角度分成3-5个类别（如：教程攻略类、个人体验类、测评对比类、避坑指南类、种草推荐类等）
+2. 【爆款模式提炼】从标题、正文结构、情绪钩子、标签策略四个维度，总结每类爆款的成功规律
+3. 【伪原创方案】基于提炼出的爆款模式，生成3套伪原创内容方案。每套方案必须：
+   - 借鉴某篇/某类高赞笔记的成功模式（在whyThisWorks中说明参考了哪篇）
+   - 标题使用该类爆款验证过的标题公式（数字+痛点、对比反差、好奇心缺口等）
+   - 正文结构模仿爆款的行文逻辑，但内容完全原创
+   - 标签策略参考高赞笔记的标签组合`;
       }
     }
 
@@ -541,7 +556,9 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       messages: [
         {
           role: "system",
-          content: `你是一位资深的小红书内容策略专家。根据用户提供的业务信息、对标竞品或行业方向，分析该领域在目标地区的小红书内容策略，并生成3套完整的笔记内容方案供用户选择。${langInstruction}
+          content: `你是一位资深的小红书爆款内容操盘手，擅长通过分析竞品爆款数据，提炼爆款公式，并据此生成高转化的伪原创内容。${langInstruction}
+
+你的核心能力：深度拆解爆款笔记的成功模式，然后用相同的爆款公式生成全新原创内容。
 
 你需要返回一个JSON对象，格式如下：
 {
@@ -550,31 +567,34 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     "targetAudience": "目标受众画像",
     "contentStrategy": "推荐的内容策略（2-3句话）",
     "popularAngles": ["热门切入角度1", "热门切入角度2", "热门切入角度3"],
-    "competitorInsights": "竞品分析要点（2-3句话，分析同行在该地区的内容特点和成功要素）",
+    "competitorInsights": "竞品爆款深度分析（3-5句话）：总结这些爆款的共同成功要素，包括标题公式、内容结构、情绪钩子、互动技巧。明确指出哪类内容点赞最高、收藏最多。",
+    "viralPatterns": "爆款模式总结：将分析的笔记归为3-4个内容类型，说明每种类型的爆款公式（如：个人经历+真实数据+避坑建议=高收藏）",
     "bestPostingTimes": ["推荐发布时间1（如：周一 12:00-13:00）", "推荐发布时间2", "推荐发布时间3"],
     "postingTimeReason": "为什么推荐这些时间段（基于该地区行业特点和用户活跃规律）"
   },
   "suggestions": [
     {
       "angle": "内容切入角度",
-      "title": "推荐标题",
-      "body": "完整笔记正文（200-400字，要有小红书风格，包含emoji，段落清晰，有个人感受和实用干货）",
+      "title": "推荐标题（必须使用爆款标题公式）",
+      "body": "完整笔记正文（300-500字，模仿爆款笔记的行文结构和情绪节奏，但内容完全原创。要有：开头钩子→个人经历/痛点共鸣→干货内容→总结号召→互动引导）",
       "tags": ["标签1", "标签2", "标签3", "标签4", "标签5"],
       "style": "内容风格描述",
-      "whyThisWorks": "为什么这个方案有效（1句话）",
-      "imagePrompt": "配图建议描述（可用于AI生成配图的prompt）"
+      "whyThisWorks": "说明这个方案借鉴了哪篇/哪类爆款的成功模式，用了什么爆款公式（2-3句话）",
+      "imagePrompt": "配图建议描述（可用于AI生成配图的prompt，要具体描述画面内容、风格、色调）"
     }
   ]
 }
 
-规则：
-- suggestions 必须正好3个，每个方案的切入角度和风格要有明显差异
+核心规则：
+- suggestions 必须正好3个，每个方案必须借鉴不同类型的爆款模式，切入角度和风格有明显差异
+- 每个方案的标题必须使用真实爆款验证过的标题公式（数字法则、对比反差、好奇心缺口、痛点共鸣、反常识等）
+- 正文必须模仿高赞笔记的叙事结构，但内容100%原创，不能照搬原文
+- 正文要有小红书特有的表达风格：emoji穿插、段落短小、口语化、有互动感
+- whyThisWorks 必须具体说明参考了哪篇爆款、用了什么公式，不能泛泛而谈
 - 必须根据目标地区（新加坡/香港/马来西亚）的本地文化和市场特点来定制内容
-- 标题要吸引人，符合小红书爆款标题特征（使用数字、感叹号、提问、对比等技巧）
-- 正文要像真正的小红书用户写的，自然、亲切、有温度
-- 标签要精准，包含行业大词和长尾词
-- imagePrompt 要具体，适合AI图片生成
-- bestPostingTimes 要根据目标地区该行业的受众活跃时间，推荐3个具体的发布时间段（包含星期几和具体时间），格式如"周一 12:00-13:00"
+- 标签要精准，混合使用行业大词+长尾词+热门话题词，参考爆款笔记的标签组合
+- imagePrompt 要具体，包含画面主体、风格、色调、构图建议
+- bestPostingTimes 要根据目标地区该行业的受众活跃时间推荐3个具体时间段，格式如"周一 12:00-13:00"
 - postingTimeReason 解释推荐原因`
         },
         {
@@ -582,7 +602,7 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
           content: inputContext,
         },
       ],
-      max_tokens: 3000,
+      max_tokens: 4000,
       temperature: 0.8,
     });
 

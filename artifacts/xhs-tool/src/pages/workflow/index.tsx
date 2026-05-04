@@ -755,9 +755,15 @@ export default function WorkflowWizard() {
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-white border text-sm">
-                    <p className="text-xs text-muted-foreground font-medium mb-1">行业内容洞察</p>
+                    <p className="text-xs text-muted-foreground font-medium mb-1">竞品爆款深度分析</p>
                     <p>{researchResult.analysis?.competitorInsights}</p>
                   </div>
+                  {researchResult.analysis?.viralPatterns && (
+                    <div className="p-3 rounded-lg bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 text-sm">
+                      <p className="text-xs text-red-600 font-medium mb-1">爆款模式总结</p>
+                      <p className="text-red-800">{researchResult.analysis.viralPatterns}</p>
+                    </div>
+                  )}
                   <div className="p-3 rounded-lg bg-white border text-sm">
                     <p className="text-xs text-muted-foreground font-medium mb-1">推荐内容策略</p>
                     <p>{researchResult.analysis?.contentStrategy}</p>
@@ -799,14 +805,15 @@ export default function WorkflowWizard() {
                       <TrendingUp className="h-4 w-4 text-red-500" />
                       同行爆款笔记（真实数据）
                       <Badge className="bg-red-100 text-red-700 text-[10px] ml-auto">
-                        共{researchResult.competitorNotes.length}篇 · 来源: {researchResult.dataSource === "real-data" ? "实时抓取" : "AI分析"}
+                        精选Top5 · 共分析{researchResult.competitorNotes.length}篇 · {researchResult.dataSource === "real-data" ? "实时数据" : "AI分析"}
                       </Badge>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                       {researchResult.competitorNotes
                         .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0))
+                        .slice(0, 5)
                         .map((note: any, i: number) => (
                         <div key={note.id || i} className="group rounded-xl border bg-white overflow-hidden hover:shadow-md transition-all">
                           {note.cover_url ? (
@@ -853,7 +860,7 @@ export default function WorkflowWizard() {
                       ))}
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-3 text-center">
-                      以上为该领域小红书真实热门笔记，按点赞数排序。AI已参考这些数据为你生成内容方案。
+                      以上为该领域点赞最高的精选笔记。AI已深度分析全部{researchResult.competitorNotes.length}篇爆款，提炼爆款模式后为你生成伪原创方案。
                     </p>
                   </CardContent>
                 </Card>
@@ -896,9 +903,9 @@ export default function WorkflowWizard() {
                             <span className="text-[10px] text-muted-foreground">+{suggestion.tags.length - 4}</span>
                           )}
                         </div>
-                        <p className="text-[11px] text-green-600 bg-green-50 rounded px-2 py-1">
-                          {suggestion.whyThisWorks}
-                        </p>
+                        <div className="text-[11px] text-green-700 bg-green-50 rounded px-2 py-1.5 border border-green-200">
+                          <span className="font-medium text-green-800">爆款公式：</span>{suggestion.whyThisWorks}
+                        </div>
                         <Button
                           className="w-full bg-red-500 hover:bg-red-600 text-white"
                           size="sm"
