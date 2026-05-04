@@ -49,22 +49,24 @@ async function fetchFromTikHub(endpoint: string, params: Record<string, string> 
 }
 
 function normalizeTikHubNotes(rawData: any): NormalizedNote[] {
-  const items = rawData?.data?.items || rawData?.data?.notes || [];
+  const items = rawData?.data?.data?.items || rawData?.data?.items || [];
   if (!Array.isArray(items)) return [];
 
   return items.map((item: any) => {
-    const note = item.note_card || item.note || item;
-    const interactInfo = note.interact_info || {};
-    const tags = (note.desc || "").match(/#[^\s#]+/g) || [];
+    const note = item.noteCard || item.note_card || item.note || item;
+    const interactInfo = note.interactInfo || note.interact_info || {};
+    const title = note.displayTitle || note.display_title || note.title || "";
+    const desc = note.desc || title;
+    const tags = desc.match(/#[^\s#]+/g) || [];
     return {
-      id: note.note_id || note.id || item.id || "",
-      title: note.title || note.display_title || "",
-      desc: (note.desc || "").slice(0, 200),
-      liked_count: interactInfo.liked_count || note.liked_count || note.likes || 0,
-      collected_count: interactInfo.collected_count || note.collected_count || 0,
-      comment_count: interactInfo.comment_count || note.comments_count || 0,
-      shared_count: interactInfo.share_count || note.shared_count || 0,
-      author: note.user?.nickname || note.user?.nick_name || "",
+      id: item.id || note.note_id || note.id || "",
+      title,
+      desc: desc.slice(0, 200),
+      liked_count: parseInt(interactInfo.likedCount || interactInfo.liked_count || "0", 10) || 0,
+      collected_count: parseInt(interactInfo.collectedCount || interactInfo.collected_count || "0", 10) || 0,
+      comment_count: parseInt(interactInfo.commentCount || interactInfo.comment_count || "0", 10) || 0,
+      shared_count: parseInt(interactInfo.sharedCount || interactInfo.share_count || "0", 10) || 0,
+      author: note.user?.nickname || note.user?.nickName || note.user?.nick_name || "",
       tags: tags.map((t: string) => t.replace(/\[话题\]/g, "").replace("#", "")),
       type: note.type || "normal",
       source: "tikhub",
@@ -212,8 +214,13 @@ router.get("/xhs/health", async (_req, res): Promise<void> => {
 
   if (TIKHUB_API_KEY) {
     try {
-      await fetchFromTikHub("/api/v1/xiaohongshu/web/test");
-      status.tikhub = true;
+      const data = await fetchFromTikHub("/api/v1/xiaohongshu/web_v3/fetch_search_notes", {
+        keyword: "测试",
+        page: "1",
+        sort: "general",
+        note_type: "0",
+      });
+      status.tikhub = !!(data?.data?.data?.items?.length || data?.data?.items?.length);
     } catch { /* ignore */ }
   }
 
