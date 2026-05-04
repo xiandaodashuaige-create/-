@@ -111,9 +111,14 @@ export default function AIGuide() {
         if (stepMatch) {
           guideBody.workflowStep = parseInt(stepMatch.getAttribute('data-workflow-step') || '0', 10);
         }
-        const regionBadge = document.querySelector('[data-account-region]');
-        if (regionBadge) {
-          guideBody.accountRegion = regionBadge.getAttribute('data-account-region');
+        const selectedRegionBadge = document.querySelector('[data-selected-account-region]');
+        if (selectedRegionBadge) {
+          guideBody.accountRegion = selectedRegionBadge.getAttribute('data-selected-account-region');
+        } else {
+          const regionBadge = document.querySelector('[data-account-region]');
+          if (regionBadge) {
+            guideBody.accountRegion = regionBadge.getAttribute('data-account-region');
+          }
         }
       }
       const res = await fetch("/api/ai/guide", {

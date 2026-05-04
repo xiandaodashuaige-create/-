@@ -6,7 +6,7 @@ import {
   Check, Zap, Crown, Sparkles, ArrowRight, Coins, Globe,
   Search, TrendingUp, Video, Brain, Target, Rocket
 } from "lucide-react";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type Lang } from "@/lib/i18n";
 
 export default function LandingPage() {
   const { t, lang, setLang } = useI18n();
@@ -53,7 +53,7 @@ export default function LandingPage() {
     {
       name: t("landing.plan.starter"),
       price: "$12.9",
-      period: lang === "zh" ? "/月" : "/mo",
+      period: lang === "en" ? "/mo" : "/月",
       desc: t("landing.plan.starterDesc"),
       credits: 100,
       highlight: true,
@@ -75,7 +75,7 @@ export default function LandingPage() {
     {
       name: t("landing.plan.pro"),
       price: "$39.9",
-      period: lang === "zh" ? "/月" : "/mo",
+      period: lang === "en" ? "/mo" : "/月",
       desc: t("landing.plan.proDesc"),
       credits: 500,
       highlight: false,
@@ -122,18 +122,26 @@ export default function LandingPage() {
         </div>
         <div className="flex gap-3 items-center">
           <a href="#features" className="text-sm text-gray-600 hover:text-gray-900 hidden sm:inline">
-            {lang === "zh" ? "功能" : "Features"}
+            {t("landing.navFeatures")}
           </a>
           <a href="#pricing" className="text-sm text-gray-600 hover:text-gray-900 hidden sm:inline">
             {t("landing.navPricing")}
           </a>
-          <button
-            onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 px-2 py-1 rounded-md hover:bg-gray-100 transition-colors"
-          >
-            <Globe className="h-4 w-4" />
-            <span className="hidden sm:inline">{lang === "zh" ? "EN" : "中文"}</span>
-          </button>
+          <div className="flex items-center gap-0.5">
+            {([["zh", "简体"], ["zh-HK", "繁體"], ["en", "EN"]] as const).map(([code, label]) => (
+              <button
+                key={code}
+                onClick={() => setLang(code as Lang)}
+                className={`text-xs px-2 py-1 rounded-md transition-colors ${
+                  lang === code
+                    ? "bg-red-500 text-white"
+                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <Link href="/sign-in">
             <Button variant="outline">{t("landing.navLogin")}</Button>
           </Link>
@@ -170,7 +178,7 @@ export default function LandingPage() {
           </Link>
           <a href="#how-it-works">
             <Button size="lg" variant="outline" className="text-lg px-8">
-              {lang === "zh" ? "了解工作流程" : "See How It Works"}
+              {lang === "en" ? "See How It Works" : "了解工作流程"}
             </Button>
           </a>
         </div>
@@ -178,15 +186,15 @@ export default function LandingPage() {
         <div className="mt-16 grid grid-cols-3 gap-8 max-w-lg mx-auto text-center">
           <div>
             <p className="text-3xl font-bold text-red-500">3</p>
-            <p className="text-sm text-gray-500">{lang === "zh" ? "步完成发布" : "Steps to Publish"}</p>
+            <p className="text-sm text-gray-500">{lang === "en" ? "Steps to Publish" : "步完成发布"}</p>
           </div>
           <div>
             <p className="text-3xl font-bold text-red-500">3</p>
-            <p className="text-sm text-gray-500">{lang === "zh" ? "套AI方案" : "AI Content Plans"}</p>
+            <p className="text-sm text-gray-500">{lang === "en" ? "AI Content Plans" : "套AI方案"}</p>
           </div>
           <div>
             <p className="text-3xl font-bold text-red-500">3</p>
-            <p className="text-sm text-gray-500">{lang === "zh" ? "个地区覆盖" : "Regions Covered"}</p>
+            <p className="text-sm text-gray-500">{lang === "en" ? "Regions Covered" : "個地區覆蓋"}</p>
           </div>
         </div>
       </section>
@@ -195,7 +203,7 @@ export default function LandingPage() {
       <section id="how-it-works" className="py-20 px-6 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <Badge className="bg-red-100 text-red-600 mb-4">{lang === "zh" ? "AI全自动流程" : "AI Automated Workflow"}</Badge>
+            <Badge className="bg-red-100 text-red-600 mb-4">{lang === "en" ? "AI Automated Workflow" : "AI全自動流程"}</Badge>
             <h2 className="text-3xl font-bold mb-3">{t("landing.howItWorksTitle")}</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -224,7 +232,7 @@ export default function LandingPage() {
       <section id="features" className="py-20 px-6 bg-gray-50">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <Badge className="bg-purple-100 text-purple-600 mb-4">{lang === "zh" ? "核心能力" : "Core Capabilities"}</Badge>
+            <Badge className="bg-purple-100 text-purple-600 mb-4">{lang === "en" ? "Core Capabilities" : "核心能力"}</Badge>
             <h2 className="text-3xl font-bold mb-3">{t("landing.featuresTitle")}</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -248,13 +256,13 @@ export default function LandingPage() {
       <section id="pricing" className="py-20 px-6 bg-white">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-14">
-            <Badge className="bg-amber-100 text-amber-600 mb-4">{lang === "zh" ? "灵活定价" : "Flexible Pricing"}</Badge>
+            <Badge className="bg-amber-100 text-amber-600 mb-4">{lang === "en" ? "Flexible Pricing" : "靈活定價"}</Badge>
             <h2 className="text-3xl font-bold mb-3">{t("landing.pricingTitle")}</h2>
             <p className="text-gray-600 max-w-xl mx-auto">
               {t("landing.pricingSubtitle")}
             </p>
             <p className="text-xs text-gray-400 mt-2">
-              {lang === "zh" ? "所有价格以美元 (USD) 显示，适用于所有地区" : "All prices shown in USD, applicable worldwide"}
+              {lang === "en" ? "All prices shown in USD, applicable worldwide" : "所有價格以美元 (USD) 顯示，適用於所有地區"}
             </p>
           </div>
 
@@ -289,9 +297,9 @@ export default function LandingPage() {
                   <span className="text-sm font-medium text-amber-700">
                     {plan.credits === 20
                       ? t("landing.plan.freeCredits")
-                      : (lang === "zh"
-                          ? `每月${plan.credits}积分 ≈ ${Math.floor(plan.credits / 20)}次完整发布`
-                          : `${plan.credits} credits/mo ≈ ${Math.floor(plan.credits / 20)} full publishes`)}
+                      : (lang === "en"
+                          ? `${plan.credits} credits/mo ≈ ${Math.floor(plan.credits / 20)} full publishes`
+                          : `每月${plan.credits}積分 ≈ ${Math.floor(plan.credits / 20)}次完整發佈`)}
                   </span>
                 </div>
 
@@ -339,7 +347,7 @@ export default function LandingPage() {
                       <p className="text-2xl font-bold text-amber-600">{pack.credits}</p>
                       <p className="text-xs text-gray-500 mb-2">{t("landing.creditPackUnit")}</p>
                       <p className="text-lg font-bold">${pack.price}</p>
-                      <p className="text-[10px] text-gray-400">~${pack.perCredit}/{lang === "zh" ? "积分" : "credit"}</p>
+                      <p className="text-[10px] text-gray-400">~${pack.perCredit}/{lang === "en" ? "credit" : "積分"}</p>
                     </div>
                   ))}
                 </div>

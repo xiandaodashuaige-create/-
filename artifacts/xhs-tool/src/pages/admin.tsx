@@ -247,6 +247,13 @@ export default function AdminPage() {
                         <p className="text-sm font-bold text-amber-600">{u.credits}</p>
                         <p className="text-[10px] text-muted-foreground">{t("credits.label")}</p>
                       </div>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                        onClick={(e) => { e.stopPropagation(); setExpandedUser(u.id); }}
+                      >
+                        <Plus className="h-3 w-3 mr-1" />{t("admin.recharge")}
+                      </Button>
                       {expandedUser === u.id ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                     </div>
                   </button>

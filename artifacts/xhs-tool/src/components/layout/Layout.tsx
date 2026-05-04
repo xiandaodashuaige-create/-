@@ -22,7 +22,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { useI18n } from "@/lib/i18n";
+import { useI18n, type Lang } from "@/lib/i18n";
 import { api } from "@/lib/api";
 
 const navItemsConfig = [
@@ -127,16 +127,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          <div className="flex items-center justify-center">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs gap-1 text-muted-foreground"
-              onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-            >
-              <Globe className="h-3 w-3" />
-              {lang === "zh" ? "EN" : "中文"}
-            </Button>
+          <div className="flex items-center justify-center gap-1">
+            {([["zh", "简体"], ["zh-HK", "繁體"], ["en", "EN"]] as const).map(([code, label]) => (
+              <Button
+                key={code}
+                variant={lang === code ? "default" : "ghost"}
+                size="sm"
+                className={`h-6 text-[10px] px-2 ${lang === code ? "bg-red-500 hover:bg-red-600 text-white" : "text-muted-foreground"}`}
+                onClick={() => setLang(code as Lang)}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
 
           {user && (

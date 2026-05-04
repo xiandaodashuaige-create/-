@@ -104,18 +104,20 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 - Admin-only page at `/admin` (visible in sidebar only for admin users)
 - User management: view all users, change roles (user/admin), change plans (free/starter/pro)
-- Credit management: recharge/deduct credits with descriptions
+- Credit management: prominent green "充值" button per user row + expandable recharge/deduct controls with descriptions
 - Transaction history per user
 - System stats: total users, free/paid breakdown, total credits consumed
 - Routes: `GET/PATCH /admin/users`, `POST /admin/users/:id/credits`, `GET /admin/users/:id/transactions`, `GET /admin/stats`
 
 ## i18n (Internationalization)
 
-- Supports Chinese (zh) and English (en)
+- Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and English (en)
 - Language context provider: `artifacts/xhs-tool/src/lib/i18n.tsx`
-- Language switcher button in sidebar footer
+- 3-button language switcher (简体/繁體/EN) in sidebar footer and landing page header
+- zh-HK translations use Hong Kong Cantonese expressions (嘅、唔、搵、啲 etc.)
+- Browser language auto-detection: zh-HK/zh-TW/zh-Hant → "zh-HK", zh* → "zh", else "en"
 - Language preference saved to localStorage and synced to backend user record
-- Translation keys used throughout Layout, onboarding, admin page
+- Translation keys used throughout Layout, onboarding, admin page, landing page
 
 ## Onboarding Guide
 
@@ -193,7 +195,19 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 ## UI Language
 
-Supports Simplified Chinese (zh) and English (en) with language switcher in sidebar. Default: Chinese.
+Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and English (en) with 3-button language switcher in sidebar and landing page. Default: auto-detected from browser.
+
+## Insufficient Credits Dialog
+
+- When AI operations return 403 (insufficient credits), a dialog shows current/required credits and consultant contact info (WeChat/WhatsApp)
+- Component: `artifacts/xhs-tool/src/components/InsufficientCreditsDialog.tsx`
+- All AI mutations in workflow page route errors through `handleCreditError()`
+
+## Region-Aware AI
+
+- AI competitor research and rewrite prompts adapt for HK region (繁體中文 + Cantonese tone)
+- AI Guide chatbot detects selected account region via `data-selected-account-region` DOM attribute
+- HK region triggers Traditional Chinese responses with Hong Kong cultural context
 
 ## Admin Auto-Assignment
 

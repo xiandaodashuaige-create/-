@@ -191,7 +191,7 @@ export default function Accounts() {
               <Input
                 value={form.nickname}
                 onChange={(e) => setForm({ ...form, nickname: e.target.value })}
-                placeholder="输入账号昵称"
+                placeholder="客户小红书昵称"
               />
             </div>
             <div className="space-y-2">
@@ -212,7 +212,7 @@ export default function Accounts() {
               <Textarea
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="账号描述/备注信息"
+                placeholder="客户行业/业务方向（如：美容护肤、留学咨询）"
                 rows={3}
               />
             </div>

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@workspace/object-storage-web";
+import InsufficientCreditsDialog from "@/components/InsufficientCreditsDialog";
 import {
   Check, ChevronRight, ChevronLeft, Users, FileText, Send,
   Wand2, ShieldCheck, Hash, Type, Loader2, Sparkles, ImagePlus,
@@ -25,7 +26,7 @@ const STEPS = [
   { id: 3, label: "发布", icon: Send, desc: "按AI推荐时间，下载素材+复制内容，发布到小红书" },
 ];
 
-const regionLabels: Record<string, string> = { SG: "新加坡", HK: "香港", MY: "马来西亚" };
+const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚" };
 
 interface AiProgressStep {
   label: string;
@@ -75,6 +76,16 @@ export default function WorkflowWizard() {
     steps: [],
   });
 
+  const [creditDialog, setCreditDialog] = useState<{ open: boolean; current?: number; required?: number }>({ open: false });
+
+  function handleCreditError(e: any) {
+    if (e?.status === 403 && (e?.current !== undefined || e?.required !== undefined)) {
+      setCreditDialog({ open: true, current: e.current, required: e.required });
+    } else {
+      toast({ title: e.message || "操作失败", variant: "destructive" });
+    }
+  }
+
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ["accounts"],
     queryFn: () => api.accounts.list(),
@@ -98,7 +109,7 @@ export default function WorkflowWizard() {
       setSelectedSuggestion(null);
       toast({ title: "同行爆款分析完成！已生成3套验证方案" });
     },
-    onError: (e: Error) => toast({ title: "分析失败", description: e.message, variant: "destructive" }),
+    onError: (e: any) => handleCreditError(e),
   });
 
   const saveMutation = useMutation({
@@ -118,17 +129,17 @@ export default function WorkflowWizard() {
   const rewriteMutation = useMutation({
     mutationFn: (data: any) => api.ai.rewrite(data),
     onSuccess: (result) => setAiResult(result),
-    onError: (e: Error) => toast({ title: "AI改写失败", description: e.message, variant: "destructive" }),
+    onError: (e: any) => handleCreditError(e),
   });
 
   const sensitivityMutation = useMutation({
     mutationFn: (data: any) => api.ai.checkSensitivity(data),
     onSuccess: (result) => setSensitivityResult(result),
-    onError: (e: Error) => toast({ title: "检测失败", description: e.message, variant: "destructive" }),
+    onError: (e: any) => handleCreditError(e),
   });
 
-  const titleMutation = useMutation({ mutationFn: (data: any) => api.ai.generateTitle(data) });
-  const hashtagMutation = useMutation({ mutationFn: (data: any) => api.ai.generateHashtags(data) });
+  const titleMutation = useMutation({ mutationFn: (data: any) => api.ai.generateTitle(data), onError: (e: any) => handleCreditError(e) });
+  const hashtagMutation = useMutation({ mutationFn: (data: any) => api.ai.generateHashtags(data), onError: (e: any) => handleCreditError(e) });
 
   const imageMutation = useMutation({
     mutationFn: (data: { prompt: string; style?: string; size?: string }) => api.ai.generateImage(data),
@@ -137,7 +148,7 @@ export default function WorkflowWizard() {
       setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
       toast({ title: "AI配图生成成功" });
     },
-    onError: (e: Error) => toast({ title: "图片生成失败", description: e.message, variant: "destructive" }),
+    onError: (e: any) => handleCreditError(e),
   });
 
   const editImageMutation = useMutation({
@@ -147,7 +158,7 @@ export default function WorkflowWizard() {
       setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
       toast({ title: "参考图伪原创成功！" });
     },
-    onError: (e: Error) => toast({ title: "图片编辑失败", description: e.message, variant: "destructive" }),
+    onError: (e: any) => handleCreditError(e),
   });
 
   const publishMutation = useMutation({
@@ -588,7 +599,7 @@ export default function WorkflowWizard() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs">昵称</Label>
-                      <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="账号昵称" />
+                      <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="客户小红书昵称" />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">地区</Label>
@@ -705,7 +716,7 @@ export default function WorkflowWizard() {
                     <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
                       <span className="text-muted-foreground">发布账号：</span>
                       <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                      <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
+                      <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region} data-selected-account-region={selectedAccount()?.region}>
                         {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
                       </Badge>
                     </div>
@@ -892,7 +903,7 @@ export default function WorkflowWizard() {
                   <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
                     <span className="text-muted-foreground">发布账号：</span>
                     <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                    <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
+                    <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region} data-selected-account-region={selectedAccount()?.region}>
                       {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
                     </Badge>
                   </div>
@@ -1443,6 +1454,12 @@ export default function WorkflowWizard() {
           )}
         </div>
       </div>
+      <InsufficientCreditsDialog
+        open={creditDialog.open}
+        onOpenChange={(open) => setCreditDialog({ ...creditDialog, open })}
+        currentCredits={creditDialog.current}
+        requiredCredits={creditDialog.required}
+      />
     </div>
   );
 }

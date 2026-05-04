@@ -163,7 +163,7 @@ router.patch("/user/me", async (req, res): Promise<void> => {
 
     const { language, onboardingCompleted, nickname } = req.body;
     const updates: any = {};
-    if (language && ["zh", "en"].includes(language)) updates.language = language;
+    if (language && ["zh", "en", "zh-HK"].includes(language)) updates.language = language;
     if (typeof onboardingCompleted === "number") updates.onboardingCompleted = onboardingCompleted;
     if (typeof nickname === "string" && nickname.trim()) updates.nickname = nickname.trim();
 

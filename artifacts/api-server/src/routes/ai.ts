@@ -36,7 +36,9 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
     const { originalContent, style, region, additionalInstructions } = parsed.data;
 
     const regionContext = region
-      ? `Target audience is in ${region === "SG" ? "Singapore" : region === "HK" ? "Hong Kong" : "Malaysia"}.`
+      ? region === "HK"
+        ? "Target audience is in Hong Kong. IMPORTANT: You MUST write ALL content in Traditional Chinese (繁體中文) with natural Hong Kong Cantonese expressions and tone. Use Hong Kong local vocabulary (e.g., 搵=找, 嘅=的, 啲=些, 唔=不, 俾=给, 揀=选). The audience speaks Cantonese and reads Traditional Chinese characters."
+        : `Target audience is in ${region === "SG" ? "Singapore" : "Malaysia"}. Write in Simplified Chinese.`
       : "";
 
     const styleContext = style
@@ -53,7 +55,7 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
         
 Rules:
 - Keep the core message and information but rewrite completely
-- Use natural, conversational Chinese
+- Use natural, conversational Chinese${region === "HK" ? " (Traditional Chinese / 繁體中文 with Hong Kong expressions)" : ""}
 - Add appropriate line breaks and formatting for readability
 - Make it feel authentic and personal, not like AI-generated content
 - Avoid any sensitive or banned words on Xiaohongshu
@@ -488,11 +490,16 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       return;
     }
 
+    const isHK = rg === "HK";
+    const langInstruction = isHK
+      ? "\n\n🔴 重要：目標受眾係香港人。你必須用繁體中文撰寫所有內容，並融入自然嘅香港廣東話口語表達（例如：搵、嘅、啲、唔、俾、揀、係、咗、嚟、喺）。標題同正文都要用繁體字，語氣要親切自然，符合香港人嘅閱讀習慣。標籤也用繁體中文。分析同行時要重點參考香港地區嘅小紅書爆款內容。"
+      : "";
+
     const inputContext = [
       bd ? `业务/品牌描述: ${bd}` : "",
       cl ? `对标参考链接/账号: ${cl}` : "",
       ni ? `行业/赛道: ${ni}` : "",
-      rg ? `目标地区: ${rg}` : "",
+      rg ? `目标地区: ${rg === "SG" ? "新加坡" : rg === "HK" ? "香港" : "马来西亚"}` : "",
     ].filter(Boolean).join("\n");
 
     const completion = await openai.chat.completions.create({
@@ -501,7 +508,7 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       messages: [
         {
           role: "system",
-          content: `你是一位资深的小红书内容策略专家。根据用户提供的业务信息、对标竞品或行业方向，分析该领域的小红书内容策略，并生成3套完整的笔记内容方案供用户选择。
+          content: `你是一位资深的小红书内容策略专家。根据用户提供的业务信息、对标竞品或行业方向，分析该领域在目标地区的小红书内容策略，并生成3套完整的笔记内容方案供用户选择。${langInstruction}
 
 你需要返回一个JSON对象，格式如下：
 {
@@ -510,9 +517,9 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     "targetAudience": "目标受众画像",
     "contentStrategy": "推荐的内容策略（2-3句话）",
     "popularAngles": ["热门切入角度1", "热门切入角度2", "热门切入角度3"],
-    "competitorInsights": "竞品分析要点（2-3句话，分析同行的内容特点和成功要素）",
+    "competitorInsights": "竞品分析要点（2-3句话，分析同行在该地区的内容特点和成功要素）",
     "bestPostingTimes": ["推荐发布时间1（如：周一 12:00-13:00）", "推荐发布时间2", "推荐发布时间3"],
-    "postingTimeReason": "为什么推荐这些时间段（基于行业特点和用户活跃规律）"
+    "postingTimeReason": "为什么推荐这些时间段（基于该地区行业特点和用户活跃规律）"
   },
   "suggestions": [
     {
@@ -529,11 +536,12 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
 
 规则：
 - suggestions 必须正好3个，每个方案的切入角度和风格要有明显差异
+- 必须根据目标地区（新加坡/香港/马来西亚）的本地文化和市场特点来定制内容
 - 标题要吸引人，符合小红书爆款标题特征（使用数字、感叹号、提问、对比等技巧）
 - 正文要像真正的小红书用户写的，自然、亲切、有温度
 - 标签要精准，包含行业大词和长尾词
 - imagePrompt 要具体，适合AI图片生成
-- bestPostingTimes 要根据该行业的目标受众活跃时间，推荐3个具体的发布时间段（包含星期几和具体时间），格式如"周一 12:00-13:00"
+- bestPostingTimes 要根据目标地区该行业的受众活跃时间，推荐3个具体的发布时间段（包含星期几和具体时间），格式如"周一 12:00-13:00"
 - postingTimeReason 解释推荐原因`
         },
         {
@@ -580,11 +588,12 @@ router.post("/ai/guide", requireCredits("ai-guide"), async (req, res): Promise<v
     }
 
     const stepNum = typeof workflowStep === "number" ? workflowStep : null;
-    const stepNames: Record<number, string> = { 1: "灵感研究", 2: "创作内容", 3: "发布" };
+    const stepNames: Record<number, string> = { 1: "分析爆款", 2: "生成内容", 3: "发布" };
     const currentStepName = stepNum ? stepNames[stepNum] || "" : "";
     const regionStr = typeof accountRegion === "string" ? accountRegion : "";
+    const isHKGuide = regionStr === "HK";
 
-    const systemPrompt = `你是一位资深的小红书运营专家和AI助手，名叫"小红助手"。你深入了解小红书平台的算法机制、内容创作技巧、运营策略和最新趋势。你不仅是顾问，更是用户的运营教练和心理支持者。
+    const systemPrompt = `你是一位资深的小红书运营专家和AI助手，名叫"小红助手"。你深入了解小红书平台的算法机制、内容创作技巧、运营策略和最新趋势。你不仅是顾问，更是用户的运营教练和心理支持者。${isHKGuide ? "\n\n重要：当前用户的目标受众是香港地区，请用繁體中文回复，并融入香港本地化的表达方式和文化元素。了解香港用户在小红书上的特殊习惯和偏好。" : ""}
 
 你的核心职责：
 1. **主动引导**：根据用户当前所在步骤，主动提供最相关的建议，而不是等用户提问
