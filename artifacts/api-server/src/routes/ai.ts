@@ -11,8 +11,10 @@ import {
   AiGenerateHashtagsBody,
   AiGenerateHashtagsResponse,
 } from "@workspace/api-zod";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
+const objectStorageService = new ObjectStorageService();
 
 function safeJsonParse(str: string): any {
   try {
@@ -296,6 +298,72 @@ Respond in JSON format:
   } catch (err) {
     req.log.error(err, "Failed to generate hashtags");
     res.status(500).json({ error: "AI service error" });
+  }
+});
+
+router.post("/ai/generate-image", async (req, res): Promise<void> => {
+  try {
+    const { prompt, style, size } = req.body;
+
+    if (!prompt || typeof prompt !== "string") {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+
+    const validSizes = ["1024x1024", "1024x1792", "1792x1024"];
+    const imageSize = validSizes.includes(size) ? size : "1024x1024";
+    const imageStyle = style || "小红书风格，精美，高质量";
+    const fullPrompt = `${prompt}. Style: ${imageStyle}. High quality, professional, suitable for Xiaohongshu (Little Red Book) social media post.`;
+
+    const response = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: fullPrompt,
+      n: 1,
+      size: imageSize as "1024x1024" | "1024x1792" | "1792x1024",
+      quality: "standard",
+    });
+
+    const imageUrl = response.data?.[0]?.url;
+    const revisedPrompt = response.data?.[0]?.revised_prompt;
+
+    if (!imageUrl) {
+      res.status(500).json({ error: "Failed to generate image" });
+      return;
+    }
+
+    let objectPath: string | null = null;
+    try {
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) throw new Error("Failed to download generated image");
+      const imageBuffer = await imageResponse.arrayBuffer();
+
+      const uploadRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: imageBuffer,
+        headers: { "Content-Type": "image/png" },
+      });
+
+      if (!uploadRes.ok) throw new Error("Failed to upload to storage");
+    } catch (uploadErr) {
+      req.log.warn(uploadErr, "Failed to save generated image to storage, returning URL only");
+      objectPath = null;
+    }
+
+    res.json({
+      imageUrl,
+      objectPath,
+      storedUrl: objectPath ? `/api/storage${objectPath}` : null,
+      revisedPrompt,
+    });
+  } catch (err: any) {
+    req.log.error(err, "Failed to generate image");
+    const message = err?.message?.includes("content_policy")
+      ? "图片内容不符合安全政策，请修改描述后重试"
+      : "AI图片生成失败";
+    res.status(500).json({ error: message });
   }
 });
 

@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useUser, useClerk } from "@clerk/react";
 import {
   LayoutDashboard,
   Users,
@@ -10,14 +11,14 @@ import {
   BookOpen,
   Menu,
   X,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 
 const navItems = [
-  { path: "/", label: "仪表盘", icon: LayoutDashboard },
+  { path: "/dashboard", label: "仪表盘", icon: LayoutDashboard },
   { path: "/accounts", label: "账号管理", icon: Users },
   { path: "/content", label: "内容管理", icon: FileText },
   { path: "/assets", label: "素材库", icon: Image },
@@ -29,6 +30,8 @@ const navItems = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user } = useUser();
+  const { signOut } = useClerk();
 
   return (
     <div className="flex h-screen bg-background">
@@ -40,12 +43,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       />
 
       <aside
-        className={`fixed lg:static z-50 inset-y-0 left-0 w-64 bg-card border-r border-border transform transition-transform lg:translate-x-0 ${
+        className={`fixed lg:static z-50 inset-y-0 left-0 w-64 bg-card border-r border-border transform transition-transform lg:translate-x-0 flex flex-col ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="flex items-center gap-2 px-6 h-16 border-b border-border">
-          <BookOpen className="h-6 w-6 text-primary" />
+          <BookOpen className="h-6 w-6 text-red-500" />
           <span className="font-bold text-lg">小红书AI工具</span>
           <Button
             variant="ghost"
@@ -61,8 +64,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <nav className="space-y-1 px-3">
             {navItems.map((item) => {
               const isActive =
-                item.path === "/"
-                  ? location === "/"
+                item.path === "/dashboard"
+                  ? location === "/dashboard"
                   : location.startsWith(item.path);
               return (
                 <Link
@@ -86,7 +89,28 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
         </ScrollArea>
 
-        <div className="p-4 border-t border-border">
+        <div className="p-4 border-t border-border space-y-3">
+          {user && (
+            <div className="flex items-center gap-3 px-2">
+              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-sm font-medium">
+                {user.firstName?.[0] || user.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() || "U"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {user.firstName || user.emailAddresses?.[0]?.emailAddress || "用户"}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground"
+                onClick={() => signOut()}
+                title="退出登录"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
           <div className="text-xs text-muted-foreground text-center">
             v1.0.0 · 小红书内容管理
           </div>

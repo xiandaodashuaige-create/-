@@ -8,10 +8,14 @@ import schedulesRouter from "./schedules";
 import dashboardRouter from "./dashboard";
 import sensitiveWordsRouter from "./sensitiveWords";
 import storageRouter from "./storage";
+import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+
+router.use(requireAuth);
+
 router.use(accountsRouter);
 router.use(contentRouter);
 router.use(assetsRouter);

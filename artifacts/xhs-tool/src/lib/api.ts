@@ -3,6 +3,7 @@ const API_BASE = "/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   });
@@ -64,6 +65,11 @@ export const api = {
     checkSensitivity: (data: any) => request<any>("/ai/check-sensitivity", { method: "POST", body: JSON.stringify(data) }),
     generateTitle: (data: any) => request<any>("/ai/generate-title", { method: "POST", body: JSON.stringify(data) }),
     generateHashtags: (data: any) => request<any>("/ai/generate-hashtags", { method: "POST", body: JSON.stringify(data) }),
+    generateImage: (data: { prompt: string; style?: string; size?: string }) =>
+      request<{ imageUrl: string; objectPath: string | null; storedUrl: string | null; revisedPrompt: string }>(
+        "/ai/generate-image",
+        { method: "POST", body: JSON.stringify(data) }
+      ),
   },
   schedules: {
     list: (params?: { accountId?: number; startDate?: string; endDate?: string }) => {
