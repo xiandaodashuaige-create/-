@@ -396,27 +396,31 @@ router.post("/ai/edit-image", requireCredits("ai-generate-image"), async (req, r
     const validSizes = ["1024x1024", "1024x1536", "1536x1024", "auto"];
     const imageSize = validSizes.includes(size) ? size : "1024x1536";
 
+    const isExternalUrl = referenceImageUrl.startsWith("http://") || referenceImageUrl.startsWith("https://");
     const allowedPrefixes = ["/api/storage/objects/", "/api/storage/public-objects/"];
-    if (!allowedPrefixes.some((p) => referenceImageUrl.startsWith(p))) {
-      res.status(400).json({ error: "referenceImageUrl must be a storage path (upload the image first)" });
+    if (!isExternalUrl && !allowedPrefixes.some((p) => referenceImageUrl.startsWith(p))) {
+      res.status(400).json({ error: "referenceImageUrl must be a storage path or external URL" });
       return;
     }
 
     let refImageBuffer: Buffer;
     try {
-      const refUrl = `http://localhost:${process.env.PORT || 8080}${referenceImageUrl}`;
+      const refUrl = isExternalUrl
+        ? referenceImageUrl
+        : `http://localhost:${process.env.PORT || 8080}${referenceImageUrl}`;
       const refRes = await fetch(refUrl, {
         method: "GET",
-        redirect: "error",
-        signal: AbortSignal.timeout(10_000),
+        redirect: "follow",
+        signal: AbortSignal.timeout(15_000),
+        headers: isExternalUrl ? { "User-Agent": "Mozilla/5.0 (compatible; XHSTool/1.0)" } : {},
       });
-      if (!refRes.ok) throw new Error("Failed to fetch reference image");
-      const contentType = refRes.headers.get("content-type") || "";
-      if (!contentType.startsWith("image/")) {
-        res.status(400).json({ error: "参考链接不是图片文件" });
+      if (!refRes.ok) throw new Error(`Failed to fetch reference image: ${refRes.status}`);
+      refImageBuffer = Buffer.from(await refRes.arrayBuffer());
+      if (refImageBuffer.length < 1000) {
+        req.log.warn({ size: refImageBuffer.length, url: referenceImageUrl }, "Reference image too small");
+        res.status(400).json({ error: "参考图片太小或无法访问" });
         return;
       }
-      refImageBuffer = Buffer.from(await refRes.arrayBuffer());
     } catch (fetchErr) {
       req.log.warn(fetchErr, "Failed to fetch reference image");
       res.status(400).json({ error: "无法获取参考图片，请确认图片链接有效" });

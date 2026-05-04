@@ -200,7 +200,7 @@ export default function WorkflowWizard() {
       { label: "正在应用内容方案...", status: "running" },
       { label: "AI正在优化文案...", status: "pending" },
       { label: "安全检查与自动修复...", status: "pending" },
-      { label: "基于同行爆款生成配图...", status: "pending" },
+      { label: "AI正在生成爆款配图...", status: "pending" },
     ];
     setAiProgress({ active: true, steps: [...steps] });
 
@@ -259,46 +259,27 @@ export default function WorkflowWizard() {
       .filter((n: any) => n.cover_url)
       .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0));
 
-    if (competitorCovers.length > 0 && suggestion.imagePrompt) {
-      const bestCover = competitorCovers[0];
-      setReferenceImageUrl(bestCover.cover_url);
-      setImagePrompt(suggestion.imagePrompt);
-      try {
-        const imageRes = await api.ai.editImage({
-          prompt: suggestion.imagePrompt,
-          referenceImageUrl: bestCover.cover_url,
-          size: "1024x1536",
-        });
-        const url = imageRes.storedUrl || imageRes.imageUrl;
-        if (url) {
-          setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
-        }
-      } catch (err: any) {
-        if (err?.status === 403) { handleCreditError(err); }
-        else {
-          try {
-            const imageRes = await api.ai.generateImage({ prompt: suggestion.imagePrompt, size: "1024x1536" });
-            const url = imageRes.storedUrl || imageRes.imageUrl;
-            if (url) {
-              setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
-            }
-          } catch (err2: any) {
-            if (err2?.status === 403) { handleCreditError(err2); }
-            else { toast({ title: "配图生成暂时不可用，可手动重新生成", variant: "destructive" }); }
-          }
-        }
+    if (competitorCovers.length > 0) {
+      setReferenceImageUrl(competitorCovers[0].cover_url);
+    }
+
+    if (suggestion.imagePrompt) {
+      const topNotes = competitorCovers.slice(0, 3);
+      let enhancedPrompt = suggestion.imagePrompt;
+      if (topNotes.length > 0) {
+        const styleHints = topNotes.map((n: any) => n.title).filter(Boolean).join("、");
+        enhancedPrompt = `${suggestion.imagePrompt}。参考同行爆款笔记的封面风格特点（${styleHints}），生成类似风格但全新原创的配图。要求：小红书爆款封面风格，精美、高级感、吸引眼球、适合社交媒体展示。`;
       }
-    } else if (suggestion.imagePrompt) {
-      setImagePrompt(suggestion.imagePrompt);
+      setImagePrompt(enhancedPrompt);
       try {
-        const imageRes = await api.ai.generateImage({ prompt: suggestion.imagePrompt, size: "1024x1536" });
+        const imageRes = await api.ai.generateImage({ prompt: enhancedPrompt, size: "1024x1536" });
         const url = imageRes.storedUrl || imageRes.imageUrl;
         if (url) {
           setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
         }
       } catch (err: any) {
         if (err?.status === 403) { handleCreditError(err); }
-        else { toast({ title: "配图生成暂时不可用，可手动重新生成", variant: "destructive" }); }
+        else { toast({ title: "配图生成暂时不可用，可在编辑页手动重新生成", variant: "destructive" }); }
       }
     }
 
