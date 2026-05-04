@@ -62,7 +62,25 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - Accepts prompt, style (optional), size (1024x1024, 1024x1792, 1792x1024)
 - Auto-saves generated images to object storage
 - Returns both direct URL and stored object path
-- Integrated in content editor with Chinese prompt support
+- Integrated in content editor and workflow wizard with Chinese prompt support
+
+## Workflow Wizard
+
+- Guided 4-step flow at `/workflow`: 选择账号 → 创作内容 → 预览检查 → 发布
+- Step 1: Select or create XHS account with visual card selection
+- Step 2: AI-assisted content creation (rewrite, title/hashtag generation, image generation/upload)
+- Step 3: XHS-style preview card + sensitivity check + content stats with tips
+- Step 4: One-click copy content → open XHS Creator Studio → mark as published
+- Dashboard has prominent gradient CTA card linking to workflow
+- Sidebar has highlighted "创建发布" nav item
+
+## AI Guide / Assistant
+
+- Floating chat widget on all authenticated pages (bottom-right corner)
+- `POST /api/ai/guide` — context-aware XHS operations assistant (gpt-4o-mini)
+- Knows current page context and provides relevant quick prompts
+- Specialized in XHS platform rules, content strategy, algorithm tips
+- Minimizable/closable, persists conversation during session
 
 ## Database Schema
 
@@ -88,6 +106,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `POST /ai/generate-title` — AI title generation
 - `POST /ai/generate-hashtags` — AI hashtag generation
 - `POST /ai/generate-image` — AI image generation (DALL-E 3)
+- `POST /ai/guide` — AI operations guide chatbot
 - `GET /dashboard/stats` — Dashboard statistics
 - `GET /dashboard/recent-activity` — Recent activity log
 - `GET /dashboard/content-by-region` — Content distribution by region
@@ -105,7 +124,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `/` — Landing page (unauthenticated) / redirect to dashboard (authenticated)
 - `/sign-in` — Clerk sign-in page (Chinese localized)
 - `/sign-up` — Clerk sign-up page (Chinese localized)
-- `/dashboard` — Dashboard with stats, region/status charts, recent activity
+- `/dashboard` — Dashboard with stats, workflow CTA, region/status charts, recent activity
+- `/workflow` — Guided 4-step create & publish wizard
 - `/accounts` — Account management with region filter, CRUD
 - `/content` — Content list with status/region filters
 - `/content/new` — Content editor with AI tools (rewrite, sensitivity, title/hashtag, image generation)

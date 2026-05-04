@@ -15,6 +15,8 @@ import Schedules from "@/pages/schedules";
 import SensitiveWords from "@/pages/sensitive-words";
 import Settings from "@/pages/settings";
 import LandingPage from "@/pages/landing";
+import WorkflowWizard from "@/pages/workflow/index";
+import AIGuide from "@/components/ai-guide/AIGuide";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -113,6 +115,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
         <Layout>
           <Component />
         </Layout>
+        <AIGuide />
       </Show>
       <Show when="signed-out">
         <Redirect to="/" />
@@ -179,6 +182,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
             <Route path="/accounts">{() => <ProtectedRoute component={Accounts} />}</Route>
+            <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} />}</Route>
             <Route path="/content">{() => <ProtectedRoute component={ContentList} />}</Route>
             <Route path="/content/new">{() => <ProtectedRoute component={ContentEditor} />}</Route>
             <Route path="/content/:id">{() => <ProtectedRoute component={ContentEditor} />}</Route>

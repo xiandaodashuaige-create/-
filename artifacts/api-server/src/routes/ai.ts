@@ -367,4 +367,57 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/ai/guide", async (req, res): Promise<void> => {
+  try {
+    const { messages, currentPage } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      res.status(400).json({ error: "messages is required" });
+      return;
+    }
+
+    const systemPrompt = `你是一位资深的小红书运营专家和AI助手，名叫"小红助手"。你深入了解小红书平台的算法机制、内容创作技巧、运营策略和最新趋势。
+
+你的职责：
+1. 帮助用户理解小红书的运营规则和算法逻辑
+2. 提供内容创作建议（标题、正文、标签、配图策略）
+3. 分析内容质量并给出优化建议
+4. 解答关于小红书平台的各种问题
+5. 提供账号运营策略和增长建议
+
+用户当前所在页面：${currentPage || "未知"}
+${currentPage === "/workflow" ? "用户正在使用创作发布向导，可能需要内容创作方面的即时指导。" : ""}
+${currentPage === "/content" ? "用户在查看内容列表，可能需要内容管理或优化建议。" : ""}
+${currentPage === "/dashboard" ? "用户在查看仪表盘，可能需要整体运营策略建议。" : ""}
+${currentPage === "/accounts" ? "用户在管理账号，可能需要多账号运营策略建议。" : ""}
+
+回复规则：
+- 使用简体中文回复
+- 回复要简洁实用，重点突出，避免冗长
+- 给出可执行的具体建议，而非空洞的理论
+- 适当使用emoji让回复更生动
+- 如果用户问的不是小红书相关问题，友好地引导回小红书运营话题
+- 每次回复控制在200字以内`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages.slice(-8).map((m: any) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
+    });
+
+    const response = completion.choices[0]?.message?.content || "抱歉，我暂时无法回复。";
+    res.json({ response });
+  } catch (err) {
+    req.log.error(err, "Failed to get AI guide response");
+    res.status(500).json({ error: "AI向导暂时不可用" });
+  }
+});
+
 export default router;

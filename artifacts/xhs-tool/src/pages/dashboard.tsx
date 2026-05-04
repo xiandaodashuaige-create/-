@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, FileText, Image, Calendar, TrendingUp, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Users, FileText, Image, Calendar, TrendingUp, Clock, PenSquare, ChevronRight, Sparkles } from "lucide-react";
 
 export default function Dashboard() {
+  const [, setLocation] = useLocation();
   const { data: stats } = useQuery({ queryKey: ["dashboard-stats"], queryFn: api.dashboard.stats });
   const { data: activity } = useQuery({ queryKey: ["recent-activity"], queryFn: () => api.dashboard.recentActivity(8) });
   const { data: byRegion } = useQuery({ queryKey: ["content-by-region"], queryFn: api.dashboard.contentByRegion });
@@ -22,10 +25,34 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">仪表盘</h1>
-        <p className="text-muted-foreground">小红书内容管理概览</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">仪表盘</h1>
+          <p className="text-muted-foreground">小红书内容管理概览</p>
+        </div>
       </div>
+
+      <button
+        onClick={() => setLocation("/workflow")}
+        className="w-full group"
+      >
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-red-500 via-pink-500 to-rose-400 p-6 text-white shadow-lg hover:shadow-xl transition-all">
+          <div className="absolute right-0 top-0 w-48 h-48 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/4" />
+          <div className="absolute right-16 bottom-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2" />
+          <div className="relative flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center">
+              <PenSquare className="h-7 w-7" />
+            </div>
+            <div className="flex-1 text-left">
+              <h3 className="text-xl font-bold">创建并发布新笔记</h3>
+              <p className="text-white/80 text-sm mt-0.5">
+                一站式完成：选择账号 → AI辅助创作 → 预览检查 → 一键发布到小红书
+              </p>
+            </div>
+            <ChevronRight className="h-6 w-6 text-white/60 group-hover:text-white group-hover:translate-x-1 transition-all" />
+          </div>
+        </div>
+      </button>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((s) => (

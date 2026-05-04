@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   LogOut,
+  PenSquare,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 const navItems = [
   { path: "/dashboard", label: "仪表盘", icon: LayoutDashboard },
+  { path: "/workflow", label: "创建发布", icon: PenSquare, highlight: true },
   { path: "/accounts", label: "账号管理", icon: Users },
   { path: "/content", label: "内容管理", icon: FileText },
   { path: "/assets", label: "素材库", icon: Image },
@@ -77,6 +79,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
                       isActive
                         ? "bg-primary text-primary-foreground"
+                        : (item as any).highlight
+                        ? "text-red-600 bg-red-50 hover:bg-red-100"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
