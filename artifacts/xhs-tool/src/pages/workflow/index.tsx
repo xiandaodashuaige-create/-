@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
@@ -14,14 +14,16 @@ import { ObjectUploader } from "@workspace/object-storage-web";
 import {
   Check, ChevronRight, ChevronLeft, Users, FileText, Eye, Send,
   Wand2, ShieldCheck, Hash, Type, Loader2, Sparkles, ImagePlus,
-  Upload, X, Copy, ExternalLink, Plus, Globe, CheckCircle2, AlertTriangle
+  Upload, X, Copy, ExternalLink, Plus, Globe, CheckCircle2, AlertTriangle,
+  Search, Target, Lightbulb, ArrowRight, RotateCcw, Zap, TrendingUp
 } from "lucide-react";
 
 const STEPS = [
   { id: 1, label: "选择账号", icon: Users, desc: "选择要发布的小红书账号" },
-  { id: 2, label: "创作内容", icon: FileText, desc: "AI辅助创作笔记内容" },
-  { id: 3, label: "预览检查", icon: Eye, desc: "预览效果并检查敏感词" },
-  { id: 4, label: "发布", icon: Send, desc: "发布到小红书" },
+  { id: 2, label: "灵感研究", icon: Search, desc: "AI分析同行，生成内容方案" },
+  { id: 3, label: "创作内容", icon: FileText, desc: "编辑并完善笔记内容" },
+  { id: 4, label: "预览检查", icon: Eye, desc: "预览效果并检查敏感词" },
+  { id: 5, label: "发布", icon: Send, desc: "发布到小红书" },
 ];
 
 const regionLabels: Record<string, string> = { SG: "新加坡", HK: "香港", MY: "马来西亚" };
@@ -41,6 +43,14 @@ export default function WorkflowWizard() {
     tagInput: "",
     imageUrls: [] as string[],
   });
+
+  const [researchInput, setResearchInput] = useState({
+    businessDescription: "",
+    competitorLink: "",
+    niche: "",
+  });
+  const [researchResult, setResearchResult] = useState<any>(null);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<number | null>(null);
 
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [newAccount, setNewAccount] = useState({ nickname: "", region: "SG", xhsId: "" });
@@ -69,6 +79,16 @@ export default function WorkflowWizard() {
     },
   });
 
+  const researchMutation = useMutation({
+    mutationFn: (data: any) => api.ai.competitorResearch(data),
+    onSuccess: (result) => {
+      setResearchResult(result);
+      setSelectedSuggestion(null);
+      toast({ title: "竞品分析完成！已生成3套内容方案" });
+    },
+    onError: (e: Error) => toast({ title: "分析失败", description: e.message, variant: "destructive" }),
+  });
+
   const saveMutation = useMutation({
     mutationFn: (data: any) =>
       savedContentId
@@ -95,13 +115,8 @@ export default function WorkflowWizard() {
     onError: (e: Error) => toast({ title: "检测失败", description: e.message, variant: "destructive" }),
   });
 
-  const titleMutation = useMutation({
-    mutationFn: (data: any) => api.ai.generateTitle(data),
-  });
-
-  const hashtagMutation = useMutation({
-    mutationFn: (data: any) => api.ai.generateHashtags(data),
-  });
+  const titleMutation = useMutation({ mutationFn: (data: any) => api.ai.generateTitle(data) });
+  const hashtagMutation = useMutation({ mutationFn: (data: any) => api.ai.generateHashtags(data) });
 
   const imageMutation = useMutation({
     mutationFn: (data: { prompt: string; style?: string; size?: string }) => api.ai.generateImage(data),
@@ -128,20 +143,21 @@ export default function WorkflowWizard() {
   function canProceed(): boolean {
     switch (step) {
       case 1: return form.accountId > 0;
-      case 2: return form.title.trim().length > 0 && form.body.trim().length > 0;
-      case 3: return true;
+      case 2: return true;
+      case 3: return form.title.trim().length > 0 && form.body.trim().length > 0;
+      case 4: return true;
       default: return true;
     }
   }
 
   function handleNext() {
-    if (step === 2 && !contentSaved) {
+    if (step === 3 && !contentSaved) {
       handleSave();
     }
-    if (step === 3 && !sensitivityResult) {
+    if (step === 4 && !sensitivityResult) {
       sensitivityMutation.mutate({ title: form.title, body: form.body });
     }
-    if (step < 4) setStep(step + 1);
+    if (step < 5) setStep(step + 1);
   }
 
   function handleSave() {
@@ -153,6 +169,40 @@ export default function WorkflowWizard() {
       tags: form.tags,
       imageUrls: form.imageUrls,
     });
+  }
+
+  function handleResearch() {
+    const { businessDescription, competitorLink, niche } = researchInput;
+    if (!businessDescription.trim() && !competitorLink.trim() && !niche.trim()) {
+      toast({ title: "请至少填写一项信息", variant: "destructive" });
+      return;
+    }
+    const account = selectedAccount();
+    researchMutation.mutate({
+      businessDescription: businessDescription || undefined,
+      competitorLink: competitorLink || undefined,
+      niche: niche || undefined,
+      region: account?.region,
+    });
+  }
+
+  function handleAdoptSuggestion(index: number) {
+    const suggestion = researchResult?.suggestions?.[index];
+    if (!suggestion) return;
+    setSelectedSuggestion(index);
+    setForm((prev) => ({
+      ...prev,
+      title: suggestion.title,
+      body: suggestion.body,
+      tags: suggestion.tags || [],
+      originalReference: prev.originalReference,
+    }));
+    if (suggestion.imagePrompt) {
+      setImagePrompt(suggestion.imagePrompt);
+    }
+    setContentSaved(false);
+    toast({ title: "已采用方案，进入下一步编辑" });
+    setStep(3);
   }
 
   function handleRewrite() {
@@ -243,19 +293,36 @@ export default function WorkflowWizard() {
     }
   }
 
+  function handleReset() {
+    setStep(1);
+    setForm({ accountId: 0, title: "", body: "", originalReference: "", tags: [], tagInput: "", imageUrls: [] });
+    setResearchInput({ businessDescription: "", competitorLink: "", niche: "" });
+    setResearchResult(null);
+    setSelectedSuggestion(null);
+    setContentSaved(false);
+    setSavedContentId(null);
+    setPublishStep("ready");
+    setSensitivityResult(null);
+    setAiResult(null);
+    setImagePrompt("");
+    publishMutation.reset();
+  }
+
+  const hasResearchInput = researchInput.businessDescription.trim() || researchInput.competitorLink.trim() || researchInput.niche.trim();
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">创建并发布笔记</h1>
-        <p className="text-muted-foreground">跟随引导，轻松完成从内容创作到发布的全流程</p>
+        <p className="text-muted-foreground">跟随引导，轻松完成从灵感研究到发布的全流程</p>
       </div>
 
-      <div className="flex items-center justify-between bg-card rounded-xl border p-4">
+      <div data-workflow-step={step} className="flex items-center justify-between bg-card rounded-xl border p-3 overflow-x-auto">
         {STEPS.map((s, i) => (
-          <div key={s.id} className="flex items-center flex-1">
+          <div key={s.id} className="flex items-center flex-1 min-w-0">
             <button
               onClick={() => s.id <= step && setStep(s.id)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors shrink-0 ${
                 s.id === step
                   ? "bg-red-50 text-red-600"
                   : s.id < step
@@ -263,29 +330,27 @@ export default function WorkflowWizard() {
                   : "text-muted-foreground"
               }`}
             >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                  s.id === step
-                    ? "bg-red-500 text-white"
-                    : s.id < step
-                    ? "bg-green-500 text-white"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {s.id < step ? <Check className="h-4 w-4" /> : s.id}
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
+                s.id === step
+                  ? "bg-red-500 text-white"
+                  : s.id < step
+                  ? "bg-green-500 text-white"
+                  : "bg-muted text-muted-foreground"
+              }`}>
+                {s.id < step ? <Check className="h-3.5 w-3.5" /> : s.id}
               </div>
-              <div className="hidden sm:block text-left">
-                <p className="text-sm font-medium">{s.label}</p>
-                <p className="text-xs text-muted-foreground">{s.desc}</p>
+              <div className="hidden md:block text-left">
+                <p className="text-xs font-medium leading-tight">{s.label}</p>
               </div>
             </button>
             {i < STEPS.length - 1 && (
-              <div className={`flex-1 h-0.5 mx-2 ${i < step - 1 ? "bg-green-300" : "bg-muted"}`} />
+              <div className={`flex-1 h-0.5 mx-1 min-w-4 ${i < step - 1 ? "bg-green-300" : "bg-muted"}`} />
             )}
           </div>
         ))}
       </div>
 
+      {/* Step 1: Select Account */}
       {step === 1 && (
         <div className="space-y-4">
           <Card>
@@ -332,29 +397,18 @@ export default function WorkflowWizard() {
                             <p className="font-medium truncate">{a.nickname}</p>
                             <div className="flex items-center gap-1.5 mt-0.5">
                               <Globe className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-xs text-muted-foreground">
-                                {regionLabels[a.region] || a.region}
-                              </span>
-                              <Badge
-                                variant={a.status === "active" ? "default" : "secondary"}
-                                className="text-[10px] h-4 px-1"
-                              >
+                              <span className="text-xs text-muted-foreground">{regionLabels[a.region] || a.region}</span>
+                              <Badge variant={a.status === "active" ? "default" : "secondary"} className="text-[10px] h-4 px-1">
                                 {a.status === "active" ? "活跃" : "未激活"}
                               </Badge>
                             </div>
                           </div>
-                          {form.accountId === a.id && (
-                            <CheckCircle2 className="h-5 w-5 text-red-500 shrink-0" />
-                          )}
+                          {form.accountId === a.id && <CheckCircle2 className="h-5 w-5 text-red-500 shrink-0" />}
                         </div>
                       </button>
                     ))}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAddAccount(!showAddAccount)}
-                  >
+                  <Button variant="outline" size="sm" onClick={() => setShowAddAccount(!showAddAccount)}>
                     <Plus className="h-3.5 w-3.5 mr-1" />
                     添加新账号
                   </Button>
@@ -367,11 +421,7 @@ export default function WorkflowWizard() {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="space-y-1">
                         <Label className="text-xs">昵称</Label>
-                        <Input
-                          value={newAccount.nickname}
-                          onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })}
-                          placeholder="账号昵称"
-                        />
+                        <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="账号昵称" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">地区</Label>
@@ -386,20 +436,11 @@ export default function WorkflowWizard() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">小红书ID（可选）</Label>
-                        <Input
-                          value={newAccount.xhsId}
-                          onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })}
-                          placeholder="小红书号"
-                        />
+                        <Input value={newAccount.xhsId} onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })} placeholder="小红书号" />
                       </div>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={!newAccount.nickname.trim() || createAccountMutation.isPending}
-                        onClick={() => createAccountMutation.mutate(newAccount)}
-                        className="bg-red-500 hover:bg-red-600 text-white"
-                      >
+                      <Button size="sm" disabled={!newAccount.nickname.trim() || createAccountMutation.isPending} onClick={() => createAccountMutation.mutate(newAccount)} className="bg-red-500 hover:bg-red-600 text-white">
                         {createAccountMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
                         确认添加
                       </Button>
@@ -413,9 +454,250 @@ export default function WorkflowWizard() {
         </div>
       )}
 
+      {/* Step 2: Competitor Research & Inspiration */}
       {step === 2 && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Search className="h-5 w-5 text-red-500" />
+                灵感研究 — 让AI帮你找到内容方向
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200">
+                <div className="flex items-start gap-3">
+                  <Lightbulb className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-medium text-amber-800">告诉AI你的业务，自动获取同行参考和内容方案</p>
+                    <p className="text-amber-600 mt-1">填写以下任意一项，AI就能分析同行内容策略，为你生成3套可直接采用的笔记方案。</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      <Target className="h-3.5 w-3.5 text-red-500" />
+                      你的业务/品牌描述
+                    </Label>
+                    <Textarea
+                      value={researchInput.businessDescription}
+                      onChange={(e) => setResearchInput({ ...researchInput, businessDescription: e.target.value })}
+                      placeholder="例如：我是做新加坡留学咨询的，主要帮助中国学生申请新加坡本科和研究生..."
+                      rows={3}
+                      className="text-sm"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      <Globe className="h-3.5 w-3.5 text-blue-500" />
+                      对标同行链接/账号（可选）
+                    </Label>
+                    <Input
+                      value={researchInput.competitorLink}
+                      onChange={(e) => setResearchInput({ ...researchInput, competitorLink: e.target.value })}
+                      placeholder="小红书主页链接、账号名或竞品品牌名"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5 text-green-500" />
+                      行业/赛道关键词（可选）
+                    </Label>
+                    <Input
+                      value={researchInput.niche}
+                      onChange={(e) => setResearchInput({ ...researchInput, niche: e.target.value })}
+                      placeholder="例如：美妆护肤、留学咨询、母婴育儿、餐饮探店"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-muted/50 text-sm">
+                    <p className="font-medium mb-2 text-muted-foreground">AI将为你做什么？</p>
+                    <div className="space-y-2 text-muted-foreground text-xs">
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">1</span></div>
+                        <span>分析你所在行业的小红书内容趋势和竞品策略</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">2</span></div>
+                        <span>找出最有效的内容切入角度和爆款模式</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">3</span></div>
+                        <span>生成3套差异化的完整笔记方案（含标题、正文、标签、配图建议）</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">4</span></div>
+                        <span>选中方案后自动填入编辑器，你只需微调即可发布</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
+                    <span className="text-muted-foreground">发布账号：</span>
+                    <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
+                    <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
+                      {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                onClick={handleResearch}
+                disabled={researchMutation.isPending || !hasResearchInput}
+                className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white h-12 text-base"
+              >
+                {researchMutation.isPending ? (
+                  <><Loader2 className="h-5 w-5 animate-spin mr-2" />AI正在分析同行内容，请稍候（约10-20秒）...</>
+                ) : (
+                  <><Zap className="h-5 w-5 mr-2" />开始AI竞品分析</>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Research Results */}
+          {researchResult && (
+            <>
+              <Card className="border-blue-200 bg-blue-50/30">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Target className="h-4 w-4 text-blue-500" />
+                    行业分析报告
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div className="p-3 rounded-lg bg-white border">
+                      <p className="text-xs text-muted-foreground font-medium mb-1">行业概况</p>
+                      <p>{researchResult.analysis?.industry}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-white border">
+                      <p className="text-xs text-muted-foreground font-medium mb-1">目标受众</p>
+                      <p>{researchResult.analysis?.targetAudience}</p>
+                    </div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-white border text-sm">
+                    <p className="text-xs text-muted-foreground font-medium mb-1">竞品洞察</p>
+                    <p>{researchResult.analysis?.competitorInsights}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-white border text-sm">
+                    <p className="text-xs text-muted-foreground font-medium mb-1">推荐内容策略</p>
+                    <p>{researchResult.analysis?.contentStrategy}</p>
+                  </div>
+                  {researchResult.analysis?.popularAngles?.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-xs text-muted-foreground">热门切入角度：</span>
+                      {researchResult.analysis.popularAngles.map((a: string, i: number) => (
+                        <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div>
+                <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-red-500" />
+                  选择你喜欢的内容方案
+                </h3>
+                <p className="text-sm text-muted-foreground mb-4">点击"采用此方案"，内容将自动填入编辑器，你可以在下一步进行修改和完善。</p>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {researchResult.suggestions?.map((suggestion: any, index: number) => (
+                    <Card
+                      key={index}
+                      className={`transition-all hover:shadow-md ${
+                        selectedSuggestion === index ? "border-red-500 ring-2 ring-red-200" : "border-border"
+                      }`}
+                    >
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <Badge className="bg-red-100 text-red-700 text-xs">方案 {index + 1}</Badge>
+                          <Badge variant="outline" className="text-[10px]">{suggestion.style}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">{suggestion.angle}</p>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div>
+                          <p className="font-bold text-sm leading-tight">{suggestion.title}</p>
+                        </div>
+                        <div className="text-xs text-gray-600 whitespace-pre-wrap line-clamp-6 leading-relaxed bg-muted/50 rounded-lg p-2.5">
+                          {suggestion.body}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {suggestion.tags?.slice(0, 4).map((t: string, ti: number) => (
+                            <span key={ti} className="text-[10px] text-red-500">#{t}</span>
+                          ))}
+                          {suggestion.tags?.length > 4 && (
+                            <span className="text-[10px] text-muted-foreground">+{suggestion.tags.length - 4}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-green-600 bg-green-50 rounded px-2 py-1">
+                          {suggestion.whyThisWorks}
+                        </p>
+                        <Button
+                          className="w-full bg-red-500 hover:bg-red-600 text-white"
+                          size="sm"
+                          onClick={() => handleAdoptSuggestion(index)}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                          采用此方案
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-center gap-3">
+                <Button variant="outline" onClick={handleResearch} disabled={researchMutation.isPending}>
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  重新生成方案
+                </Button>
+                <Button variant="ghost" onClick={() => { setStep(3); toast({ title: "已跳过，直接开始创作" }); }}>
+                  跳过，直接创作
+                  <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </>
+          )}
+
+          {!researchResult && !researchMutation.isPending && (
+            <div className="text-center py-2">
+              <Button variant="ghost" className="text-muted-foreground" onClick={() => { setStep(3); toast({ title: "已跳过灵感研究" }); }}>
+                我已有内容思路，跳过此步
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: Create Content */}
+      {step === 3 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
+            {selectedSuggestion !== null && researchResult?.suggestions?.[selectedSuggestion] && (
+              <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-3 text-sm">
+                <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                <div className="flex-1">
+                  <span className="font-medium text-green-800">已采用方案 {selectedSuggestion + 1}：</span>
+                  <span className="text-green-700">{researchResult.suggestions[selectedSuggestion].angle}</span>
+                </div>
+                <Button size="sm" variant="ghost" className="text-xs" onClick={() => setStep(2)}>
+                  重新选择
+                </Button>
+              </div>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -427,7 +709,7 @@ export default function WorkflowWizard() {
                 <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
                   <span className="text-muted-foreground">发布账号：</span>
                   <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
                     {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
                   </Badge>
                 </div>
@@ -435,8 +717,7 @@ export default function WorkflowWizard() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>标题</Label>
-                    <Button
-                      variant="ghost" size="sm" className="h-7 text-xs"
+                    <Button variant="ghost" size="sm" className="h-7 text-xs"
                       disabled={titleMutation.isPending || !form.body.trim()}
                       onClick={() => titleMutation.mutate({ body: form.body, count: 5 })}
                     >
@@ -444,19 +725,12 @@ export default function WorkflowWizard() {
                       AI生成标题
                     </Button>
                   </div>
-                  <Input
-                    value={form.title}
-                    onChange={(e) => { setForm({ ...form, title: e.target.value }); setContentSaved(false); }}
-                    placeholder="输入吸引人的标题"
-                  />
+                  <Input value={form.title} onChange={(e) => { setForm({ ...form, title: e.target.value }); setContentSaved(false); }} placeholder="输入吸引人的标题" />
                   {titleMutation.data?.titles && (
                     <div className="flex flex-wrap gap-2 mt-1">
                       {titleMutation.data.titles.map((t: string, i: number) => (
-                        <Badge
-                          key={i} variant="outline"
-                          className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
-                          onClick={() => { setForm({ ...form, title: t }); setContentSaved(false); }}
-                        >{t}</Badge>
+                        <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                          onClick={() => { setForm({ ...form, title: t }); setContentSaved(false); }}>{t}</Badge>
                       ))}
                     </div>
                   )}
@@ -464,31 +738,21 @@ export default function WorkflowWizard() {
 
                 <div className="space-y-2">
                   <Label>正文内容</Label>
-                  <Textarea
-                    value={form.body}
-                    onChange={(e) => { setForm({ ...form, body: e.target.value }); setContentSaved(false); }}
-                    placeholder="输入小红书笔记正文..."
-                    rows={10}
-                    className="font-mono text-sm"
-                  />
+                  <Textarea value={form.body} onChange={(e) => { setForm({ ...form, body: e.target.value }); setContentSaved(false); }}
+                    placeholder="输入小红书笔记正文..." rows={10} className="font-mono text-sm" />
                   <div className="text-xs text-muted-foreground text-right">{form.body.length} 字</div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>竞品参考（可选）</Label>
-                  <Textarea
-                    value={form.originalReference}
-                    onChange={(e) => setForm({ ...form, originalReference: e.target.value })}
-                    placeholder="粘贴竞品内容，AI将参考其风格进行改写..."
-                    rows={3} className="text-sm"
-                  />
+                  <Textarea value={form.originalReference} onChange={(e) => setForm({ ...form, originalReference: e.target.value })}
+                    placeholder="粘贴竞品内容，AI将参考其风格进行改写..." rows={3} className="text-sm" />
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label>标签</Label>
-                    <Button
-                      variant="ghost" size="sm" className="h-7 text-xs"
+                    <Button variant="ghost" size="sm" className="h-7 text-xs"
                       disabled={hashtagMutation.isPending || !form.body.trim()}
                       onClick={() => hashtagMutation.mutate({ title: form.title, body: form.body, count: 10 })}
                     >
@@ -497,34 +761,22 @@ export default function WorkflowWizard() {
                     </Button>
                   </div>
                   <div className="flex gap-2">
-                    <Input
-                      value={form.tagInput}
-                      onChange={(e) => setForm({ ...form, tagInput: e.target.value })}
-                      placeholder="输入标签后回车"
-                      onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddTag())}
-                    />
+                    <Input value={form.tagInput} onChange={(e) => setForm({ ...form, tagInput: e.target.value })}
+                      placeholder="输入标签后回车" onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddTag())} />
                     <Button variant="outline" onClick={handleAddTag}>添加</Button>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {form.tags.map((tag) => (
                       <Badge key={tag} variant="secondary" className="cursor-pointer" onClick={() => {
-                        setForm({ ...form, tags: form.tags.filter((t) => t !== tag) });
-                        setContentSaved(false);
+                        setForm({ ...form, tags: form.tags.filter((t) => t !== tag) }); setContentSaved(false);
                       }}>#{tag} ×</Badge>
                     ))}
                   </div>
                   {hashtagMutation.data?.hashtags && (
                     <div className="flex flex-wrap gap-2 mt-1">
                       {hashtagMutation.data.hashtags.map((h: string, i: number) => (
-                        <Badge key={i} variant="outline"
-                          className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
-                          onClick={() => {
-                            if (!form.tags.includes(h)) {
-                              setForm({ ...form, tags: [...form.tags, h] });
-                              setContentSaved(false);
-                            }
-                          }}
-                        >#{h}</Badge>
+                        <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                          onClick={() => { if (!form.tags.includes(h)) { setForm({ ...form, tags: [...form.tags, h] }); setContentSaved(false); } }}>#{h}</Badge>
                       ))}
                     </div>
                   )}
@@ -533,27 +785,19 @@ export default function WorkflowWizard() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label>配图</Label>
-                    <ObjectUploader
-                      maxNumberOfFiles={9} maxFileSize={10485760}
-                      onGetUploadParameters={handleGetUploadParameters}
-                      onComplete={handleUploadComplete}
-                      buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <Upload className="h-3 w-3 mr-1" />
-                      上传图片
+                    <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
+                      onGetUploadParameters={handleGetUploadParameters} onComplete={handleUploadComplete}
+                      buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                      <Upload className="h-3 w-3 mr-1" />上传图片
                     </ObjectUploader>
                   </div>
                   {form.imageUrls.length > 0 && (
                     <div className="grid grid-cols-3 gap-2">
                       {form.imageUrls.map((url, i) => (
                         <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border bg-muted">
-                          <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                          />
-                          <button
-                            onClick={() => { setForm((p) => ({ ...p, imageUrls: p.imageUrls.filter((_, j) => j !== i) })); setContentSaved(false); }}
-                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          ><X className="h-3 w-3" /></button>
+                          <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          <button onClick={() => { setForm((p) => ({ ...p, imageUrls: p.imageUrls.filter((_, j) => j !== i) })); setContentSaved(false); }}
+                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-3 w-3" /></button>
                         </div>
                       ))}
                     </div>
@@ -566,9 +810,7 @@ export default function WorkflowWizard() {
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Sparkles className="h-4 w-4" /> AI工具
-                </CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4" /> AI工具</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Button variant="outline" className="w-full justify-start" disabled={rewriteMutation.isPending} onClick={handleRewrite}>
@@ -577,8 +819,7 @@ export default function WorkflowWizard() {
                 </Button>
                 <Button variant="outline" className="w-full justify-start"
                   disabled={sensitivityMutation.isPending || !form.body.trim()}
-                  onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}
-                >
+                  onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}>
                   {sensitivityMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
                   敏感词检测
                 </Button>
@@ -587,14 +828,11 @@ export default function WorkflowWizard() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ImagePlus className="h-4 w-4" /> AI生成配图
-                </CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI生成配图</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Textarea value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder="描述你想要的配图..." rows={3} className="text-sm"
-                />
+                  placeholder="描述你想要的配图..." rows={3} className="text-sm" />
                 <Select value={imageSize} onValueChange={setImageSize}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -605,8 +843,7 @@ export default function WorkflowWizard() {
                 </Select>
                 <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
                   disabled={imageMutation.isPending || !imagePrompt.trim()}
-                  onClick={() => imageMutation.mutate({ prompt: imagePrompt, size: imageSize })}
-                >
+                  onClick={() => imageMutation.mutate({ prompt: imagePrompt, size: imageSize })}>
                   {imageMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</> : <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>}
                 </Button>
               </CardContent>
@@ -616,14 +853,8 @@ export default function WorkflowWizard() {
               <Card className="border-primary/50">
                 <CardHeader><CardTitle className="text-base">AI改写结果</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">标题</Label>
-                    <p className="text-sm font-medium">{aiResult.rewrittenTitle}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">正文</Label>
-                    <p className="text-sm whitespace-pre-wrap max-h-48 overflow-auto">{aiResult.rewrittenBody}</p>
-                  </div>
+                  <div><Label className="text-xs text-muted-foreground">标题</Label><p className="text-sm font-medium">{aiResult.rewrittenTitle}</p></div>
+                  <div><Label className="text-xs text-muted-foreground">正文</Label><p className="text-sm whitespace-pre-wrap max-h-48 overflow-auto">{aiResult.rewrittenBody}</p></div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={applyAiResult}>应用结果</Button>
                     <Button size="sm" variant="outline" onClick={() => setAiResult(null)}>关闭</Button>
@@ -637,9 +868,7 @@ export default function WorkflowWizard() {
                 <CardHeader>
                   <CardTitle className="text-base flex items-center justify-between">
                     <span>敏感词检测</span>
-                    <Badge variant={sensitivityResult.score > 50 ? "destructive" : "default"}>
-                      风险分: {sensitivityResult.score}
-                    </Badge>
+                    <Badge variant={sensitivityResult.score > 50 ? "destructive" : "default"}>风险分: {sensitivityResult.score}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
@@ -647,15 +876,12 @@ export default function WorkflowWizard() {
                     sensitivityResult.issues.map((issue: any, i: number) => (
                       <div key={i} className="text-sm p-2 rounded bg-muted">
                         <Badge variant={issue.severity === "high" ? "destructive" : "secondary"} className="text-xs mr-1">
-                          {issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}
-                        </Badge>
+                          {issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}</Badge>
                         <span className="font-medium">"{issue.word}"</span>
                         {issue.suggestion && <p className="text-xs mt-1">建议: {issue.suggestion}</p>}
                       </div>
                     ))
-                  ) : (
-                    <p className="text-sm text-green-600">未发现敏感词问题</p>
-                  )}
+                  ) : (<p className="text-sm text-green-600">未发现敏感词问题</p>)}
                   <Button size="sm" variant="outline" onClick={() => setSensitivityResult(null)}>关闭</Button>
                 </CardContent>
               </Card>
@@ -664,14 +890,12 @@ export default function WorkflowWizard() {
         </div>
       )}
 
-      {step === 3 && (
+      {/* Step 4: Preview & Check */}
+      {step === 4 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Eye className="h-5 w-5 text-red-500" />
-                笔记预览
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"><Eye className="h-5 w-5 text-red-500" />笔记预览</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="bg-white rounded-xl border shadow-sm max-w-sm mx-auto overflow-hidden">
@@ -682,14 +906,10 @@ export default function WorkflowWizard() {
                 )}
                 <div className="p-4 space-y-3">
                   <h3 className="font-bold text-base leading-tight">{form.title || "未输入标题"}</h3>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-6">
-                    {form.body || "未输入正文"}
-                  </p>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-6">{form.body || "未输入正文"}</p>
                   {form.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1">
-                      {form.tags.map((t) => (
-                        <span key={t} className="text-xs text-red-500">#{t}</span>
-                      ))}
+                      {form.tags.map((t) => (<span key={t} className="text-xs text-red-500">#{t}</span>))}
                     </div>
                   )}
                   <div className="flex items-center gap-2 pt-2 border-t">
@@ -718,31 +938,19 @@ export default function WorkflowWizard() {
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4" />
-                  安全检查
-                </CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><ShieldCheck className="h-4 w-4" />安全检查</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {sensitivityMutation.isPending ? (
                   <div className="flex items-center gap-2 py-4 justify-center text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>正在检测敏感词...</span>
+                    <Loader2 className="h-5 w-5 animate-spin" /><span>正在检测敏感词...</span>
                   </div>
                 ) : sensitivityResult ? (
                   <>
-                    <div className={`p-3 rounded-lg flex items-center gap-3 ${
-                      sensitivityResult.score > 50 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"
-                    }`}>
-                      {sensitivityResult.score > 50 ? (
-                        <AlertTriangle className="h-5 w-5" />
-                      ) : (
-                        <CheckCircle2 className="h-5 w-5" />
-                      )}
+                    <div className={`p-3 rounded-lg flex items-center gap-3 ${sensitivityResult.score > 50 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
+                      {sensitivityResult.score > 50 ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
                       <div>
-                        <p className="font-medium">
-                          {sensitivityResult.score > 50 ? "发现潜在风险" : "内容安全"}
-                        </p>
+                        <p className="font-medium">{sensitivityResult.score > 50 ? "发现潜在风险" : "内容安全"}</p>
                         <p className="text-xs">风险评分: {sensitivityResult.score}/100</p>
                       </div>
                     </div>
@@ -751,24 +959,18 @@ export default function WorkflowWizard() {
                         {sensitivityResult.issues.map((issue: any, i: number) => (
                           <div key={i} className="text-sm p-2 rounded bg-muted">
                             <Badge variant={issue.severity === "high" ? "destructive" : "secondary"} className="text-xs mr-1">
-                              {issue.severity === "high" ? "高危" : issue.severity === "medium" ? "中危" : "低危"}
-                            </Badge>
+                              {issue.severity === "high" ? "高危" : issue.severity === "medium" ? "中危" : "低危"}</Badge>
                             "{issue.word}" — {issue.reason}
                             {issue.suggestion && <p className="text-xs text-muted-foreground mt-1">建议: {issue.suggestion}</p>}
                           </div>
                         ))}
                       </div>
                     )}
-                    {sensitivityResult.suggestion && (
-                      <p className="text-xs text-muted-foreground">{sensitivityResult.suggestion}</p>
-                    )}
+                    {sensitivityResult.suggestion && <p className="text-xs text-muted-foreground">{sensitivityResult.suggestion}</p>}
                   </>
                 ) : (
-                  <Button variant="outline" className="w-full"
-                    onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}
-                  >
-                    <ShieldCheck className="h-4 w-4 mr-2" />
-                    开始检测
+                  <Button variant="outline" className="w-full" onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}>
+                    <ShieldCheck className="h-4 w-4 mr-2" />开始检测
                   </Button>
                 )}
               </CardContent>
@@ -778,114 +980,64 @@ export default function WorkflowWizard() {
               <CardHeader><CardTitle className="text-base">内容统计</CardTitle></CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 rounded-lg bg-muted">
-                    <p className="text-muted-foreground text-xs">标题字数</p>
-                    <p className="text-lg font-bold">{form.title.length}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted">
-                    <p className="text-muted-foreground text-xs">正文字数</p>
-                    <p className="text-lg font-bold">{form.body.length}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted">
-                    <p className="text-muted-foreground text-xs">标签数</p>
-                    <p className="text-lg font-bold">{form.tags.length}</p>
-                  </div>
-                  <div className="p-3 rounded-lg bg-muted">
-                    <p className="text-muted-foreground text-xs">配图数</p>
-                    <p className="text-lg font-bold">{form.imageUrls.length}</p>
-                  </div>
+                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">标题字数</p><p className="text-lg font-bold">{form.title.length}</p></div>
+                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">正文字数</p><p className="text-lg font-bold">{form.body.length}</p></div>
+                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">标签数</p><p className="text-lg font-bold">{form.tags.length}</p></div>
+                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">配图数</p><p className="text-lg font-bold">{form.imageUrls.length}</p></div>
                 </div>
-                {form.title.length > 20 && (
-                  <p className="text-xs text-amber-600 mt-2">提示：标题超过20字可能影响展示效果</p>
-                )}
-                {form.body.length < 50 && form.body.length > 0 && (
-                  <p className="text-xs text-amber-600 mt-1">提示：正文建议至少50字以获得更好的推荐</p>
-                )}
-                {form.imageUrls.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-1">提示：建议添加至少1张配图以提高互动率</p>
-                )}
+                {form.title.length > 20 && <p className="text-xs text-amber-600 mt-2">提示：标题超过20字可能影响展示效果</p>}
+                {form.body.length < 50 && form.body.length > 0 && <p className="text-xs text-amber-600 mt-1">提示：正文建议至少50字以获得更好的推荐</p>}
+                {form.imageUrls.length === 0 && <p className="text-xs text-amber-600 mt-1">提示：建议添加至少1张配图以提高互动率</p>}
               </CardContent>
             </Card>
           </div>
         </div>
       )}
 
-      {step === 4 && (
+      {/* Step 5: Publish */}
+      {step === 5 && (
         <div className="max-w-2xl mx-auto space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Send className="h-5 w-5 text-red-500" />
-                发布到小红书
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-red-500" />发布到小红书</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
-                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${
-                  publishStep !== "ready" ? "border-green-200 bg-green-50" : "border-border"
-                }`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                    publishStep !== "ready" ? "bg-green-500 text-white" : "bg-red-500 text-white"
-                  }`}>
+                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishStep !== "ready" ? "border-green-200 bg-green-50" : "border-border"}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishStep !== "ready" ? "bg-green-500 text-white" : "bg-red-500 text-white"}`}>
                     {publishStep !== "ready" ? <Check className="h-4 w-4" /> : "1"}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">复制笔记内容</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      将标题、正文和标签一键复制到剪贴板
-                    </p>
-                    <Button
-                      className="mt-3 bg-red-500 hover:bg-red-600 text-white"
-                      onClick={handleCopyContent}
-                    >
+                    <p className="text-sm text-muted-foreground mt-1">将标题、正文和标签一键复制到剪贴板</p>
+                    <Button className="mt-3 bg-red-500 hover:bg-red-600 text-white" onClick={handleCopyContent}>
                       {copied ? <><Check className="h-4 w-4 mr-2" />已复制</> : <><Copy className="h-4 w-4 mr-2" />一键复制全部内容</>}
                     </Button>
                   </div>
                 </div>
 
-                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${
-                  publishStep === "opened" ? "border-green-200 bg-green-50" : "border-border"
-                }`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                    publishStep === "opened" ? "bg-green-500 text-white" : publishStep === "copied" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"
-                  }`}>
+                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishStep === "opened" ? "border-green-200 bg-green-50" : "border-border"}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishStep === "opened" ? "bg-green-500 text-white" : publishStep === "copied" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>
                     {publishStep === "opened" ? <Check className="h-4 w-4" /> : "2"}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">打开小红书创作中心</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      跳转到小红书网页版，将复制的内容粘贴发布
-                    </p>
-                    <Button
-                      className="mt-3"
-                      variant={publishStep === "copied" || publishStep === "opened" ? "default" : "outline"}
-                      onClick={handleOpenXHS}
-                    >
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      打开小红书创作中心
+                    <p className="text-sm text-muted-foreground mt-1">跳转到小红书网页版，将复制的内容粘贴发布</p>
+                    <Button className="mt-3" variant={publishStep === "copied" || publishStep === "opened" ? "default" : "outline"} onClick={handleOpenXHS}>
+                      <ExternalLink className="h-4 w-4 mr-2" />打开小红书创作中心
                     </Button>
                   </div>
                 </div>
 
-                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${
-                  publishMutation.isSuccess ? "border-green-200 bg-green-50" : "border-border"
-                }`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                    publishMutation.isSuccess ? "bg-green-500 text-white" : publishStep === "opened" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"
-                  }`}>
+                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishMutation.isSuccess ? "border-green-200 bg-green-50" : "border-border"}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishMutation.isSuccess ? "bg-green-500 text-white" : publishStep === "opened" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>
                     {publishMutation.isSuccess ? <Check className="h-4 w-4" /> : "3"}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">标记为已发布</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      在小红书发布成功后，点击此按钮更新状态
-                    </p>
-                    <Button
-                      className="mt-3"
-                      variant={publishMutation.isSuccess ? "outline" : publishStep === "opened" ? "default" : "outline"}
-                      disabled={publishMutation.isPending || publishMutation.isSuccess || !savedContentId}
-                      onClick={handleMarkPublished}
-                    >
+                    <p className="text-sm text-muted-foreground mt-1">在小红书发布成功后，点击此按钮更新状态</p>
+                    <Button className="mt-3" variant={publishMutation.isSuccess ? "outline" : publishStep === "opened" ? "default" : "outline"}
+                      disabled={publishMutation.isPending || publishMutation.isSuccess || !savedContentId} onClick={handleMarkPublished}>
                       {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> :
                        publishMutation.isSuccess ? <><Check className="h-4 w-4 mr-2" />已标记</> :
                        <><CheckCircle2 className="h-4 w-4 mr-2" />确认已发布</>}
@@ -899,12 +1051,8 @@ export default function WorkflowWizard() {
                   <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-2" />
                   <p className="font-medium text-green-800">恭喜！笔记发布流程已完成</p>
                   <div className="flex gap-3 justify-center mt-4">
-                    <Button variant="outline" onClick={() => { setStep(1); setForm({ accountId: 0, title: "", body: "", originalReference: "", tags: [], tagInput: "", imageUrls: [] }); setContentSaved(false); setSavedContentId(null); setPublishStep("ready"); setSensitivityResult(null); setAiResult(null); publishMutation.reset(); }}>
-                      发布下一篇
-                    </Button>
-                    <Button onClick={() => setLocation("/content")}>
-                      查看所有内容
-                    </Button>
+                    <Button variant="outline" onClick={handleReset}>发布下一篇</Button>
+                    <Button onClick={() => setLocation("/content")}>查看所有内容</Button>
                   </div>
                 </div>
               )}
@@ -912,9 +1060,7 @@ export default function WorkflowWizard() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">发布内容预览</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-base">发布内容预览</CardTitle></CardHeader>
             <CardContent>
               <div className="bg-muted rounded-lg p-4 text-sm whitespace-pre-wrap font-mono max-h-64 overflow-auto">
                 {buildPublishContent()}
@@ -924,29 +1070,27 @@ export default function WorkflowWizard() {
         </div>
       )}
 
+      {/* Navigation Footer */}
       <div className="flex items-center justify-between pt-4 border-t">
-        <Button
-          variant="outline"
-          onClick={() => step > 1 ? setStep(step - 1) : setLocation("/dashboard")}
-        >
+        <Button variant="outline" onClick={() => step > 1 ? setStep(step - 1) : setLocation("/dashboard")}>
           <ChevronLeft className="h-4 w-4 mr-1" />
           {step > 1 ? "上一步" : "返回仪表盘"}
         </Button>
         <div className="flex gap-3">
-          {step === 2 && (
+          {step === 3 && (
             <Button variant="outline" onClick={handleSave} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               {contentSaved ? "已保存" : "保存草稿"}
             </Button>
           )}
-          {step < 4 && (
-            <Button
-              onClick={handleNext}
-              disabled={!canProceed()}
-              className="bg-red-500 hover:bg-red-600 text-white"
-            >
-              下一步
-              <ChevronRight className="h-4 w-4 ml-1" />
+          {step === 2 && (
+            <Button onClick={() => { setStep(3); }} variant="outline" className="text-muted-foreground">
+              跳过，直接创作<ArrowRight className="h-4 w-4 ml-1" />
+            </Button>
+          )}
+          {step < 5 && step !== 2 && (
+            <Button onClick={handleNext} disabled={!canProceed()} className="bg-red-500 hover:bg-red-600 text-white">
+              下一步<ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           )}
         </div>

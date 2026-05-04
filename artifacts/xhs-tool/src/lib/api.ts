@@ -70,6 +70,8 @@ export const api = {
         "/ai/generate-image",
         { method: "POST", body: JSON.stringify(data) }
       ),
+    competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>
+      request<any>("/ai/competitor-research", { method: "POST", body: JSON.stringify(data) }),
   },
   schedules: {
     list: (params?: { accountId?: number; startDate?: string; endDate?: string }) => {

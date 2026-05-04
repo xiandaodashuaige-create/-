@@ -367,37 +367,145 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/ai/competitor-research", async (req, res): Promise<void> => {
+  try {
+    const { businessDescription, competitorLink, niche, region } = req.body;
+
+    const bd = typeof businessDescription === "string" ? businessDescription.slice(0, 1000).trim() : "";
+    const cl = typeof competitorLink === "string" ? competitorLink.slice(0, 500).trim() : "";
+    const ni = typeof niche === "string" ? niche.slice(0, 200).trim() : "";
+    const rg = typeof region === "string" ? region.slice(0, 10).trim() : "";
+
+    if (!bd && !cl && !ni) {
+      res.status(400).json({ error: "请提供业务描述、对标链接或行业关键词" });
+      return;
+    }
+
+    const inputContext = [
+      bd ? `业务/品牌描述: ${bd}` : "",
+      cl ? `对标参考链接/账号: ${cl}` : "",
+      ni ? `行业/赛道: ${ni}` : "",
+      rg ? `目标地区: ${rg}` : "",
+    ].filter(Boolean).join("\n");
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `你是一位资深的小红书内容策略专家。根据用户提供的业务信息、对标竞品或行业方向，分析该领域的小红书内容策略，并生成3套完整的笔记内容方案供用户选择。
+
+你需要返回一个JSON对象，格式如下：
+{
+  "analysis": {
+    "industry": "行业分析概要（1-2句话）",
+    "targetAudience": "目标受众画像",
+    "contentStrategy": "推荐的内容策略（2-3句话）",
+    "popularAngles": ["热门切入角度1", "热门切入角度2", "热门切入角度3"],
+    "competitorInsights": "竞品分析要点（2-3句话，分析同行的内容特点和成功要素）"
+  },
+  "suggestions": [
+    {
+      "angle": "内容切入角度",
+      "title": "推荐标题",
+      "body": "完整笔记正文（200-400字，要有小红书风格，包含emoji，段落清晰，有个人感受和实用干货）",
+      "tags": ["标签1", "标签2", "标签3", "标签4", "标签5"],
+      "style": "内容风格描述",
+      "whyThisWorks": "为什么这个方案有效（1句话）",
+      "imagePrompt": "配图建议描述（可用于AI生成配图的prompt）"
+    }
+  ]
+}
+
+规则：
+- suggestions 必须正好3个，每个方案的切入角度和风格要有明显差异
+- 标题要吸引人，符合小红书爆款标题特征（使用数字、感叹号、提问、对比等技巧）
+- 正文要像真正的小红书用户写的，自然、亲切、有温度
+- 标签要精准，包含行业大词和长尾词
+- imagePrompt 要具体，适合DALL-E生成`
+        },
+        {
+          role: "user",
+          content: inputContext,
+        },
+      ],
+      max_tokens: 3000,
+      temperature: 0.8,
+    });
+
+    const raw = completion.choices[0]?.message?.content || "";
+    const result = safeJsonParse(raw);
+
+    if (!result || !Array.isArray(result.suggestions) || result.suggestions.length === 0) {
+      res.status(500).json({ error: "AI返回格式异常，请重试" });
+      return;
+    }
+
+    const validSuggestions = result.suggestions.filter(
+      (s: any) => s && typeof s.title === "string" && typeof s.body === "string"
+    ).slice(0, 3);
+
+    if (validSuggestions.length === 0) {
+      res.status(500).json({ error: "AI返回格式异常，请重试" });
+      return;
+    }
+
+    res.json({ analysis: result.analysis || {}, suggestions: validSuggestions });
+  } catch (err) {
+    req.log.error(err, "Failed to do competitor research");
+    res.status(500).json({ error: "竞品分析失败，请稍后重试" });
+  }
+});
+
 router.post("/ai/guide", async (req, res): Promise<void> => {
   try {
-    const { messages, currentPage } = req.body;
+    const { messages, currentPage, workflowStep, accountRegion } = req.body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       res.status(400).json({ error: "messages is required" });
       return;
     }
 
-    const systemPrompt = `你是一位资深的小红书运营专家和AI助手，名叫"小红助手"。你深入了解小红书平台的算法机制、内容创作技巧、运营策略和最新趋势。
+    const stepNum = typeof workflowStep === "number" ? workflowStep : null;
+    const stepNames: Record<number, string> = { 1: "选择账号", 2: "灵感研究", 3: "创作内容", 4: "预览检查", 5: "发布" };
+    const currentStepName = stepNum ? stepNames[stepNum] || "" : "";
+    const regionStr = typeof accountRegion === "string" ? accountRegion : "";
 
-你的职责：
-1. 帮助用户理解小红书的运营规则和算法逻辑
-2. 提供内容创作建议（标题、正文、标签、配图策略）
-3. 分析内容质量并给出优化建议
-4. 解答关于小红书平台的各种问题
-5. 提供账号运营策略和增长建议
+    const systemPrompt = `你是一位资深的小红书运营专家和AI助手，名叫"小红助手"。你深入了解小红书平台的算法机制、内容创作技巧、运营策略和最新趋势。你不仅是顾问，更是用户的运营教练和心理支持者。
+
+你的核心职责：
+1. **主动引导**：根据用户当前所在步骤，主动提供最相关的建议，而不是等用户提问
+2. **实操为主**：每个建议都要具体到可以立刻执行，给出模板和示例
+3. **心理激励**：适时鼓励用户，缓解创作焦虑，让用户感到"我也能做到"
+4. **策略思维**：帮用户看到内容背后的逻辑，建立系统化运营思维
+5. **数据敏感**：基于小红书算法逻辑给出可量化的目标和预期
 
 用户当前所在页面：${currentPage || "未知"}
-${currentPage === "/workflow" ? "用户正在使用创作发布向导，可能需要内容创作方面的即时指导。" : ""}
-${currentPage === "/content" ? "用户在查看内容列表，可能需要内容管理或优化建议。" : ""}
-${currentPage === "/dashboard" ? "用户在查看仪表盘，可能需要整体运营策略建议。" : ""}
-${currentPage === "/accounts" ? "用户在管理账号，可能需要多账号运营策略建议。" : ""}
+${stepNum ? `用户正处于创作向导的【步骤${stepNum}: ${currentStepName}】` : ""}
+${regionStr ? `用户选择的账号地区：${regionStr}` : ""}
+${currentPage === "/workflow" ? `
+创作向导有5个步骤，用户当前在步骤${stepNum || "未知"}：
+${stepNum === 1 ? "【当前：选择账号】帮助用户选对账号，提醒不同地区（新加坡/香港/马来西亚）的内容差异和受众特点。" : ""}
+${stepNum === 2 ? "【当前：灵感研究】这是核心功能！用户需要输入业务描述，AI会分析同行并生成3套内容方案。主动引导用户描述清楚业务特点、目标客群、竞品名称。提醒用户：描述越详细，生成的方案越精准。" : ""}
+${stepNum === 3 ? "【当前：创作内容】用户正在编辑笔记。帮助优化标题（使用爆款公式：数字+痛点+解决方案）、正文（前3行是黄金区域，要有hook）、标签（3个大词+3个长尾词）、配图（封面决定点击率）。" : ""}
+${stepNum === 4 ? "【当前：预览检查】帮用户做最后的质量把关。提醒检查：1)标题是否超20字 2)正文是否有违禁词 3)配图是否清晰 4)标签是否精准。" : ""}
+${stepNum === 5 ? "【当前：发布】提醒发布后的互动策略：1)黄金2小时内回复每条评论 2)引导互动 3)观察数据。恭喜用户完成创作流程！" : ""}
+${!stepNum ? "用户正在使用创作发布向导，帮助其完成从灵感研究到发布的全流程。" : ""}` : ""}
+${currentPage === "/content" ? "用户在查看内容列表。可以帮用户分析内容表现规律，提出优化已有内容、复制爆款模式的建议。" : ""}
+${currentPage === "/dashboard" ? "用户在查看仪表盘。帮用户解读数据趋势，制定下一步运营计划，保持运营节奏。" : ""}
+${currentPage === "/accounts" ? "用户在管理账号。提供多账号矩阵运营策略，不同地区（新加坡/香港/马来西亚）的本地化内容建议。" : ""}
 
 回复规则：
 - 使用简体中文回复
-- 回复要简洁实用，重点突出，避免冗长
-- 给出可执行的具体建议，而非空洞的理论
-- 适当使用emoji让回复更生动
+- 回复要简洁实用，重点突出
+- 给出可执行的具体建议，包含示例或模板
+- 适当使用emoji让回复更生动亲切
+- 主动预判用户下一步可能遇到的问题并提前解答
+- 对新手用户要有耐心和鼓励，降低操作门槛
+- 如果用户表达困惑或焦虑，先共情再给解决方案
 - 如果用户问的不是小红书相关问题，友好地引导回小红书运营话题
-- 每次回复控制在200字以内`;
+- 每次回复控制在300字以内，可以用列表让信息更清晰`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",

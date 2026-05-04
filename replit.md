@@ -66,19 +66,22 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 ## Workflow Wizard
 
-- Guided 4-step flow at `/workflow`: 选择账号 → 创作内容 → 预览检查 → 发布
+- Guided 5-step flow at `/workflow`: 选择账号 → 灵感研究 → 创作内容 → 预览检查 → 发布
 - Step 1: Select or create XHS account with visual card selection
-- Step 2: AI-assisted content creation (rewrite, title/hashtag generation, image generation/upload)
-- Step 3: XHS-style preview card + sensitivity check + content stats with tips
-- Step 4: One-click copy content → open XHS Creator Studio → mark as published
+- Step 2: AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans → user picks one to pre-fill editor
+- Step 3: AI-assisted content creation (rewrite, title/hashtag generation, image generation/upload), pre-filled if user adopted a research suggestion
+- Step 4: XHS-style preview card + sensitivity check + content stats with tips
+- Step 5: One-click copy content → open XHS Creator Studio → mark as published
 - Dashboard has prominent gradient CTA card linking to workflow
 - Sidebar has highlighted "创建发布" nav item
 
 ## AI Guide / Assistant
 
 - Floating chat widget on all authenticated pages (bottom-right corner)
-- `POST /api/ai/guide` — context-aware XHS operations assistant (gpt-4o-mini)
-- Knows current page context and provides relevant quick prompts
+- `POST /api/ai/guide` — step-aware XHS operations assistant (gpt-4o-mini)
+- Sends current workflow step number + account region to backend for precise context
+- Different quick prompts per page (dashboard, workflow, content, accounts)
+- Proactive tips when entering workflow, encourages and guides users through each step
 - Specialized in XHS platform rules, content strategy, algorithm tips
 - Minimizable/closable, persists conversation during session
 
@@ -106,7 +109,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `POST /ai/generate-title` — AI title generation
 - `POST /ai/generate-hashtags` — AI hashtag generation
 - `POST /ai/generate-image` — AI image generation (DALL-E 3)
-- `POST /ai/guide` — AI operations guide chatbot
+- `POST /ai/competitor-research` — AI competitor analysis + content plan generation
+- `POST /ai/guide` — AI operations guide chatbot (step-aware in workflow)
 - `GET /dashboard/stats` — Dashboard statistics
 - `GET /dashboard/recent-activity` — Recent activity log
 - `GET /dashboard/content-by-region` — Content distribution by region
