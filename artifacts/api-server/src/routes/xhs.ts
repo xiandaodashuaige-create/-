@@ -160,7 +160,7 @@ export async function tryFetchXhsData(keyword: string): Promise<{ available: boo
         note_type: "0",
       });
 
-      const notes = normalizeTikHubNotes(data).slice(0, 10);
+      const notes = normalizeTikHubNotes(data).slice(0, 20);
       if (notes.length > 0) {
         logger.info({ count: notes.length }, "TikHub XHS search succeeded");
         return { available: true, notes, source: "real-data" };
@@ -179,7 +179,7 @@ export async function tryFetchXhsData(keyword: string): Promise<{ available: boo
 
       const rawItems = data?.data?.items || [];
       if (rawItems.length > 0) {
-        const notes = normalizeRapidAPINotes(rawItems).slice(0, 10);
+        const notes = normalizeRapidAPINotes(rawItems).slice(0, 20);
         logger.info({ count: notes.length }, "RapidAPI XHS search succeeded");
         return { available: true, notes, source: "real-data" };
       }

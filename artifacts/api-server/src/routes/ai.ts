@@ -320,15 +320,26 @@ router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (re
 
     const validSizes = ["1024x1024", "1024x1536", "1536x1024", "auto"];
     const imageSize = validSizes.includes(size) ? size : "1024x1536";
-    const imageStyle = style || "小红书风格，精美，高质量";
-    const fullPrompt = `${prompt}. Style: ${imageStyle}. High quality, professional, suitable for Xiaohongshu (Little Red Book) social media post.`;
+    const imageStyle = style || "小红书爆款封面风格";
+    const fullPrompt = `创作一张小红书爆款封面配图。
+
+主题：${prompt}
+
+风格要求：${imageStyle}
+- 画面精致、高级感、色彩鲜明饱满
+- 构图专业，视觉冲击力强，让人一眼就想点进来
+- 适合作为小红书笔记封面图
+- 如果涉及产品/美食/场景，要有真实质感和细节
+- 如果涉及人物，要自然大方、有亲和力
+- 整体氛围要温暖、治愈或高端，符合小红书爆款审美
+- 不要出现任何文字、水印或logo`;
 
     const response = await openai.images.generate({
       model: "gpt-image-1",
       prompt: fullPrompt,
       n: 1,
       size: imageSize as "1024x1024" | "1024x1536" | "1536x1024" | "auto",
-      quality: "auto",
+      quality: "high",
     });
 
     const b64Data = response.data?.[0]?.b64_json;

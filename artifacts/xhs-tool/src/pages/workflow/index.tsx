@@ -782,12 +782,80 @@ export default function WorkflowWizard() {
                 </CardContent>
               </Card>
 
+              {/* Real Competitor Notes Gallery */}
+              {researchResult.competitorNotes?.length > 0 && (
+                <Card className="border-red-200 bg-red-50/20">
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-red-500" />
+                      同行爆款笔记（真实数据）
+                      <Badge className="bg-red-100 text-red-700 text-[10px] ml-auto">
+                        共{researchResult.competitorNotes.length}篇 · 来源: {researchResult.dataSource === "real-data" ? "实时抓取" : "AI分析"}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {researchResult.competitorNotes
+                        .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0))
+                        .map((note: any, i: number) => (
+                        <div key={note.id || i} className="group rounded-xl border bg-white overflow-hidden hover:shadow-md transition-all">
+                          {note.cover_url ? (
+                            <div className="aspect-[3/4] bg-muted overflow-hidden relative">
+                              <img
+                                src={note.cover_url}
+                                alt={note.title}
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                onError={(e) => {
+                                  const el = e.target as HTMLImageElement;
+                                  el.style.display = "none";
+                                  el.parentElement!.innerHTML = '<div class="w-full h-full flex items-center justify-center text-muted-foreground text-xs">图片加载失败</div>';
+                                }}
+                              />
+                              <div className="absolute top-1.5 right-1.5">
+                                <Badge className="bg-black/60 text-white text-[9px] border-0">
+                                  ❤️ {note.liked_count >= 10000 ? `${(note.liked_count / 10000).toFixed(1)}万` : note.liked_count}
+                                </Badge>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="aspect-[3/4] bg-gradient-to-br from-red-50 to-pink-50 flex items-center justify-center">
+                              <ImageIcon className="h-8 w-8 text-red-200" />
+                            </div>
+                          )}
+                          <div className="p-2.5 space-y-1.5">
+                            <p className="text-xs font-medium leading-tight line-clamp-2">{note.title || "无标题"}</p>
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                              <span className="truncate max-w-[60%]">@{note.author || "匿名"}</span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span>⭐{note.collected_count || 0}</span>
+                                <span>💬{note.comment_count || 0}</span>
+                              </div>
+                            </div>
+                            {note.tags?.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {note.tags.slice(0, 3).map((t: string, ti: number) => (
+                                  <span key={ti} className="text-[9px] text-red-400">#{t}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-3 text-center">
+                      以上为该领域小红书真实热门笔记，按点赞数排序。AI已参考这些数据为你生成内容方案。
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
+
               <div>
                 <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-red-500" />
                   选择内容方案
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">以下方案由AI基于行业分析生成。点击"采用此方案"，AI自动填充内容、检测并修复敏感词。</p>
+                <p className="text-sm text-muted-foreground mb-4">以下方案由AI基于{researchResult.competitorNotes?.length > 0 ? `${researchResult.competitorNotes.length}篇真实同行爆款` : "行业分析"}生成。点击"采用此方案"，AI自动填充内容、检测并修复敏感词。</p>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   {researchResult.suggestions?.map((suggestion: any, index: number) => (
