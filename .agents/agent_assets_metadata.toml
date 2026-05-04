@@ -12,3 +12,9 @@ id = "RghYqIbKTYglAW1nhX54F"
 uri = "file://xhs-ai-tool.tar.gz"
 type = "unspecified"
 title = "最新代码包 (含USD定价+双语落地页)"
+
+[[outputs]]
+id = "1RQuaPgt2ydBOo6hPPaAV"
+uri = "file://.local/需求沟通模板.md"
+type = "text"
+title = "AI Agent 需求沟通模板 v1.0"
