@@ -70,6 +70,7 @@ export default function WorkflowWizard() {
   const [savedContentId, setSavedContentId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [publishStep, setPublishStep] = useState<"ready" | "copied" | "opened">("ready");
+  const [editMode, setEditMode] = useState(false);
 
   const [aiProgress, setAiProgress] = useState<{ active: boolean; steps: AiProgressStep[] }>({
     active: false,
@@ -197,9 +198,9 @@ export default function WorkflowWizard() {
   const runAiProgressSequence = useCallback(async (suggestion: any) => {
     const steps: AiProgressStep[] = [
       { label: "正在应用内容方案...", status: "running" },
-      { label: "AI正在生成标签和标题...", status: "pending" },
-      { label: "安全检查与自动优化...", status: "pending" },
-      { label: "AI正在生成配图...", status: "pending" },
+      { label: "AI正在优化文案...", status: "pending" },
+      { label: "安全检查与自动修复...", status: "pending" },
+      { label: "基于同行爆款生成配图...", status: "pending" },
     ];
     setAiProgress({ active: true, steps: [...steps] });
 
@@ -254,7 +255,40 @@ export default function WorkflowWizard() {
     steps[3].status = "running";
     setAiProgress({ active: true, steps: [...steps] });
 
-    if (suggestion.imagePrompt) {
+    const competitorCovers = (researchResult?.competitorNotes || [])
+      .filter((n: any) => n.cover_url)
+      .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0));
+
+    if (competitorCovers.length > 0 && suggestion.imagePrompt) {
+      const bestCover = competitorCovers[0];
+      setReferenceImageUrl(bestCover.cover_url);
+      setImagePrompt(suggestion.imagePrompt);
+      try {
+        const imageRes = await api.ai.editImage({
+          prompt: suggestion.imagePrompt,
+          referenceImageUrl: bestCover.cover_url,
+          size: "1024x1536",
+        });
+        const url = imageRes.storedUrl || imageRes.imageUrl;
+        if (url) {
+          setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+        }
+      } catch (err: any) {
+        if (err?.status === 403) { handleCreditError(err); }
+        else {
+          try {
+            const imageRes = await api.ai.generateImage({ prompt: suggestion.imagePrompt, size: "1024x1536" });
+            const url = imageRes.storedUrl || imageRes.imageUrl;
+            if (url) {
+              setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+            }
+          } catch (err2: any) {
+            if (err2?.status === 403) { handleCreditError(err2); }
+            else { toast({ title: "配图生成暂时不可用，可手动重新生成", variant: "destructive" }); }
+          }
+        }
+      }
+    } else if (suggestion.imagePrompt) {
       setImagePrompt(suggestion.imagePrompt);
       try {
         const imageRes = await api.ai.generateImage({ prompt: suggestion.imagePrompt, size: "1024x1536" });
@@ -264,7 +298,7 @@ export default function WorkflowWizard() {
         }
       } catch (err: any) {
         if (err?.status === 403) { handleCreditError(err); }
-        else { toast({ title: "配图生成暂时不可用，可在编辑页手动生成", variant: "destructive" }); }
+        else { toast({ title: "配图生成暂时不可用，可手动重新生成", variant: "destructive" }); }
       }
     }
 
@@ -275,7 +309,7 @@ export default function WorkflowWizard() {
     setAiProgress({ active: false, steps: [] });
     setContentSaved(false);
     setStep(2);
-  }, [selectedRegion]);
+  }, [selectedRegion, researchResult]);
 
   function handleAdoptSuggestion(index: number) {
     const suggestion = researchResult?.suggestions?.[index];
@@ -847,163 +881,23 @@ export default function WorkflowWizard() {
         </div>
       )}
 
-      {/* Step 2: Create Content + Preview (Merged) */}
+      {/* Step 2: Review AI Result (preview first, edit if needed) */}
       {step === 2 && !aiProgress.active && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            {selectedSuggestion !== null && researchResult?.suggestions?.[selectedSuggestion] && (
-              <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-3 text-sm">
-                <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
-                <div className="flex-1">
-                  <span className="font-medium text-green-800">已采用方案 {selectedSuggestion + 1}：</span>
-                  <span className="text-green-700">{researchResult.suggestions[selectedSuggestion].angle}</span>
-                </div>
-                <Button size="sm" variant="ghost" className="text-xs" onClick={() => setStep(1)}>
-                  重新选择
-                </Button>
+        <div className="space-y-6">
+          {selectedSuggestion !== null && researchResult?.suggestions?.[selectedSuggestion] && (
+            <div className="p-3 rounded-xl bg-green-50 border border-green-200 flex items-center gap-3 text-sm">
+              <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+              <div className="flex-1">
+                <span className="font-medium text-green-800">AI已自动生成完整内容（方案 {selectedSuggestion + 1}）</span>
+                <span className="text-green-600 ml-1">— 文案、标签、配图全部就绪</span>
               </div>
-            )}
+            </div>
+          )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-red-500" />
-                  编写笔记内容
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {selectedRegion && (
-                  <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2" data-selected-account-region={selectedRegion}>
-                    <span className="text-muted-foreground">目标地区：</span>
-                    <Badge variant="secondary" className="text-xs" data-account-region={selectedRegion}>
-                      {regionLabels[selectedRegion] || selectedRegion}
-                    </Badge>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>标题</Label>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs"
-                      disabled={titleMutation.isPending || !form.body.trim()}
-                      onClick={() => titleMutation.mutate({ body: form.body, count: 5 })}
-                    >
-                      {titleMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Type className="h-3 w-3 mr-1" />}
-                      AI生成标题
-                    </Button>
-                  </div>
-                  <Input value={form.title} onChange={(e) => { setForm({ ...form, title: e.target.value }); setContentSaved(false); }} placeholder="输入吸引人的标题" />
-                  {titleMutation.data?.titles && (
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {titleMutation.data.titles.map((t: string, i: number) => (
-                        <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
-                          onClick={() => { setForm({ ...form, title: t }); setContentSaved(false); }}>{t}</Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>正文内容</Label>
-                  <Textarea value={form.body} onChange={(e) => { setForm({ ...form, body: e.target.value }); setContentSaved(false); }}
-                    placeholder="输入小红书笔记正文..." rows={10} className="font-mono text-sm" />
-                  <div className="text-xs text-muted-foreground text-right">{form.body.length} 字</div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>竞品参考（可选）</Label>
-                  <Textarea value={form.originalReference} onChange={(e) => setForm({ ...form, originalReference: e.target.value })}
-                    placeholder="粘贴竞品内容，AI将参考其风格进行改写..." rows={3} className="text-sm" />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>标签</Label>
-                    <Button variant="ghost" size="sm" className="h-7 text-xs"
-                      disabled={hashtagMutation.isPending || !form.body.trim()}
-                      onClick={() => hashtagMutation.mutate({ title: form.title, body: form.body, count: 10 })}
-                    >
-                      {hashtagMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Hash className="h-3 w-3 mr-1" />}
-                      AI生成标签
-                    </Button>
-                  </div>
-                  <div className="flex gap-2">
-                    <Input value={form.tagInput} onChange={(e) => setForm({ ...form, tagInput: e.target.value })}
-                      placeholder="输入标签后回车" onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddTag())} />
-                    <Button variant="outline" onClick={handleAddTag}>添加</Button>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {form.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary" className="cursor-pointer" onClick={() => {
-                        setForm({ ...form, tags: form.tags.filter((t) => t !== tag) }); setContentSaved(false);
-                      }}>#{tag} ×</Badge>
-                    ))}
-                  </div>
-                  {hashtagMutation.data?.hashtags && (
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {hashtagMutation.data.hashtags.map((h: string, i: number) => (
-                        <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
-                          onClick={() => { if (!form.tags.includes(h)) { setForm({ ...form, tags: [...form.tags, h] }); setContentSaved(false); } }}>#{h}</Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>配图</Label>
-                    <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
-                      allowedFileTypes={["image/*"]}
-                      onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
-                      buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
-                      <Upload className="h-3 w-3 mr-1" />上传图片
-                    </ObjectUploader>
-                  </div>
-                  {form.imageUrls.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2">
-                      {form.imageUrls.map((url, i) => (
-                        <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border bg-muted">
-                          <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                          <button onClick={() => { setForm((p) => ({ ...p, imageUrls: p.imageUrls.filter((_, j) => j !== i) })); setContentSaved(false); }}
-                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-3 w-3" /></button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="flex items-center gap-1.5">
-                      <Video className="h-3.5 w-3.5 text-blue-500" />
-                      团队视频素材
-                      <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">鹿联团队每周提供</span>
-                    </Label>
-                    {!form.videoUrl && (
-                      <ObjectUploader maxNumberOfFiles={1} maxFileSize={104857600}
-                        allowedFileTypes={["video/*"]}
-                        onGetUploadParameters={handleGetUploadParameters} onComplete={handleVideoUploadComplete}
-                        buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
-                        <Video className="h-3 w-3 mr-1" />上传视频
-                      </ObjectUploader>
-                    )}
-                  </div>
-                  {form.videoUrl && (
-                    <div className="relative group rounded-lg overflow-hidden border bg-muted">
-                      <video src={form.videoUrl} controls className="w-full max-h-48 object-contain" />
-                      <button onClick={() => { setForm((p) => ({ ...p, videoUrl: "" })); setContentSaved(false); }}
-                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-3 w-3" /></button>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-4">
-            {/* Live Preview Card */}
-            <Card>
-              <CardHeader>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Large Preview - Primary */}
+            <Card className="border-2 border-red-100">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2"><Eye className="h-4 w-4 text-red-500" /> 笔记预览</CardTitle>
               </CardHeader>
               <CardContent>
@@ -1013,12 +907,12 @@ export default function WorkflowWizard() {
                       <img src={form.imageUrls[0]} alt="封面" className="w-full h-full object-cover" />
                     </div>
                   )}
-                  <div className="p-3 space-y-2">
-                    <h3 className="font-bold text-sm leading-tight">{form.title || "未输入标题"}</h3>
-                    <p className="text-xs text-gray-700 whitespace-pre-wrap line-clamp-4">{form.body || "未输入正文"}</p>
+                  <div className="p-4 space-y-2.5">
+                    <h3 className="font-bold text-base leading-tight">{form.title || "未输入标题"}</h3>
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{form.body || "未输入正文"}</p>
                     {form.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {form.tags.slice(0, 5).map((t) => (<span key={t} className="text-[10px] text-red-500">#{t}</span>))}
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {form.tags.map((t) => (<span key={t} className="text-xs text-red-500">#{t}</span>))}
                       </div>
                     )}
                     <div className="flex items-center gap-2 pt-2 border-t">
@@ -1044,185 +938,305 @@ export default function WorkflowWizard() {
               </CardContent>
             </Card>
 
-            {/* Content Stats */}
-            <Card>
-              <CardContent className="pt-4">
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">标题</p><p className="text-base font-bold">{form.title.length}字</p></div>
-                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">正文</p><p className="text-base font-bold">{form.body.length}字</p></div>
-                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">标签</p><p className="text-base font-bold">{form.tags.length}个</p></div>
-                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">配图</p><p className="text-base font-bold">{form.imageUrls.length}张</p></div>
-                </div>
-                {form.title.length > 20 && <p className="text-[10px] text-amber-600 mt-2">提示：标题超过20字可能影响展示效果</p>}
-                {form.body.length < 50 && form.body.length > 0 && <p className="text-[10px] text-amber-600 mt-1">提示：正文建议至少50字</p>}
-                {form.imageUrls.length === 0 && <p className="text-[10px] text-amber-600 mt-1">提示：建议添加至少1张配图</p>}
-              </CardContent>
-            </Card>
-
-            {/* AI Tools */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4" /> AI工具</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button variant="outline" className="w-full justify-start" disabled={rewriteMutation.isPending} onClick={handleRewrite}>
-                  {rewriteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wand2 className="h-4 w-4 mr-2" />}
-                  AI智能改写
-                </Button>
-                <Button variant="outline" className="w-full justify-start"
-                  disabled={sensitivityMutation.isPending || !form.body.trim()}
-                  onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}>
-                  {sensitivityMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
-                  敏感词检测
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* AI Image Generation - with competitor reference gallery */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI配图</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {form.imageUrls.length > 0 && (
-                  <div className="p-2 rounded-lg bg-green-50 border border-green-200 text-xs text-green-700 flex items-center gap-2">
-                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                    已生成 {form.imageUrls.length} 张配图，可继续生成或上传替换
+            {/* Right side: Stats + Actions + Reference */}
+            <div className="space-y-4">
+              <Card>
+                <CardContent className="pt-4">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">标题</p><p className="text-base font-bold">{form.title.length}字</p></div>
+                    <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">正文</p><p className="text-base font-bold">{form.body.length}字</p></div>
+                    <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">标签</p><p className="text-base font-bold">{form.tags.length}个</p></div>
+                    <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">配图</p><p className="text-base font-bold">{form.imageUrls.length}张</p></div>
                   </div>
-                )}
-
-                {researchResult?.competitorNotes?.filter((n: any) => n.cover_url).length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <TrendingUp className="h-3.5 w-3.5 text-red-500" />
-                      <p className="text-xs font-medium text-foreground">同行爆款封面（点击选为参考图）</p>
+                  {sensitivityResult && (
+                    <div className={`mt-3 p-2 rounded-lg flex items-center gap-2 text-xs ${sensitivityResult.score > 50 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
+                      {sensitivityResult.score > 50 ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      <span>{sensitivityResult.score > 50 ? `发现${sensitivityResult.issues?.length || 0}个风险项` : "内容安全检查通过"}</span>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {researchResult.competitorNotes
-                        .filter((n: any) => n.cover_url)
-                        .slice(0, 9)
-                        .map((note: any, i: number) => (
-                          <button
-                            key={note.id || i}
-                            onClick={() => setReferenceImageUrl(note.cover_url)}
-                            className={`relative group rounded-lg overflow-hidden border-2 transition-all aspect-[3/4] ${
-                              referenceImageUrl === note.cover_url
-                                ? "border-red-500 ring-2 ring-red-200"
-                                : "border-transparent hover:border-red-300"
-                            }`}
-                          >
-                            <img
-                              src={note.cover_url}
-                              alt={note.title}
-                              className="w-full h-full object-cover"
-                              onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                            <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <p className="text-[9px] text-white leading-tight line-clamp-2">{note.title}</p>
-                              <p className="text-[8px] text-white/80 mt-0.5">❤️{note.liked_count} ⭐{note.collected_count}</p>
-                            </div>
-                            {referenceImageUrl === note.cover_url && (
-                              <div className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5">
-                                <Check className="h-3 w-3" />
-                              </div>
-                            )}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {referenceImageUrl && (
-                  <div className="relative group">
-                    <img src={referenceImageUrl} alt="参考图" className="w-full h-28 object-cover rounded-lg border-2 border-red-400" />
-                    <button onClick={() => setReferenceImageUrl("")}
-                      className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X className="h-3 w-3" />
-                    </button>
-                    <div className="absolute bottom-1 left-1">
-                      <Badge className="bg-red-500 text-white text-[10px]">已选为参考图</Badge>
-                    </div>
-                  </div>
-                )}
-
-                {!referenceImageUrl && (
-                  <ObjectUploader maxNumberOfFiles={1} maxFileSize={10485760}
-                    allowedFileTypes={["image/*"]}
-                    onGetUploadParameters={handleGetUploadParameters} onComplete={handleRefImageUploadComplete}
-                    buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg text-xs font-medium h-14 px-3 border border-dashed border-purple-300 bg-purple-50/30 text-purple-600 hover:bg-purple-100 hover:border-purple-400 transition-colors">
-                    <Upload className="h-3.5 w-3.5 mr-1" />上传自己的参考图（可选）
-                  </ObjectUploader>
-                )}
-
-                <Textarea value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder="描述配图风格，如：专业知识图表、柔和配色、包含产品展示..."
-                  rows={2} className="text-sm" />
-                <div className="flex gap-2">
-                  <Select value={imageSize} onValueChange={setImageSize}>
-                    <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1024x1536">竖版 9:16</SelectItem>
-                      <SelectItem value="1024x1024">正方形 1:1</SelectItem>
-                      <SelectItem value="1536x1024">横版 16:9</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
-                  disabled={isImageGenerating || !imagePrompt.trim()}
-                  onClick={handleGenerateOrEditImage}>
-                  {isImageGenerating ? (
-                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
-                  ) : referenceImageUrl ? (
-                    <><RefreshCw className="h-4 w-4 mr-2" />基于参考图生成配图</>
-                  ) : (
-                    <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
                   )}
-                </Button>
-
-                <div className="pt-2 border-t">
-                  <p className="text-[10px] text-muted-foreground mb-2">或直接上传自己的图片</p>
-                  <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
-                    allowedFileTypes={["image/*"]}
-                    onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
-                    buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-8 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
-                    <Upload className="h-3 w-3 mr-1" />上传自有素材
-                  </ObjectUploader>
-                </div>
-              </CardContent>
-            </Card>
-
-            {aiResult && (
-              <Card className="border-primary/50">
-                <CardHeader><CardTitle className="text-base">AI改写结果</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div><Label className="text-xs text-muted-foreground">标题</Label><p className="text-sm font-medium">{aiResult.rewrittenTitle}</p></div>
-                  <div><Label className="text-xs text-muted-foreground">正文</Label><p className="text-sm whitespace-pre-wrap max-h-48 overflow-auto">{aiResult.rewrittenBody}</p></div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={applyAiResult}>应用结果</Button>
-                    <Button size="sm" variant="outline" onClick={() => setAiResult(null)}>关闭</Button>
-                  </div>
                 </CardContent>
               </Card>
-            )}
 
-            {sensitivityResult && (
-              <Card className={sensitivityResult.score > 50 ? "border-destructive/50" : "border-green-500/50"}>
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <ShieldCheck className="h-4 w-4" /> 安全检查
-                    </span>
-                    <Badge variant={sensitivityResult.score > 50 ? "destructive" : "default"}>风险分: {sensitivityResult.score}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className={`p-2 rounded-lg flex items-center gap-2 text-sm ${sensitivityResult.score > 50 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
-                    {sensitivityResult.score > 50 ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-                    <span className="font-medium">{sensitivityResult.score > 50 ? "发现潜在风险" : "内容安全"}</span>
-                  </div>
-                  {sensitivityResult.issues?.length > 0 && (
-                    <div className="space-y-1.5">
+              {referenceImageUrl && (
+                <Card>
+                  <CardContent className="pt-4">
+                    <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <TrendingUp className="h-3.5 w-3.5 text-red-500" />
+                      参考的同行爆款封面
+                    </p>
+                    <img src={referenceImageUrl} alt="参考图" className="w-full h-32 object-cover rounded-lg border" />
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <Button className="w-full h-12 bg-red-500 hover:bg-red-600 text-white text-base" onClick={() => { handleSave(); setStep(3); }}>
+                  <CheckCircle2 className="h-5 w-5 mr-2" />
+                  满意，去发布
+                </Button>
+                <Button variant="outline" className="w-full" onClick={() => { setEditMode(!editMode); }}>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  {editMode ? "收起编辑" : "需要修改"}
+                </Button>
+                <Button variant="ghost" className="w-full text-xs text-muted-foreground" onClick={() => setStep(1)}>
+                  <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                  返回重新选方案
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Expandable Edit Section */}
+          {editMode && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 border-t">
+              <div className="lg:col-span-2 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-red-500" />
+                      编辑内容
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>标题</Label>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs"
+                          disabled={titleMutation.isPending || !form.body.trim()}
+                          onClick={() => titleMutation.mutate({ body: form.body, count: 5 })}
+                        >
+                          {titleMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Type className="h-3 w-3 mr-1" />}
+                          AI生成标题
+                        </Button>
+                      </div>
+                      <Input value={form.title} onChange={(e) => { setForm({ ...form, title: e.target.value }); setContentSaved(false); }} placeholder="输入吸引人的标题" />
+                      {titleMutation.data?.titles && (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {titleMutation.data.titles.map((t: string, i: number) => (
+                            <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                              onClick={() => { setForm({ ...form, title: t }); setContentSaved(false); }}>{t}</Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>正文内容</Label>
+                      <Textarea value={form.body} onChange={(e) => { setForm({ ...form, body: e.target.value }); setContentSaved(false); }}
+                        placeholder="输入小红书笔记正文..." rows={10} className="font-mono text-sm" />
+                      <div className="text-xs text-muted-foreground text-right">{form.body.length} 字</div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>标签</Label>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs"
+                          disabled={hashtagMutation.isPending || !form.body.trim()}
+                          onClick={() => hashtagMutation.mutate({ title: form.title, body: form.body, count: 10 })}
+                        >
+                          {hashtagMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Hash className="h-3 w-3 mr-1" />}
+                          AI生成标签
+                        </Button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input value={form.tagInput} onChange={(e) => setForm({ ...form, tagInput: e.target.value })}
+                          placeholder="输入标签后回车" onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddTag())} />
+                        <Button variant="outline" onClick={handleAddTag}>添加</Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {form.tags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className="cursor-pointer" onClick={() => {
+                            setForm({ ...form, tags: form.tags.filter((t) => t !== tag) }); setContentSaved(false);
+                          }}>#{tag} ×</Badge>
+                        ))}
+                      </div>
+                      {hashtagMutation.data?.hashtags && (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {hashtagMutation.data.hashtags.map((h: string, i: number) => (
+                            <Badge key={i} variant="outline" className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                              onClick={() => { if (!form.tags.includes(h)) { setForm({ ...form, tags: [...form.tags, h] }); setContentSaved(false); } }}>#{h}</Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label>配图</Label>
+                        <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
+                          allowedFileTypes={["image/*"]}
+                          onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
+                          buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                          <Upload className="h-3 w-3 mr-1" />上传图片
+                        </ObjectUploader>
+                      </div>
+                      {form.imageUrls.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {form.imageUrls.map((url, i) => (
+                            <div key={i} className="relative group aspect-square rounded-lg overflow-hidden border bg-muted">
+                              <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                              <button onClick={() => { setForm((p) => ({ ...p, imageUrls: p.imageUrls.filter((_, j) => j !== i) })); setContentSaved(false); }}
+                                className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-3 w-3" /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="flex items-center gap-1.5">
+                          <Video className="h-3.5 w-3.5 text-blue-500" />
+                          团队视频素材
+                          <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">鹿联团队每周提供</span>
+                        </Label>
+                        {!form.videoUrl && (
+                          <ObjectUploader maxNumberOfFiles={1} maxFileSize={104857600}
+                            allowedFileTypes={["video/*"]}
+                            onGetUploadParameters={handleGetUploadParameters} onComplete={handleVideoUploadComplete}
+                            buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                            <Video className="h-3 w-3 mr-1" />上传视频
+                          </ObjectUploader>
+                        )}
+                      </div>
+                      {form.videoUrl && (
+                        <div className="relative group rounded-lg overflow-hidden border bg-muted">
+                          <video src={form.videoUrl} controls className="w-full max-h-48 object-contain" />
+                          <button onClick={() => { setForm((p) => ({ ...p, videoUrl: "" })); setContentSaved(false); }}
+                            className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-3 w-3" /></button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4" /> AI工具</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button variant="outline" className="w-full justify-start" disabled={rewriteMutation.isPending} onClick={handleRewrite}>
+                      {rewriteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wand2 className="h-4 w-4 mr-2" />}
+                      AI智能改写
+                    </Button>
+                    <Button variant="outline" className="w-full justify-start"
+                      disabled={sensitivityMutation.isPending || !form.body.trim()}
+                      onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}>
+                      {sensitivityMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+                      敏感词检测
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> 重新生成配图</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {researchResult?.competitorNotes?.filter((n: any) => n.cover_url).length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium flex items-center gap-1.5">
+                          <TrendingUp className="h-3.5 w-3.5 text-red-500" />
+                          选择同行封面作为参考
+                        </p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {researchResult.competitorNotes
+                            .filter((n: any) => n.cover_url)
+                            .slice(0, 6)
+                            .map((note: any, i: number) => (
+                              <button
+                                key={note.id || i}
+                                onClick={() => setReferenceImageUrl(note.cover_url)}
+                                className={`relative group rounded-lg overflow-hidden border-2 transition-all aspect-[3/4] ${
+                                  referenceImageUrl === note.cover_url
+                                    ? "border-red-500 ring-2 ring-red-200"
+                                    : "border-transparent hover:border-red-300"
+                                }`}
+                              >
+                                <img src={note.cover_url} alt={note.title} className="w-full h-full object-cover"
+                                  onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }} />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                                <div className="absolute bottom-0 left-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <p className="text-[8px] text-white leading-tight line-clamp-1">{note.title}</p>
+                                  <p className="text-[7px] text-white/80">❤️{note.liked_count}</p>
+                                </div>
+                                {referenceImageUrl === note.cover_url && (
+                                  <div className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-0.5">
+                                    <Check className="h-2.5 w-2.5" />
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {!referenceImageUrl && (
+                      <ObjectUploader maxNumberOfFiles={1} maxFileSize={10485760}
+                        allowedFileTypes={["image/*"]}
+                        onGetUploadParameters={handleGetUploadParameters} onComplete={handleRefImageUploadComplete}
+                        buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg text-xs font-medium h-10 px-3 border border-dashed border-purple-300 bg-purple-50/30 text-purple-600 hover:bg-purple-100 hover:border-purple-400 transition-colors">
+                        <Upload className="h-3.5 w-3.5 mr-1" />上传自己的参考图
+                      </ObjectUploader>
+                    )}
+
+                    <Textarea value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)}
+                      placeholder="描述配图风格..."
+                      rows={2} className="text-sm" />
+                    <Select value={imageSize} onValueChange={setImageSize}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1024x1536">竖版 9:16</SelectItem>
+                        <SelectItem value="1024x1024">正方形 1:1</SelectItem>
+                        <SelectItem value="1536x1024">横版 16:9</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
+                      disabled={isImageGenerating || !imagePrompt.trim()}
+                      onClick={handleGenerateOrEditImage}>
+                      {isImageGenerating ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
+                      ) : referenceImageUrl ? (
+                        <><RefreshCw className="h-4 w-4 mr-2" />基于参考图生成</>
+                      ) : (
+                        <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
+                      )}
+                    </Button>
+
+                    <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
+                      allowedFileTypes={["image/*"]}
+                      onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
+                      buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-8 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                      <Upload className="h-3 w-3 mr-1" />上传自有素材
+                    </ObjectUploader>
+                  </CardContent>
+                </Card>
+
+                {aiResult && (
+                  <Card className="border-primary/50">
+                    <CardHeader><CardTitle className="text-base">AI改写结果</CardTitle></CardHeader>
+                    <CardContent className="space-y-3">
+                      <div><Label className="text-xs text-muted-foreground">标题</Label><p className="text-sm font-medium">{aiResult.rewrittenTitle}</p></div>
+                      <div><Label className="text-xs text-muted-foreground">正文</Label><p className="text-sm whitespace-pre-wrap max-h-48 overflow-auto">{aiResult.rewrittenBody}</p></div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={applyAiResult}>应用结果</Button>
+                        <Button size="sm" variant="outline" onClick={() => setAiResult(null)}>关闭</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {sensitivityResult && sensitivityResult.issues?.length > 0 && (
+                  <Card className="border-destructive/50">
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center justify-between">
+                        <span className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> 安全检查</span>
+                        <Badge variant="destructive">风险分: {sensitivityResult.score}</Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-1.5">
                       {sensitivityResult.issues.map((issue: any, i: number) => (
                         <div key={i} className="text-xs p-2 rounded bg-muted">
                           <Badge variant={issue.severity === "high" ? "destructive" : "secondary"} className="text-[10px] mr-1">
@@ -1231,14 +1245,12 @@ export default function WorkflowWizard() {
                           {issue.suggestion && <p className="text-[10px] mt-1 text-muted-foreground">建议: {issue.suggestion}</p>}
                         </div>
                       ))}
-                    </div>
-                  )}
-                  {sensitivityResult.issues?.length === 0 && <p className="text-xs text-green-600">未发现敏感词问题</p>}
-                  {sensitivityResult.suggestion && <p className="text-[10px] text-muted-foreground">{sensitivityResult.suggestion}</p>}
-                </CardContent>
-              </Card>
-            )}
-          </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
