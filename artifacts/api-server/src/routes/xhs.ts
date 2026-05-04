@@ -14,6 +14,7 @@ async function proxyToAutoDL(path: string, options: RequestInit = {}): Promise<a
   const url = `${AUTODL_XHS_URL}${path}`;
   const res = await fetch(url, {
     ...options,
+    signal: AbortSignal.timeout(12_000),
     headers: {
       "Content-Type": "application/json",
       "X-API-Key": AUTODL_API_KEY,
@@ -27,6 +28,39 @@ async function proxyToAutoDL(path: string, options: RequestInit = {}): Promise<a
   }
 
   return res.json();
+}
+
+export async function tryFetchXhsData(keyword: string): Promise<{ available: boolean; notes: any[]; source: string }> {
+  if (!AUTODL_XHS_URL) {
+    return { available: false, notes: [], source: "ai-only" };
+  }
+
+  try {
+    const healthRes = await proxyToAutoDL("/health");
+    if (!healthRes?.xhs_ready) {
+      return { available: false, notes: [], source: "ai-only" };
+    }
+
+    const data = await proxyToAutoDL("/api/xhs/search", {
+      method: "POST",
+      body: JSON.stringify({ keyword, page: 1, sort: "hot" }),
+    });
+
+    if (data?.error) {
+      logger.warn({ error: data.error }, "XHS search returned error, falling back to AI-only");
+      return { available: false, notes: [], source: "ai-only" };
+    }
+
+    const notes = (data?.notes || []).slice(0, 10);
+    if (notes.length === 0) {
+      return { available: false, notes: [], source: "ai-only" };
+    }
+
+    return { available: true, notes, source: "real-data" };
+  } catch (e: any) {
+    logger.warn({ err: e.message }, "XHS data fetch failed, falling back to AI-only");
+    return { available: false, notes: [], source: "ai-only" };
+  }
 }
 
 router.get("/xhs/health", async (_req, res): Promise<void> => {

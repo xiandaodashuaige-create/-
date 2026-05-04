@@ -224,6 +224,7 @@ Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and Eng
   - `GET /api/xhs/user/:userId/notes` — Get user's published notes
 - XHS Cookie must be refreshed periodically on AutoDL server
 - Services location on AutoDL: `/root/lulian-services/xhs-service/`
+- **Hybrid Mode (方案C)**: `tryFetchXhsData()` in xhs.ts tries real XHS data first, falls back to AI-only when unavailable (cookie expired, AutoDL offline, account flagged). The competitor-research endpoint in ai.ts calls this function and injects real note data into the AI prompt when available. Frontend shows "含真实数据" or "AI智能分析" badge on results. Response includes `dataSource` field ("real-data" or "ai-only").
 
 ## Admin Auto-Assignment
 

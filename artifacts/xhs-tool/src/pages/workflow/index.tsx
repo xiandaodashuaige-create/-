@@ -712,6 +712,11 @@ export default function WorkflowWizard() {
                   <CardTitle className="text-base flex items-center gap-2">
                     <Target className="h-4 w-4 text-blue-500" />
                     AI策略分析报告
+                    {researchResult.dataSource === "real-data" ? (
+                      <Badge className="bg-green-100 text-green-700 text-[10px] ml-auto">📊 含真实数据</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] ml-auto">AI智能分析</Badge>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">

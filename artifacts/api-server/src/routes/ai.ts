@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
+import { tryFetchXhsData } from "./xhs";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -495,12 +496,27 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       ? "\n\n🔴 重要：目標受眾係香港人。你必須用繁體中文撰寫所有內容，並融入自然嘅香港廣東話口語表達（例如：搵、嘅、啲、唔、俾、揀、係、咗、嚟、喺）。標題同正文都要用繁體字，語氣要親切自然，符合香港人嘅閱讀習慣。標籤也用繁體中文。分析同行時要重點參考香港地區嘅小紅書爆款內容。"
       : "";
 
+    const searchKeyword = ni || bd.slice(0, 20);
+    let realDataContext = "";
+    let dataSource = "ai-only";
+
+    if (searchKeyword) {
+      const xhsResult = await tryFetchXhsData(searchKeyword);
+      dataSource = xhsResult.source;
+      if (xhsResult.available && xhsResult.notes.length > 0) {
+        const noteSummaries = xhsResult.notes.map((n: any, i: number) =>
+          `${i + 1}. 「${n.title}」by @${n.author} — ❤️${n.liked_count} ⭐${n.collected_count} 💬${n.comment_count} | 标签: ${(n.tags || []).join(", ")}`
+        ).join("\n");
+        realDataContext = `\n\n📊 以下是该领域小红书真实热门笔记数据（来源：实时抓取）：\n${noteSummaries}\n\n请基于以上真实数据，分析这些爆款的共同特征（标题技巧、内容角度、标签策略），并据此生成更精准的内容方案。`;
+      }
+    }
+
     const inputContext = [
       bd ? `业务/品牌描述: ${bd}` : "",
       cl ? `对标参考链接/账号: ${cl}` : "",
       ni ? `行业/赛道: ${ni}` : "",
       rg ? `目标地区: ${rg === "SG" ? "新加坡" : rg === "HK" ? "香港" : "马来西亚"}` : "",
-    ].filter(Boolean).join("\n");
+    ].filter(Boolean).join("\n") + realDataContext;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -571,7 +587,7 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     }
 
     await deductCredits(req, "ai-competitor-research");
-    res.json({ analysis: result.analysis || {}, suggestions: validSuggestions });
+    res.json({ analysis: result.analysis || {}, suggestions: validSuggestions, dataSource });
   } catch (err) {
     req.log.error(err, "Failed to do competitor research");
     res.status(500).json({ error: "竞品分析失败，请稍后重试" });
