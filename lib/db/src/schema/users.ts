@@ -8,7 +8,7 @@ export const usersTable = pgTable("users", {
   avatarUrl: text("avatar_url"),
   role: text("role").notNull().default("user"),
   plan: text("plan").notNull().default("free"),
-  credits: integer("credits").notNull().default(50),
+  credits: integer("credits").notNull().default(20),
   totalCreditsUsed: integer("total_credits_used").notNull().default(0),
   language: text("language").notNull().default("zh"),
   onboardingCompleted: integer("onboarding_completed").notNull().default(0),

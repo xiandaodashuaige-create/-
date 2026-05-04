@@ -42,7 +42,7 @@ export async function ensureUser(req: Request): Promise<any> {
       nickname,
       role: "user",
       plan: "free",
-      credits: 50,
+      credits: 20,
     }).onConflictDoNothing({ target: usersTable.clerkId }).returning();
 
     if (!user) {

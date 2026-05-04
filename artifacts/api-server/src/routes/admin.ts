@@ -47,7 +47,7 @@ router.patch("/admin/users/:id", requireAdmin, async (req, res): Promise<void> =
     const { role, plan } = req.body;
     const updates: any = {};
     if (role && ["user", "admin"].includes(role)) updates.role = role;
-    if (plan && ["free", "paid"].includes(plan)) updates.plan = plan;
+    if (plan && ["free", "starter", "pro"].includes(plan)) updates.plan = plan;
     if (Object.keys(updates).length === 0) {
       res.status(400).json({ error: "No valid fields to update" });
       return;
@@ -113,13 +113,15 @@ router.get("/admin/stats", requireAdmin, async (req, res): Promise<void> => {
   try {
     const [userCount] = await db.select({ count: count() }).from(usersTable);
     const [freeCount] = await db.select({ count: count() }).from(usersTable).where(eq(usersTable.plan, "free"));
-    const [paidCount] = await db.select({ count: count() }).from(usersTable).where(eq(usersTable.plan, "paid"));
+    const [starterCount] = await db.select({ count: count() }).from(usersTable).where(eq(usersTable.plan, "starter"));
+    const [proCount] = await db.select({ count: count() }).from(usersTable).where(eq(usersTable.plan, "pro"));
     const [totalCreditsUsed] = await db.select({ total: sql<number>`coalesce(sum(${usersTable.totalCreditsUsed}), 0)` }).from(usersTable);
 
     res.json({
       totalUsers: userCount?.count || 0,
       freeUsers: freeCount?.count || 0,
-      paidUsers: paidCount?.count || 0,
+      starterUsers: starterCount?.count || 0,
+      proUsers: proCount?.count || 0,
       totalCreditsUsed: totalCreditsUsed?.total || 0,
     });
   } catch (err) {

@@ -153,8 +153,21 @@ export default function AdminPage() {
                     <Crown className="h-5 w-5 text-amber-600" />
                   </div>
                   <div>
-                    <p className="text-2xl font-bold">{stats?.paidUsers || 0}</p>
-                    <p className="text-xs text-muted-foreground">{t("admin.paidUsers")}</p>
+                    <p className="text-2xl font-bold">{stats?.starterUsers || 0}</p>
+                    <p className="text-xs text-muted-foreground">{t("admin.starterUsers")}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center">
+                    <Crown className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold">{stats?.proUsers || 0}</p>
+                    <p className="text-xs text-muted-foreground">{t("admin.proUsers")}</p>
                   </div>
                 </div>
               </CardContent>
@@ -227,8 +240,8 @@ export default function AdminPage() {
                       <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <Badge variant={u.plan === "paid" ? "default" : "secondary"} className="text-xs">
-                        {u.plan === "paid" ? t("credits.paid") : t("credits.free")}
+                      <Badge variant={u.plan !== "free" ? "default" : "secondary"} className={`text-xs ${u.plan === "pro" ? "bg-purple-600" : ""}`}>
+                        {u.plan === "starter" ? t("credits.starter") : u.plan === "pro" ? t("credits.pro") : t("credits.free")}
                       </Badge>
                       <div className="text-right">
                         <p className="text-sm font-bold text-amber-600">{u.credits}</p>
@@ -257,7 +270,8 @@ export default function AdminPage() {
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="free">{t("credits.free")}</SelectItem>
-                              <SelectItem value="paid">{t("credits.paid")}</SelectItem>
+                              <SelectItem value="starter">初级版 (Starter)</SelectItem>
+                              <SelectItem value="pro">高级版 (Pro)</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
