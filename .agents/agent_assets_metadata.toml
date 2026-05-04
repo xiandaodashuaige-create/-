@@ -35,4 +35,10 @@ title = "AutoDL一键部署脚本包"
 id = "HLfGP0gxVXtGysZDMHe5-"
 uri = "file://scripts/autodl-deploy/README.md"
 type = "text"
-title = "AutoDL部署指南（详细步骤）"
+title = "部署指南"
+
+[[outputs]]
+id = "pYo-zZHuwtProEQ44ckVp"
+uri = "file://scripts/autodl-deploy/autodl-quick-setup.tar.gz"
+type = "unspecified"
+title = "AutoDL部署脚本包 (下载后上传到AutoDL)"
