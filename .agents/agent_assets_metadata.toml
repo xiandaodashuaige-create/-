@@ -24,3 +24,15 @@ id = "hM4yoctQ5FBbrJpC9H0w6"
 uri = "file://.local/TikTok系统需求文档.md"
 type = "text"
 title = "TikTok AI 爆款创作系统 — 完整需求文档 v1.0"
+
+[[outputs]]
+id = "opvMQ607i2QBmLm5jjgqw"
+uri = "file://scripts/autodl-deploy.tar.gz"
+type = "unspecified"
+title = "AutoDL一键部署脚本包"
+
+[[outputs]]
+id = "HLfGP0gxVXtGysZDMHe5-"
+uri = "file://scripts/autodl-deploy/README.md"
+type = "text"
+title = "AutoDL部署指南（详细步骤）"
