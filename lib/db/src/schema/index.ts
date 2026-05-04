@@ -4,3 +4,5 @@ export * from "./assets";
 export * from "./schedules";
 export * from "./sensitiveWords";
 export * from "./activityLog";
+export * from "./users";
+export * from "./creditTransactions";

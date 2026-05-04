@@ -12,6 +12,7 @@ import {
   AiGenerateHashtagsResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
+import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -24,7 +25,7 @@ function safeJsonParse(str: string): any {
   }
 }
 
-router.post("/ai/rewrite", async (req, res): Promise<void> => {
+router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promise<void> => {
   try {
     const parsed = AiRewriteContentBody.safeParse(req.body);
     if (!parsed.success) {
@@ -85,6 +86,7 @@ Respond in JSON format:
       return;
     }
 
+    await deductCredits(req, "ai-rewrite");
     res.json(
       AiRewriteContentResponse.parse({
         rewrittenTitle: result.rewrittenTitle || "",
@@ -98,7 +100,7 @@ Respond in JSON format:
   }
 });
 
-router.post("/ai/check-sensitivity", async (req, res): Promise<void> => {
+router.post("/ai/check-sensitivity", requireCredits("ai-check-sensitivity"), async (req, res): Promise<void> => {
   try {
     const parsed = AiCheckSensitivityBody.safeParse(req.body);
     if (!parsed.success) {
@@ -163,6 +165,7 @@ Respond in JSON format:
       return;
     }
 
+    await deductCredits(req, "ai-check-sensitivity");
     res.json(
       AiCheckSensitivityResponse.parse({
         score: result.score ?? 0,
@@ -181,7 +184,7 @@ Respond in JSON format:
   }
 });
 
-router.post("/ai/generate-title", async (req, res): Promise<void> => {
+router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (req, res): Promise<void> => {
   try {
     const parsed = AiGenerateTitleBody.safeParse(req.body);
     if (!parsed.success) {
@@ -236,6 +239,7 @@ Respond in JSON format:
       return;
     }
 
+    await deductCredits(req, "ai-generate-title");
     res.json(AiGenerateTitleResponse.parse({ titles: result.titles || [] }));
   } catch (err) {
     req.log.error(err, "Failed to generate titles");
@@ -243,7 +247,7 @@ Respond in JSON format:
   }
 });
 
-router.post("/ai/generate-hashtags", async (req, res): Promise<void> => {
+router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), async (req, res): Promise<void> => {
   try {
     const parsed = AiGenerateHashtagsBody.safeParse(req.body);
     if (!parsed.success) {
@@ -294,6 +298,7 @@ Respond in JSON format:
       return;
     }
 
+    await deductCredits(req, "ai-generate-hashtags");
     res.json(AiGenerateHashtagsResponse.parse({ hashtags: result.hashtags || [] }));
   } catch (err) {
     req.log.error(err, "Failed to generate hashtags");
@@ -301,7 +306,7 @@ Respond in JSON format:
   }
 });
 
-router.post("/ai/generate-image", async (req, res): Promise<void> => {
+router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
   try {
     const { prompt, style, size } = req.body;
 
@@ -352,6 +357,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
       objectPath = null;
     }
 
+    await deductCredits(req, "ai-generate-image");
     res.json({
       imageUrl,
       objectPath,
@@ -367,7 +373,7 @@ router.post("/ai/generate-image", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/ai/competitor-research", async (req, res): Promise<void> => {
+router.post("/ai/competitor-research", requireCredits("ai-competitor-research"), async (req, res): Promise<void> => {
   try {
     const { businessDescription, competitorLink, niche, region } = req.body;
 
@@ -451,6 +457,7 @@ router.post("/ai/competitor-research", async (req, res): Promise<void> => {
       return;
     }
 
+    await deductCredits(req, "ai-competitor-research");
     res.json({ analysis: result.analysis || {}, suggestions: validSuggestions });
   } catch (err) {
     req.log.error(err, "Failed to do competitor research");
@@ -458,7 +465,7 @@ router.post("/ai/competitor-research", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/ai/guide", async (req, res): Promise<void> => {
+router.post("/ai/guide", requireCredits("ai-guide"), async (req, res): Promise<void> => {
   try {
     const { messages, currentPage, workflowStep, accountRegion } = req.body;
 
@@ -521,6 +528,7 @@ ${currentPage === "/accounts" ? "用户在管理账号。提供多账号矩阵�
     });
 
     const response = completion.choices[0]?.message?.content || "抱歉，我暂时无法回复。";
+    await deductCredits(req, "ai-guide");
     res.json({ response });
   } catch (err) {
     req.log.error(err, "Failed to get AI guide response");

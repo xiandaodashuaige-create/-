@@ -17,6 +17,9 @@ import Settings from "@/pages/settings";
 import LandingPage from "@/pages/landing";
 import WorkflowWizard from "@/pages/workflow/index";
 import AIGuide from "@/components/ai-guide/AIGuide";
+import AdminPage from "@/pages/admin";
+import OnboardingGuide from "@/components/onboarding/OnboardingGuide";
+import { I18nProvider } from "@/lib/i18n";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -116,6 +119,7 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
           <Component />
         </Layout>
         <AIGuide />
+        <OnboardingGuide />
       </Show>
       <Show when="signed-out">
         <Redirect to="/" />
@@ -150,6 +154,7 @@ function ClerkProviderWithRoutes() {
   const [, setLocation] = useLocation();
 
   return (
+    <I18nProvider>
     <ClerkProvider
       publishableKey={clerkPubKey}
       proxyUrl={clerkProxyUrl}
@@ -190,12 +195,14 @@ function ClerkProviderWithRoutes() {
             <Route path="/schedules">{() => <ProtectedRoute component={Schedules} />}</Route>
             <Route path="/sensitive-words">{() => <ProtectedRoute component={SensitiveWords} />}</Route>
             <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
+            <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
             <Route component={NotFound} />
           </Switch>
           <Toaster />
         </TooltipProvider>
       </QueryClientProvider>
     </ClerkProvider>
+    </I18nProvider>
   );
 }
 

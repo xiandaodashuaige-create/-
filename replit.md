@@ -85,8 +85,44 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - Specialized in XHS platform rules, content strategy, algorithm tips
 - Minimizable/closable, persists conversation during session
 
+## Credits System
+
+- All AI and content operations consume credits
+- Free users start with 50 credits, admin users bypass credit costs
+- Credit costs: ai-rewrite(3), ai-competitor-research(5), ai-generate-title(1), ai-generate-hashtags(1), ai-generate-image(5), ai-guide(1), ai-check-sensitivity(1), content-publish(2), content-create(1), asset-upload(1)
+- Credits checked via `requireCredits()` middleware before operations
+- Credits deducted via `deductCredits()` after successful operations
+- Admin can manually recharge/deduct credits for any user
+- Middleware: `artifacts/api-server/src/middlewares/creditSystem.ts`
+
+## Admin Panel
+
+- Admin-only page at `/admin` (visible in sidebar only for admin users)
+- User management: view all users, change roles (user/admin), change plans (free/paid)
+- Credit management: recharge/deduct credits with descriptions
+- Transaction history per user
+- System stats: total users, free/paid breakdown, total credits consumed
+- Routes: `GET/PATCH /admin/users`, `POST /admin/users/:id/credits`, `GET /admin/users/:id/transactions`, `GET /admin/stats`
+
+## i18n (Internationalization)
+
+- Supports Chinese (zh) and English (en)
+- Language context provider: `artifacts/xhs-tool/src/lib/i18n.tsx`
+- Language switcher button in sidebar footer
+- Language preference saved to localStorage and synced to backend user record
+- Translation keys used throughout Layout, onboarding, admin page
+
+## Onboarding Guide
+
+- First-time welcome modal with 4-step feature carousel
+- Steps: AI Competitor Research → Smart Content Creation → Safety Check & Publish → Credits System
+- Tracked via localStorage (`onboarding-completed`) and synced to backend user record
+- Component: `artifacts/xhs-tool/src/components/onboarding/OnboardingGuide.tsx`
+
 ## Database Schema
 
+- **users** — App users synced from Clerk (clerkId, email, nickname, role, plan, credits, language, onboardingCompleted)
+- **credit_transactions** — Credit usage/recharge history (userId, amount, balanceAfter, type, operationType, description)
 - **accounts** — XHS accounts with region (SG/HK/MY), status, nickname
 - **content** — Posts with title, body, tags, imageUrls, status (draft/published/scheduled), sensitivity info
 - **assets** — Uploaded images/videos with metadata
@@ -122,6 +158,15 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `POST /storage/uploads/request-url` — Request presigned upload URL
 - `GET /storage/objects/*` — Serve uploaded objects
 - `GET /storage/public-objects/*` — Serve public assets
+- `GET /user/me` — Get current user info (credits, role, plan)
+- `PATCH /user/me` — Update user preferences (language, onboarding, nickname)
+- `GET /user/me/transactions` — Current user's credit history
+- `GET /admin/users` — List all users (admin only)
+- `PATCH /admin/users/:id` — Update user role/plan (admin only)
+- `POST /admin/users/:id/credits` — Recharge/deduct credits (admin only)
+- `GET /admin/users/:id/transactions` — User credit history (admin only)
+- `GET /admin/stats` — System statistics (admin only)
+- `GET /admin/credit-costs` — Credit cost config (admin only)
 
 ## Frontend Pages
 
@@ -138,7 +183,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `/schedules` — Publishing schedule view
 - `/sensitive-words` — Sensitive word dictionary management
 - `/settings` — System configuration info
+- `/admin` — Admin panel (admin-only, user/credit management)
 
 ## UI Language
 
-All UI text is in Simplified Chinese (简体中文).
+Supports Simplified Chinese (zh) and English (en) with language switcher in sidebar. Default: Chinese.

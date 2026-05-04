@@ -7,6 +7,7 @@ import {
   ListAssetsResponse,
   DeleteAssetParams,
 } from "@workspace/api-zod";
+import { requireCredits, deductCredits } from "../middlewares/creditSystem";
 
 const router: IRouter = Router();
 
@@ -42,7 +43,7 @@ router.get("/assets", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/assets", async (req, res): Promise<void> => {
+router.post("/assets", requireCredits("asset-upload"), async (req, res): Promise<void> => {
   try {
     const parsed = CreateAssetBody.safeParse(req.body);
     if (!parsed.success) {
@@ -62,6 +63,7 @@ router.post("/assets", async (req, res): Promise<void> => {
       })
       .returning();
 
+    await deductCredits(req, "asset-upload");
     res.status(201).json(asset);
   } catch (err) {
     req.log.error(err, "Failed to create asset");

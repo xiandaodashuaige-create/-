@@ -1,5 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useUser, useClerk } from "@clerk/react";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -13,20 +14,26 @@ import {
   X,
   LogOut,
   PenSquare,
+  Shield,
+  Coins,
+  Globe,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import { useI18n } from "@/lib/i18n";
+import { api } from "@/lib/api";
 
-const navItems = [
-  { path: "/dashboard", label: "仪表盘", icon: LayoutDashboard },
-  { path: "/workflow", label: "创建发布", icon: PenSquare, highlight: true },
-  { path: "/accounts", label: "账号管理", icon: Users },
-  { path: "/content", label: "内容管理", icon: FileText },
-  { path: "/assets", label: "素材库", icon: Image },
-  { path: "/schedules", label: "发布计划", icon: Calendar },
-  { path: "/sensitive-words", label: "敏感词库", icon: ShieldAlert },
-  { path: "/settings", label: "设置", icon: Settings },
+const navItemsConfig = [
+  { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true },
+  { path: "/accounts", labelKey: "nav.accounts", icon: Users },
+  { path: "/content", labelKey: "nav.content", icon: FileText },
+  { path: "/assets", labelKey: "nav.assets", icon: Image },
+  { path: "/schedules", labelKey: "nav.schedules", icon: Calendar },
+  { path: "/sensitive-words", labelKey: "nav.sensitiveWords", icon: ShieldAlert },
+  { path: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -34,6 +41,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { t, lang, setLang } = useI18n();
+
+  const { data: dbUser } = useQuery({
+    queryKey: ["user-me"],
+    queryFn: () => api.user.me(),
+    staleTime: 30000,
+  });
+
+  const isAdmin = dbUser?.role === "admin";
+
+  const navItems = [
+    ...navItemsConfig,
+    ...(isAdmin ? [{ path: "/admin", labelKey: "nav.admin", icon: Shield }] : []),
+  ];
 
   return (
     <div className="flex h-screen bg-background">
@@ -51,7 +72,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       >
         <div className="flex items-center gap-2 px-6 h-16 border-b border-border">
           <BookOpen className="h-6 w-6 text-red-500" />
-          <span className="font-bold text-lg">小红书AI工具</span>
+          <span className="font-bold text-lg">{t("app.name")}</span>
           <Button
             variant="ghost"
             size="icon"
@@ -85,7 +106,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     }`}
                   >
                     <item.icon className="h-4 w-4" />
-                    {item.label}
+                    {t(item.labelKey)}
                   </div>
                 </Link>
               );
@@ -94,6 +115,30 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </ScrollArea>
 
         <div className="p-4 border-t border-border space-y-3">
+          {dbUser && (
+            <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-amber-50 border border-amber-200">
+              <div className="flex items-center gap-1.5">
+                <Coins className="h-3.5 w-3.5 text-amber-600" />
+                <span className="text-xs font-medium text-amber-700">{t("credits.remaining")}</span>
+              </div>
+              <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 text-xs font-bold">
+                {dbUser.credits}
+              </Badge>
+            </div>
+          )}
+
+          <div className="flex items-center justify-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs gap-1 text-muted-foreground"
+              onClick={() => setLang(lang === "zh" ? "en" : "zh")}
+            >
+              <Globe className="h-3 w-3" />
+              {lang === "zh" ? "EN" : "中文"}
+            </Button>
+          </div>
+
           {user && (
             <div className="flex items-center gap-3 px-2">
               <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-sm font-medium">
@@ -103,20 +148,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <p className="text-sm font-medium truncate">
                   {user.firstName || user.emailAddresses?.[0]?.emailAddress || "用户"}
                 </p>
+                {isAdmin && (
+                  <p className="text-[10px] text-purple-600 font-medium">{t("user.role.admin")}</p>
+                )}
               </div>
               <Button
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-muted-foreground"
                 onClick={() => signOut()}
-                title="退出登录"
+                title={t("nav.logout")}
               >
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
           )}
           <div className="text-xs text-muted-foreground text-center">
-            v1.0.0 · 小红书内容管理
+            {t("app.version")}
           </div>
         </div>
       </aside>
@@ -130,7 +178,13 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <span className="font-bold">小红书AI工具</span>
+          <span className="font-bold">{t("app.name")}</span>
+          {dbUser && (
+            <div className="ml-auto flex items-center gap-1">
+              <Coins className="h-3.5 w-3.5 text-amber-600" />
+              <span className="text-xs font-bold text-amber-700">{dbUser.credits}</span>
+            </div>
+          )}
         </header>
 
         <main className="flex-1 overflow-auto">

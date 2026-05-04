@@ -18,6 +18,7 @@ import {
   MarkContentPublishedResponse,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { requireCredits, deductCredits } from "../middlewares/creditSystem";
 
 const router: IRouter = Router();
 
@@ -83,7 +84,7 @@ router.get("/content", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/content", async (req, res): Promise<void> => {
+router.post("/content", requireCredits("content-create"), async (req, res): Promise<void> => {
   try {
     const parsed = CreateContentBody.safeParse(req.body);
     if (!parsed.success) {
@@ -117,6 +118,7 @@ router.post("/content", async (req, res): Promise<void> => {
       account: account ? { id: account.id, nickname: account.nickname, region: account.region } : { id: content.accountId, nickname: "Unknown", region: "SG" },
     };
 
+    await deductCredits(req, "content-create");
     res.status(201).json(GetContentResponse.parse(result));
   } catch (err) {
     req.log.error(err, "Failed to create content");
@@ -274,7 +276,7 @@ router.post("/content/:id/schedule", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/content/:id/publish", async (req, res): Promise<void> => {
+router.post("/content/:id/publish", requireCredits("content-publish"), async (req, res): Promise<void> => {
   try {
     const params = MarkContentPublishedParams.safeParse(req.params);
     if (!params.success) {
@@ -306,6 +308,7 @@ router.post("/content/:id/publish", async (req, res): Promise<void> => {
       account: account ? { id: account.id, nickname: account.nickname, region: account.region } : { id: content.accountId, nickname: "Unknown", region: "SG" },
     };
 
+    await deductCredits(req, "content-publish");
     res.json(MarkContentPublishedResponse.parse(result));
   } catch (err) {
     req.log.error(err, "Failed to publish content");

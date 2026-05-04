@@ -73,6 +73,20 @@ export const api = {
     competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>
       request<any>("/ai/competitor-research", { method: "POST", body: JSON.stringify(data) }),
   },
+  admin: {
+    stats: () => request<any>("/admin/stats"),
+    users: () => request<any[]>("/admin/users"),
+    creditCosts: () => request<any>("/admin/credit-costs"),
+    updateUser: (id: number, data: any) => request<any>(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    adjustCredits: (id: number, amount: number, description?: string) =>
+      request<any>(`/admin/users/${id}/credits`, { method: "POST", body: JSON.stringify({ amount, description }) }),
+    userTransactions: (id: number, limit = 50) => request<any[]>(`/admin/users/${id}/transactions?limit=${limit}`),
+  },
+  user: {
+    me: () => request<any>("/user/me"),
+    update: (data: any) => request<any>("/user/me", { method: "PATCH", body: JSON.stringify(data) }),
+    transactions: (limit = 20) => request<any[]>(`/user/me/transactions?limit=${limit}`),
+  },
   schedules: {
     list: (params?: { accountId?: number; startDate?: string; endDate?: string }) => {
       const q = new URLSearchParams();
