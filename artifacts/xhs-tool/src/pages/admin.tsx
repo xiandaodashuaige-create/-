@@ -95,7 +95,7 @@ export default function AdminPage() {
 
   const costLabels: Record<string, string> = {
     "ai-rewrite": "AI改写",
-    "ai-competitor-research": "竞品分析",
+    "ai-competitor-research": "同行爆款分析",
     "ai-generate-title": "生成标题",
     "ai-generate-hashtags": "生成标签",
     "ai-generate-image": "生成配图",

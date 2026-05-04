@@ -2,7 +2,7 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Xiaohongshu (Little Red Book) AI content management tool with multi-region account management, AI content rewriting, sensitive word detection, AI image generation, file uploads, and scheduled posting.
+pnpm workspace monorepo using TypeScript. **鹿联小红书AI爆款创作间 (LuLian XHS Viral Creator)** — AI content creation tool that analyzes competitor-validated viral content (文案/素材/时间点) and helps clients effortlessly create and publish original content based on proven viral patterns. Features include multi-region account management, AI pseudo-original rewriting, competitor viral analysis, pseudo-original image generation, sensitive word detection, team video upload support, and AI-recommended posting times.
 
 ## Stack
 

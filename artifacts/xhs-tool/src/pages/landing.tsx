@@ -26,7 +26,6 @@ export default function LandingPage() {
     { step: "01", title: t("landing.howStep1"), desc: t("landing.howStep1Desc"), icon: Target, gradient: "from-blue-500 to-cyan-500" },
     { step: "02", title: t("landing.howStep2"), desc: t("landing.howStep2Desc"), icon: Brain, gradient: "from-purple-500 to-pink-500" },
     { step: "03", title: t("landing.howStep3"), desc: t("landing.howStep3Desc"), icon: Rocket, gradient: "from-red-500 to-orange-500" },
-    { step: "04", title: t("landing.howStep4"), desc: t("landing.howStep4Desc"), icon: TrendingUp, gradient: "from-green-500 to-emerald-500" },
   ];
 
   const plans = [
@@ -199,7 +198,7 @@ export default function LandingPage() {
             <Badge className="bg-red-100 text-red-600 mb-4">{lang === "zh" ? "AI全自动流程" : "AI Automated Workflow"}</Badge>
             <h2 className="text-3xl font-bold mb-3">{t("landing.howItWorksTitle")}</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {howItWorks.map((item, i) => (
               <div key={i} className="relative group">
                 <div className="bg-white rounded-2xl p-6 border border-gray-100 hover:shadow-lg transition-all h-full">

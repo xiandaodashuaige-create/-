@@ -165,13 +165,13 @@ function ClerkProviderWithRoutes() {
         signIn: {
           start: {
             title: "欢迎回来",
-            subtitle: "登录以管理你的小红书内容",
+            subtitle: "登录鹿联AI爆款创作间",
           },
         },
         signUp: {
           start: {
             title: "创建账户",
-            subtitle: "开始使用小红书AI工具",
+            subtitle: "加入鹿联，开启AI爆款创作",
           },
         },
       }}

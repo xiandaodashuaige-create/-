@@ -44,7 +44,7 @@ const QUICK_PROMPTS: Record<string, { label: string; prompt: string }[]> = {
 
 const STEP_TIPS: Record<string, { tip: string; icon: string }> = {
   "step-1": { tip: "选择活跃的账号发布效果更好哦！如果是新账号，建议先养号几天再发布内容。", icon: "👤" },
-  "step-2": { tip: "告诉我你的业务，我帮你分析同行做得好的内容！灵感研究是创作爆款的第一步。", icon: "🔍" },
+  "step-2": { tip: "告诉我你的业务和竞品，AI帮你分析同行已验证的爆款文案、配图和时间点！", icon: "🔍" },
   "step-3": { tip: "标题是决定点击率的关键！正文前3行决定用户是否继续看。需要我帮你优化吗？", icon: "✍️" },
   "step-4": { tip: "发布前检查敏感词很重要，可以避免被限流。同时确认配图清晰、标签精准。", icon: "👁️" },
   "step-5": { tip: "发布后的2小时是黄金期！这段时间可以积极回复评论，有助于提升推荐权重。", icon: "🚀" },
@@ -148,7 +148,7 @@ export default function AIGuide() {
               <Zap className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
               <div>
                 <p className="text-xs font-medium text-gray-700">AI向导提示</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">有任何问题随时问我！我能帮你优化标题、分析竞品、选择标签等。</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">有任何问题随时问我！我能帮你分析同行爆款、优化标题、选择标签等。</p>
               </div>
             </div>
           </div>
@@ -191,7 +191,7 @@ export default function AIGuide() {
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5" />
           <div>
-            <p className="font-medium text-sm">小红书AI运营向导</p>
+            <p className="font-medium text-sm">鹿联AI爆款助手</p>
             <p className="text-[10px] text-white/70">随时为您提供运营建议</p>
           </div>
         </div>
@@ -212,9 +212,9 @@ export default function AIGuide() {
               <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
                 <Lightbulb className="h-6 w-6 text-red-400" />
               </div>
-              <p className="text-sm font-medium text-gray-700">您好！我是小红书AI运营向导</p>
+              <p className="text-sm font-medium text-gray-700">您好！我是鹿联AI爆款助手</p>
               <p className="text-xs text-muted-foreground mt-1">
-                我能帮你分析竞品、优化内容、制定运营策略。有任何问题，随时问我！
+                我能帮你分析同行爆款、优化内容、制定运营策略。有任何问题，随时问我！
               </p>
             </div>
 
@@ -224,7 +224,7 @@ export default function AIGuide() {
                   <Zap className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                   <div className="text-xs">
                     <p className="font-medium text-amber-800">创作小贴士</p>
-                    <p className="text-amber-700 mt-0.5">在灵感研究步骤输入你的业务信息，我能帮你找到最佳内容方向！</p>
+                    <p className="text-amber-700 mt-0.5">在"分析爆款"步骤输入你的业务信息，AI帮你复制同行验证的爆款模式！</p>
                   </div>
                 </div>
               </div>

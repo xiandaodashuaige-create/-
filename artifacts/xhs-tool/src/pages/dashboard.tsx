@@ -28,7 +28,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">仪表盘</h1>
-          <p className="text-muted-foreground">小红书内容管理概览</p>
+          <p className="text-muted-foreground">鹿联AI爆款创作间 · 内容管理概览</p>
         </div>
       </div>
 
@@ -44,9 +44,9 @@ export default function Dashboard() {
               <PenSquare className="h-7 w-7" />
             </div>
             <div className="flex-1 text-left">
-              <h3 className="text-xl font-bold">创建并发布新笔记</h3>
+              <h3 className="text-xl font-bold">复制爆款·创建新笔记</h3>
               <p className="text-white/80 text-sm mt-0.5">
-                一站式完成：选择账号 → AI辅助创作 → 预览检查 → 一键发布到小红书
+                分析同行爆款 → AI生成同款原创 → 最佳时间发布，站在巨人肩膀上轻松出爆款
               </p>
             </div>
             <ChevronRight className="h-6 w-6 text-white/60 group-hover:text-white group-hover:translate-x-1 transition-all" />

@@ -20,9 +20,9 @@ import {
 } from "lucide-react";
 
 const STEPS = [
-  { id: 1, label: "灵感研究", icon: Search, desc: "选择账号、AI分析同行、生成内容方案" },
-  { id: 2, label: "创作内容", icon: FileText, desc: "编辑内容、配图、预览检查" },
-  { id: 3, label: "发布", icon: Send, desc: "下载素材、复制内容、发布到小红书" },
+  { id: 1, label: "分析爆款", icon: Search, desc: "选择账号、分析同行验证的爆款文案/配图/时间点" },
+  { id: 2, label: "生成内容", icon: FileText, desc: "AI参考爆款模式生成原创内容、伪原创配图、上传团队视频" },
+  { id: 3, label: "发布", icon: Send, desc: "按AI推荐时间，下载素材+复制内容，发布到小红书" },
 ];
 
 const regionLabels: Record<string, string> = { SG: "新加坡", HK: "香港", MY: "马来西亚" };
@@ -96,7 +96,7 @@ export default function WorkflowWizard() {
     onSuccess: (result) => {
       setResearchResult(result);
       setSelectedSuggestion(null);
-      toast({ title: "竞品分析完成！已生成3套内容方案" });
+      toast({ title: "同行爆款分析完成！已生成3套验证方案" });
     },
     onError: (e: Error) => toast({ title: "分析失败", description: e.message, variant: "destructive" }),
   });
@@ -445,7 +445,7 @@ export default function WorkflowWizard() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">创建并发布笔记</h1>
-        <p className="text-muted-foreground">跟随引导，轻松完成从灵感研究到发布的全流程</p>
+        <p className="text-muted-foreground">分析同行爆款 → AI生成同款原创 → 轻松发布</p>
       </div>
 
       <div data-workflow-step={step} className="flex items-center justify-between bg-card rounded-xl border p-3 overflow-x-auto">
@@ -623,7 +623,7 @@ export default function WorkflowWizard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Search className="h-5 w-5 text-red-500" />
-                灵感研究 — 让AI帮你找到内容方向
+                同行爆款分析 — 站在巨人肩膀上创作
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -631,8 +631,8 @@ export default function WorkflowWizard() {
                 <div className="flex items-start gap-3">
                   <Lightbulb className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
                   <div className="text-sm">
-                    <p className="font-medium text-amber-800">告诉AI你的业务，自动获取同行参考和内容方案</p>
-                    <p className="text-amber-600 mt-1">填写以下任意一项，AI就能分析同行内容策略，为你生成3套可直接采用的笔记方案。</p>
+                    <p className="font-medium text-amber-800">分析同行已验证的爆款文案、配图风格和最佳发布时间</p>
+                    <p className="text-amber-600 mt-1">填写以下任意一项，AI就能找到同行跑通的爆款模式，为你生成3套经过验证的内容方案。不用自己从零摸索！</p>
                   </div>
                 </div>
               </div>
@@ -680,23 +680,23 @@ export default function WorkflowWizard() {
 
                 <div className="space-y-3">
                   <div className="p-3 rounded-lg bg-muted/50 text-sm">
-                    <p className="font-medium mb-2 text-muted-foreground">AI将为你做什么？</p>
+                    <p className="font-medium mb-2 text-muted-foreground">AI帮你分析同行已验证的爆款：</p>
                     <div className="space-y-2 text-muted-foreground text-xs">
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">1</span></div>
-                        <span>分析你所在行业的小红书内容趋势和竞品策略</span>
+                        <span>🔥 爆款文案：同行哪些文案已经跑通？提炼成功要素</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">2</span></div>
-                        <span>找出最有效的内容切入角度和爆款模式</span>
+                        <span>🎨 爆款素材：分析热门配图风格，指导伪原创方向</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">3</span></div>
-                        <span>生成3套差异化的完整笔记方案（含标题、正文、标签、配图建议）</span>
+                        <span>⏰ 爆款时间点：推荐同行验证的最佳发布时间段</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">4</span></div>
-                        <span>推荐最佳发布时间段，提高内容曝光率</span>
+                        <span>📝 3套方案：基于爆款模式，生成可直接采用的原创方案</span>
                       </div>
                     </div>
                   </div>
@@ -719,9 +719,9 @@ export default function WorkflowWizard() {
                 className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white h-12 text-base"
               >
                 {researchMutation.isPending ? (
-                  <><Loader2 className="h-5 w-5 animate-spin mr-2" />AI正在分析同行内容，请稍候（约10-20秒）...</>
+                  <><Loader2 className="h-5 w-5 animate-spin mr-2" />AI正在分析同行爆款模式，请稍候（约10-20秒）...</>
                 ) : (
-                  <><Zap className="h-5 w-5 mr-2" />开始AI竞品分析</>
+                  <><Zap className="h-5 w-5 mr-2" />开始分析同行爆款</>
                 )}
               </Button>
             </CardContent>
@@ -734,7 +734,7 @@ export default function WorkflowWizard() {
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Target className="h-4 w-4 text-blue-500" />
-                    行业分析报告
+                    同行爆款分析报告
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -749,7 +749,7 @@ export default function WorkflowWizard() {
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-white border text-sm">
-                    <p className="text-xs text-muted-foreground font-medium mb-1">竞品洞察</p>
+                    <p className="text-xs text-muted-foreground font-medium mb-1">同行爆款洞察</p>
                     <p>{researchResult.analysis?.competitorInsights}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-white border text-sm">
@@ -788,9 +788,9 @@ export default function WorkflowWizard() {
               <div>
                 <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-red-500" />
-                  选择你喜欢的内容方案
+                  选择经过验证的爆款方案
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">点击"采用此方案"，AI将自动填充内容并进行敏感词检测。</p>
+                <p className="text-sm text-muted-foreground mb-4">以下方案基于同行已验证的爆款模式生成。点击"采用此方案"，AI自动填充内容并检测敏感词。</p>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   {researchResult.suggestions?.map((suggestion: any, index: number) => (
@@ -854,7 +854,7 @@ export default function WorkflowWizard() {
 
           {!researchResult && !researchMutation.isPending && (
             <div className="text-center py-2">
-              <Button variant="ghost" className="text-muted-foreground" onClick={() => { setStep(2); toast({ title: "已跳过灵感研究" }); }}>
+              <Button variant="ghost" className="text-muted-foreground" onClick={() => { setStep(2); toast({ title: "已跳过爆款分析" }); }}>
                 我已有内容思路，跳过此步
                 <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
@@ -993,7 +993,8 @@ export default function WorkflowWizard() {
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-1.5">
                       <Video className="h-3.5 w-3.5 text-blue-500" />
-                      视频（可选）
+                      团队视频素材
+                      <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">鹿联团队每周提供</span>
                     </Label>
                     {!form.videoUrl && (
                       <ObjectUploader maxNumberOfFiles={1} maxFileSize={104857600}
