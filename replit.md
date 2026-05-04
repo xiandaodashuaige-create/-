@@ -89,8 +89,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 - All AI and content operations consume credits
 - Free users start with 20 credits (1 full workflow trial), admin users bypass credit costs
-- Pricing tiers: Free (20 credits), Starter ¥99/mo (100 credits, 1 account), Pro ¥299/mo (500 credits, unlimited accounts)
-- Credit packs: 50 credits/¥29, 200 credits/¥99, 500 credits/¥199
+- Pricing tiers (USD): Free (20 credits), Starter $12.9/mo (100 credits, 1 account), Pro $39.9/mo (500 credits, unlimited accounts)
+- Credit packs (USD): 50/$3.9, 200/$12.9, 500/$24.9
 - One complete publish workflow costs ~20 credits
 - Credit costs: ai-rewrite(3), ai-competitor-research(5), ai-generate-title(1), ai-generate-hashtags(1), ai-generate-image(5), ai-guide(1), ai-check-sensitivity(1), content-publish(2), content-create(1), asset-upload(1)
 - Credits checked via `requireCredits()` middleware before operations
@@ -101,7 +101,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ## Admin Panel
 
 - Admin-only page at `/admin` (visible in sidebar only for admin users)
-- User management: view all users, change roles (user/admin), change plans (free/paid)
+- User management: view all users, change roles (user/admin), change plans (free/starter/pro)
 - Credit management: recharge/deduct credits with descriptions
 - Transaction history per user
 - System stats: total users, free/paid breakdown, total credits consumed

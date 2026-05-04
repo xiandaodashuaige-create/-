@@ -5,10 +5,10 @@ generated = []
 id = "6Ql-oZUafFP_nUd1WPE-8"
 uri = "file://内测方案.md"
 type = "text"
-title = "内测方案与部署指南"
+title = "内测方案（已更新USD定价）"
 
 [[outputs]]
 id = "RghYqIbKTYglAW1nhX54F"
 uri = "file://xhs-ai-tool.tar.gz"
 type = "unspecified"
-title = "项目代码包 (868KB)"
+title = "最新代码包 (含USD定价+双语落地页)"
