@@ -59,18 +59,20 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ## AI Image Generation
 
 - `POST /api/ai/generate-image` — generates images via gpt-image-1
+- `POST /api/ai/edit-image` — reference-based image generation (伪原创配图) via gpt-image-1 images.edit
+  - Accepts prompt + referenceImageUrl (storage URL of uploaded competitor/viral image)
+  - Fetches reference image, passes to openai.images.edit to create similar-style originals
 - Accepts prompt, style (optional), size (1024x1024, 1024x1536, 1536x1024, auto)
 - Default size: 1024x1536 (portrait, optimized for XHS phone display)
-- Returns b64_json, auto-uploads to object storage, falls back to data URL
+- Returns b64_json, auto-uploads to object storage
 - Integrated in content editor and workflow wizard with Chinese prompt support
 
 ## Workflow Wizard
 
-- Guided 4-step flow at `/workflow`: 选择账号 → 灵感研究 → 创作内容 → 发布
-- Step 1: Select or create XHS account with visual card selection
-- Step 2: AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans → user picks one
-- Step 3: Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. When adopting a research suggestion, AI progress animation overlay auto-fills content and runs sensitivity check.
-- Step 4: Auto-copy content on entry → open XHS Creator Studio → mark as published → success with "publish next" option
+- Guided 3-step flow at `/workflow`: 灵感研究 → 创作内容 → 发布
+- Step 1 (灵感研究): Quick account selector at top + AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans with posting time recommendations → user picks one
+- Step 2 (创作内容): Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. Dual-mode AI image panel: "文字生成配图" (text-to-image) and "参考图伪原创" (reference image mode with upload). When adopting a research suggestion, AI progress animation overlay auto-fills content and runs sensitivity check.
+- Step 3 (发布): AI-recommended posting times display, image/video download gallery with per-image download buttons and "download all" option, auto-copy content → open XHS Creator Studio → mark as published → success with "publish next" option
 - Dashboard has prominent gradient CTA card linking to workflow
 - Sidebar has highlighted "创建发布" nav item
 
@@ -148,7 +150,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `POST /ai/generate-title` — AI title generation
 - `POST /ai/generate-hashtags` — AI hashtag generation
 - `POST /ai/generate-image` — AI image generation (gpt-image-1)
-- `POST /ai/competitor-research` — AI competitor analysis + content plan generation
+- `POST /ai/edit-image` — Reference-based image generation (伪原创配图, gpt-image-1 images.edit)
+- `POST /ai/competitor-research` — AI competitor analysis + content plan generation (includes posting time recommendations)
 - `POST /ai/guide` — AI operations guide chatbot (step-aware in workflow)
 - `GET /dashboard/stats` — Dashboard statistics
 - `GET /dashboard/recent-activity` — Recent activity log
@@ -177,7 +180,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `/sign-in` — Clerk sign-in page (Chinese localized)
 - `/sign-up` — Clerk sign-up page (Chinese localized)
 - `/dashboard` — Dashboard with stats, workflow CTA, region/status charts, recent activity
-- `/workflow` — Guided 4-step create & publish wizard
+- `/workflow` — Guided 3-step create & publish wizard (灵感研究 → 创作内容 → 发布)
 - `/accounts` — Account management with region filter, CRUD
 - `/content` — Content list with status/region filters
 - `/content/new` — Content editor with AI tools (rewrite, sensitivity, title/hashtag, image generation)

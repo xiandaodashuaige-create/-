@@ -377,6 +377,103 @@ router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (re
   }
 });
 
+router.post("/ai/edit-image", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
+  try {
+    const { prompt, referenceImageUrl, size } = req.body;
+
+    if (!prompt || typeof prompt !== "string") {
+      res.status(400).json({ error: "prompt is required" });
+      return;
+    }
+    if (!referenceImageUrl || typeof referenceImageUrl !== "string") {
+      res.status(400).json({ error: "referenceImageUrl is required" });
+      return;
+    }
+
+    const validSizes = ["1024x1024", "1024x1536", "1536x1024", "auto"];
+    const imageSize = validSizes.includes(size) ? size : "1024x1536";
+
+    const allowedPrefixes = ["/api/storage/objects/", "/api/storage/public-objects/"];
+    if (!allowedPrefixes.some((p) => referenceImageUrl.startsWith(p))) {
+      res.status(400).json({ error: "referenceImageUrl must be a storage path (upload the image first)" });
+      return;
+    }
+
+    let refImageBuffer: Buffer;
+    try {
+      const refUrl = `http://localhost:${process.env.PORT || 8080}${referenceImageUrl}`;
+      const refRes = await fetch(refUrl, {
+        method: "GET",
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!refRes.ok) throw new Error("Failed to fetch reference image");
+      const contentType = refRes.headers.get("content-type") || "";
+      if (!contentType.startsWith("image/")) {
+        res.status(400).json({ error: "参考链接不是图片文件" });
+        return;
+      }
+      refImageBuffer = Buffer.from(await refRes.arrayBuffer());
+    } catch (fetchErr) {
+      req.log.warn(fetchErr, "Failed to fetch reference image");
+      res.status(400).json({ error: "无法获取参考图片，请确认图片链接有效" });
+      return;
+    }
+
+    const { toFile } = await import("openai");
+    const imageFile = await toFile(refImageBuffer, "reference.png", { type: "image/png" });
+
+    const fullPrompt = `参考这张图片的构图、配色和风格，创作一张全新的、与之风格相似但内容不同的图片。要求：${prompt}. 保持小红书风格，精美、高质量、适合社交媒体展示。`;
+
+    const response = await openai.images.edit({
+      model: "gpt-image-1",
+      image: imageFile,
+      prompt: fullPrompt,
+      n: 1,
+      size: imageSize as "1024x1024" | "1024x1536" | "1536x1024" | "auto",
+    });
+
+    const b64Data = response.data?.[0]?.b64_json;
+    if (!b64Data) {
+      res.status(500).json({ error: "图片生成失败" });
+      return;
+    }
+
+    const imageBuffer = Buffer.from(b64Data, "base64");
+
+    let objectPath: string | null = null;
+    let storedUrl: string | null = null;
+    try {
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const candidatePath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const uploadRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: imageBuffer,
+        headers: { "Content-Type": "image/png" },
+      });
+      if (!uploadRes.ok) throw new Error("Failed to upload to storage");
+      objectPath = candidatePath;
+      storedUrl = `/api/storage${objectPath}`;
+    } catch (uploadErr) {
+      req.log.warn(uploadErr, "Failed to save edited image to storage");
+    }
+
+    if (!storedUrl) {
+      res.status(500).json({ error: "图片已生成但存储失败，请重试" });
+      return;
+    }
+
+    await deductCredits(req, "ai-generate-image");
+    res.json({ imageUrl: storedUrl, objectPath, storedUrl });
+  } catch (err: any) {
+    req.log.error(err, "Failed to edit image");
+    const message = err?.message?.includes("content_policy")
+      ? "图片内容不符合安全政策，请修改描述后重试"
+      : "AI图片编辑失败";
+    res.status(500).json({ error: message });
+  }
+});
+
 router.post("/ai/competitor-research", requireCredits("ai-competitor-research"), async (req, res): Promise<void> => {
   try {
     const { businessDescription, competitorLink, niche, region } = req.body;
@@ -413,7 +510,9 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     "targetAudience": "目标受众画像",
     "contentStrategy": "推荐的内容策略（2-3句话）",
     "popularAngles": ["热门切入角度1", "热门切入角度2", "热门切入角度3"],
-    "competitorInsights": "竞品分析要点（2-3句话，分析同行的内容特点和成功要素）"
+    "competitorInsights": "竞品分析要点（2-3句话，分析同行的内容特点和成功要素）",
+    "bestPostingTimes": ["推荐发布时间1（如：周一 12:00-13:00）", "推荐发布时间2", "推荐发布时间3"],
+    "postingTimeReason": "为什么推荐这些时间段（基于行业特点和用户活跃规律）"
   },
   "suggestions": [
     {
@@ -433,7 +532,9 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
 - 标题要吸引人，符合小红书爆款标题特征（使用数字、感叹号、提问、对比等技巧）
 - 正文要像真正的小红书用户写的，自然、亲切、有温度
 - 标签要精准，包含行业大词和长尾词
-- imagePrompt 要具体，适合DALL-E生成`
+- imagePrompt 要具体，适合AI图片生成
+- bestPostingTimes 要根据该行业的目标受众活跃时间，推荐3个具体的发布时间段（包含星期几和具体时间），格式如"周一 12:00-13:00"
+- postingTimeReason 解释推荐原因`
         },
         {
           role: "user",
@@ -479,7 +580,7 @@ router.post("/ai/guide", requireCredits("ai-guide"), async (req, res): Promise<v
     }
 
     const stepNum = typeof workflowStep === "number" ? workflowStep : null;
-    const stepNames: Record<number, string> = { 1: "选择账号", 2: "灵感研究", 3: "创作内容", 4: "发布" };
+    const stepNames: Record<number, string> = { 1: "灵感研究", 2: "创作内容", 3: "发布" };
     const currentStepName = stepNum ? stepNames[stepNum] || "" : "";
     const regionStr = typeof accountRegion === "string" ? accountRegion : "";
 
@@ -496,11 +597,10 @@ router.post("/ai/guide", requireCredits("ai-guide"), async (req, res): Promise<v
 ${stepNum ? `用户正处于创作向导的【步骤${stepNum}: ${currentStepName}】` : ""}
 ${regionStr ? `用户选择的账号地区：${regionStr}` : ""}
 ${currentPage === "/workflow" ? `
-创作向导有4个步骤，用户当前在步骤${stepNum || "未知"}：
-${stepNum === 1 ? "【当前：选择账号】帮助用户选对账号，提醒不同地区（新加坡/香港/马来西亚）的内容差异和受众特点。" : ""}
-${stepNum === 2 ? "【当前：灵感研究】这是核心功能！用户需要输入业务描述，AI会分析同行并生成3套内容方案。主动引导用户描述清楚业务特点、目标客群、竞品名称。提醒用户：描述越详细，生成的方案越精准。" : ""}
-${stepNum === 3 ? "【当前：创作内容】用户正在编辑笔记，右侧有实时预览和AI工具。帮助优化标题（使用爆款公式：数字+痛点+解决方案）、正文（前3行是黄金区域，要有hook）、标签（3个大词+3个长尾词）、配图（封面决定点击率）。提醒检查：1)标题是否超20字 2)正文是否有违禁词 3)配图是否清晰 4)标签是否精准。" : ""}
-${stepNum === 4 ? "【当前：发布】内容已自动复制到剪贴板。提醒发布后的互动策略：1)黄金2小时内回复每条评论 2)引导互动 3)观察数据。恭喜用户完成创作流程！" : ""}
+创作向导有3个步骤，用户当前在步骤${stepNum || "未知"}：
+${stepNum === 1 ? "【当前：灵感研究】这是核心功能！页面顶部有快速账号选择器，用户需要输入业务描述，AI会分析同行并生成3套内容方案，同时推荐最佳发布时间。主动引导用户描述清楚业务特点、目标客群、竞品名称。提醒用户：描述越详细，生成的方案越精准。" : ""}
+${stepNum === 2 ? "【当前：创作内容】用户正在编辑笔记，右侧有实时预览和AI工具（包括伪原创配图功能，可上传竞品图片生成类似风格原创图）。帮助优化标题（使用爆款公式：数字+痛点+解决方案）、正文（前3行是黄金区域，要有hook）、标签（3个大词+3个长尾词）、配图（封面决定点击率）。提醒检查：1)标题是否超20字 2)正文是否有违禁词 3)配图是否清晰 4)标签是否精准。" : ""}
+${stepNum === 3 ? "【当前：发布】内容已自动复制到剪贴板，图片/视频需要先下载再手动上传到创作中心。页面会显示AI推荐的最佳发布时间。提醒发布后的互动策略：1)黄金2小时内回复每条评论 2)引导互动 3)观察数据。恭喜用户完成创作流程！" : ""}
 ${!stepNum ? "用户正在使用创作发布向导，帮助其完成从灵感研究到发布的全流程。" : ""}` : ""}
 ${currentPage === "/content" ? "用户在查看内容列表。可以帮用户分析内容表现规律，提出优化已有内容、复制爆款模式的建议。" : ""}
 ${currentPage === "/dashboard" ? "用户在查看仪表盘。帮用户解读数据趋势，制定下一步运营计划，保持运营节奏。" : ""}

@@ -66,8 +66,13 @@ export const api = {
     generateTitle: (data: any) => request<any>("/ai/generate-title", { method: "POST", body: JSON.stringify(data) }),
     generateHashtags: (data: any) => request<any>("/ai/generate-hashtags", { method: "POST", body: JSON.stringify(data) }),
     generateImage: (data: { prompt: string; style?: string; size?: string }) =>
-      request<{ imageUrl: string; objectPath: string | null; storedUrl: string | null; revisedPrompt: string }>(
+      request<{ imageUrl: string; objectPath: string | null; storedUrl: string | null }>(
         "/ai/generate-image",
+        { method: "POST", body: JSON.stringify(data) }
+      ),
+    editImage: (data: { prompt: string; referenceImageUrl: string; size?: string }) =>
+      request<{ imageUrl: string; objectPath: string | null; storedUrl: string | null }>(
+        "/ai/edit-image",
         { method: "POST", body: JSON.stringify(data) }
       ),
     competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>

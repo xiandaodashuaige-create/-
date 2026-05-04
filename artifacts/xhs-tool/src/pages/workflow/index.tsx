@@ -16,14 +16,13 @@ import {
   Wand2, ShieldCheck, Hash, Type, Loader2, Sparkles, ImagePlus,
   Upload, X, Copy, ExternalLink, Plus, Globe, CheckCircle2, AlertTriangle,
   Search, Target, Lightbulb, ArrowRight, RotateCcw, Zap, TrendingUp,
-  Video, Eye
+  Video, Eye, Download, Clock, Image as ImageIcon, RefreshCw
 } from "lucide-react";
 
 const STEPS = [
-  { id: 1, label: "选择账号", icon: Users, desc: "选择要发布的小红书账号" },
-  { id: 2, label: "灵感研究", icon: Search, desc: "AI分析同行，生成内容方案" },
-  { id: 3, label: "创作内容", icon: FileText, desc: "编辑内容、配图、预览检查" },
-  { id: 4, label: "发布", icon: Send, desc: "一键复制发布到小红书" },
+  { id: 1, label: "灵感研究", icon: Search, desc: "选择账号、AI分析同行、生成内容方案" },
+  { id: 2, label: "创作内容", icon: FileText, desc: "编辑内容、配图、预览检查" },
+  { id: 3, label: "发布", icon: Send, desc: "下载素材、复制内容、发布到小红书" },
 ];
 
 const regionLabels: Record<string, string> = { SG: "新加坡", HK: "香港", MY: "马来西亚" };
@@ -64,6 +63,8 @@ export default function WorkflowWizard() {
   const [sensitivityResult, setSensitivityResult] = useState<any>(null);
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageSize, setImageSize] = useState("1024x1536");
+  const [referenceImageUrl, setReferenceImageUrl] = useState("");
+  const [imageMode, setImageMode] = useState<"generate" | "reference">("generate");
   const [contentSaved, setContentSaved] = useState(false);
   const [savedContentId, setSavedContentId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -139,6 +140,16 @@ export default function WorkflowWizard() {
     onError: (e: Error) => toast({ title: "图片生成失败", description: e.message, variant: "destructive" }),
   });
 
+  const editImageMutation = useMutation({
+    mutationFn: (data: { prompt: string; referenceImageUrl: string; size?: string }) => api.ai.editImage(data),
+    onSuccess: (result) => {
+      const url = result.storedUrl || result.imageUrl;
+      setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+      toast({ title: "参考图伪原创成功！" });
+    },
+    onError: (e: Error) => toast({ title: "图片编辑失败", description: e.message, variant: "destructive" }),
+  });
+
   const publishMutation = useMutation({
     mutationFn: (id: number) => api.content.publish(id),
     onSuccess: () => {
@@ -154,17 +165,16 @@ export default function WorkflowWizard() {
   function canProceed(): boolean {
     switch (step) {
       case 1: return form.accountId > 0;
-      case 2: return true;
-      case 3: return form.title.trim().length > 0 && form.body.trim().length > 0;
+      case 2: return form.title.trim().length > 0 && form.body.trim().length > 0;
       default: return true;
     }
   }
 
   function handleNext() {
-    if (step === 3 && !contentSaved) {
+    if (step === 2 && !contentSaved) {
       handleSave();
     }
-    if (step < 4) setStep(step + 1);
+    if (step < 3) setStep(step + 1);
   }
 
   function handleSave() {
@@ -234,7 +244,7 @@ export default function WorkflowWizard() {
     await new Promise(r => setTimeout(r, 500));
     setAiProgress({ active: false, steps: [] });
     setContentSaved(false);
-    setStep(3);
+    setStep(2);
   }, []);
 
   function handleAdoptSuggestion(index: number) {
@@ -304,6 +314,17 @@ export default function WorkflowWizard() {
     toast({ title: "图片上传成功" });
   }
 
+  function handleRefImageUploadComplete(result: any) {
+    const files = result.successful || [];
+    for (const file of files) {
+      const objectPath = (file as any)._objectPath;
+      if (objectPath) {
+        setReferenceImageUrl(`/api/storage${objectPath}`);
+        toast({ title: "参考图片已上传" });
+      }
+    }
+  }
+
   function handleVideoUploadComplete(result: any) {
     const files = result.successful || [];
     for (const file of files) {
@@ -334,8 +355,49 @@ export default function WorkflowWizard() {
     }
   }, [form, toast]);
 
+  async function handleDownloadImage(url: string, index: number) {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `xiaohongshu_image_${index + 1}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(url, "_blank");
+    }
+  }
+
+  async function handleDownloadAllImages() {
+    for (let i = 0; i < form.imageUrls.length; i++) {
+      await handleDownloadImage(form.imageUrls[i], i);
+      await new Promise(r => setTimeout(r, 500));
+    }
+    toast({ title: `已下载 ${form.imageUrls.length} 张配图` });
+  }
+
+  async function handleDownloadVideo() {
+    if (!form.videoUrl) return;
+    try {
+      const response = await fetch(form.videoUrl);
+      const blob = await response.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "xiaohongshu_video.mp4";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch {
+      window.open(form.videoUrl, "_blank");
+    }
+  }
+
   useEffect(() => {
-    if (step === 4 && publishStep === "ready") {
+    if (step === 3 && publishStep === "ready") {
       handleCopyContent();
     }
   }, [step]);
@@ -363,10 +425,21 @@ export default function WorkflowWizard() {
     setSensitivityResult(null);
     setAiResult(null);
     setImagePrompt("");
+    setReferenceImageUrl("");
+    setImageMode("generate");
     publishMutation.reset();
   }
 
+  function handleGenerateOrEditImage() {
+    if (imageMode === "reference" && referenceImageUrl) {
+      editImageMutation.mutate({ prompt: imagePrompt, referenceImageUrl, size: imageSize });
+    } else {
+      imageMutation.mutate({ prompt: imagePrompt, size: imageSize });
+    }
+  }
+
   const hasResearchInput = researchInput.businessDescription.trim() || researchInput.competitorLink.trim() || researchInput.niche.trim();
+  const isImageGenerating = imageMutation.isPending || editImageMutation.isPending;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -399,6 +472,7 @@ export default function WorkflowWizard() {
               </div>
               <div className="hidden md:block text-left">
                 <p className="text-xs font-medium leading-tight">{s.label}</p>
+                <p className="text-[10px] text-muted-foreground hidden lg:block">{s.desc}</p>
               </div>
             </button>
             {i < STEPS.length - 1 && (
@@ -448,113 +522,103 @@ export default function WorkflowWizard() {
         </Card>
       )}
 
-      {/* Step 1: Select Account */}
-      {step === 1 && (
-        <div className="space-y-4">
+      {/* Step 1: Research + Account Selection */}
+      {step === 1 && !aiProgress.active && (
+        <div className="space-y-6">
+          {/* Quick Account Selector */}
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-red-500" />
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Users className="h-4 w-4 text-red-500" />
                 选择发布账号
+                <span className="text-xs text-muted-foreground font-normal">（用于定制不同地区的内容策略）</span>
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               {accountsLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : accounts.length === 0 && !showAddAccount ? (
-                <div className="text-center py-8">
-                  <Users className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
-                  <p className="text-muted-foreground mb-4">还没有添加小红书账号</p>
-                  <Button onClick={() => setShowAddAccount(true)} className="bg-red-500 hover:bg-red-600 text-white">
-                    <Plus className="h-4 w-4 mr-2" />
-                    添加第一个账号
+                <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <Lightbulb className="h-5 w-5 text-amber-500 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-800">还没有添加小红书账号</p>
+                    <p className="text-xs text-amber-600">添加账号后，AI会根据地区定制内容策略</p>
+                  </div>
+                  <Button size="sm" onClick={() => setShowAddAccount(true)} className="bg-red-500 hover:bg-red-600 text-white shrink-0">
+                    <Plus className="h-3.5 w-3.5 mr-1" />添加账号
                   </Button>
                 </div>
               ) : (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {accounts.map((a: any) => (
-                      <button
-                        key={a.id}
-                        onClick={() => setForm({ ...form, accountId: a.id })}
-                        className={`p-4 rounded-xl border-2 text-left transition-all ${
-                          form.accountId === a.id
-                            ? "border-red-500 bg-red-50 shadow-sm"
-                            : "border-border hover:border-red-200 hover:bg-red-50/50"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-medium ${
-                            form.accountId === a.id ? "bg-red-500" : "bg-gray-400"
-                          }`}>
-                            {a.nickname?.[0] || "?"}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{a.nickname}</p>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <Globe className="h-3 w-3 text-muted-foreground" />
-                              <span className="text-xs text-muted-foreground">{regionLabels[a.region] || a.region}</span>
-                              <Badge variant={a.status === "active" ? "default" : "secondary"} className="text-[10px] h-4 px-1">
-                                {a.status === "active" ? "活跃" : "未激活"}
-                              </Badge>
-                            </div>
-                          </div>
-                          {form.accountId === a.id && <CheckCircle2 className="h-5 w-5 text-red-500 shrink-0" />}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setShowAddAccount(!showAddAccount)}>
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    添加新账号
-                  </Button>
-                </>
+                <div className="flex flex-wrap gap-2">
+                  {accounts.map((a: any) => (
+                    <button
+                      key={a.id}
+                      onClick={() => setForm({ ...form, accountId: a.id })}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 transition-all text-sm ${
+                        form.accountId === a.id
+                          ? "border-red-500 bg-red-50"
+                          : "border-border hover:border-red-200"
+                      }`}
+                    >
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-medium ${
+                        form.accountId === a.id ? "bg-red-500" : "bg-gray-400"
+                      }`}>
+                        {a.nickname?.[0] || "?"}
+                      </div>
+                      <span className="font-medium">{a.nickname}</span>
+                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5" data-account-region={a.region}>
+                        {regionLabels[a.region] || a.region}
+                      </Badge>
+                      {form.accountId === a.id && <CheckCircle2 className="h-4 w-4 text-red-500" />}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setShowAddAccount(!showAddAccount)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 hover:border-red-300 hover:text-red-500 text-sm transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />添加
+                  </button>
+                </div>
               )}
 
               {showAddAccount && (
-                <Card className="border-dashed">
-                  <CardContent className="pt-4 space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">昵称</Label>
-                        <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="账号昵称" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">地区</Label>
-                        <Select value={newAccount.region} onValueChange={(v) => setNewAccount({ ...newAccount, region: v })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="SG">新加坡</SelectItem>
-                            <SelectItem value="HK">香港</SelectItem>
-                            <SelectItem value="MY">马来西亚</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">小红书ID（可选）</Label>
-                        <Input value={newAccount.xhsId} onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })} placeholder="小红书号" />
-                      </div>
+                <div className="p-3 border rounded-lg border-dashed space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">昵称</Label>
+                      <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="账号昵称" />
                     </div>
-                    <div className="flex gap-2">
-                      <Button size="sm" disabled={!newAccount.nickname.trim() || createAccountMutation.isPending} onClick={() => createAccountMutation.mutate(newAccount)} className="bg-red-500 hover:bg-red-600 text-white">
-                        {createAccountMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-                        确认添加
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setShowAddAccount(false)}>取消</Button>
+                    <div className="space-y-1">
+                      <Label className="text-xs">地区</Label>
+                      <Select value={newAccount.region} onValueChange={(v) => setNewAccount({ ...newAccount, region: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="SG">新加坡</SelectItem>
+                          <SelectItem value="HK">香港</SelectItem>
+                          <SelectItem value="MY">马来西亚</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </CardContent>
-                </Card>
+                    <div className="space-y-1">
+                      <Label className="text-xs">小红书ID（可选）</Label>
+                      <Input value={newAccount.xhsId} onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })} placeholder="小红书号" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={!newAccount.nickname.trim() || createAccountMutation.isPending} onClick={() => createAccountMutation.mutate(newAccount)} className="bg-red-500 hover:bg-red-600 text-white">
+                      {createAccountMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                      确认添加
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowAddAccount(false)}>取消</Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
-        </div>
-      )}
 
-      {/* Step 2: Competitor Research & Inspiration */}
-      {step === 2 && !aiProgress.active && (
-        <div className="space-y-6">
+          {/* Research Section */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -632,18 +696,20 @@ export default function WorkflowWizard() {
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">4</span></div>
-                        <span>选中方案后AI自动检测敏感词，一步到位</span>
+                        <span>推荐最佳发布时间段，提高内容曝光率</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
-                    <span className="text-muted-foreground">发布账号：</span>
-                    <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                    <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
-                      {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
-                    </Badge>
-                  </div>
+                  {form.accountId > 0 && (
+                    <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
+                      <span className="text-muted-foreground">发布账号：</span>
+                      <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
+                      <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
+                        {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -696,6 +762,24 @@ export default function WorkflowWizard() {
                       {researchResult.analysis.popularAngles.map((a: string, i: number) => (
                         <Badge key={i} variant="outline" className="text-xs">{a}</Badge>
                       ))}
+                    </div>
+                  )}
+
+                  {/* Posting Time Recommendations */}
+                  {researchResult.analysis?.bestPostingTimes?.length > 0 && (
+                    <div className="p-3 rounded-lg bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Clock className="h-4 w-4 text-purple-500" />
+                        <p className="text-sm font-medium text-purple-800">推荐发布时间</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {researchResult.analysis.bestPostingTimes.map((time: string, i: number) => (
+                          <Badge key={i} className="bg-purple-100 text-purple-700 text-xs">{time}</Badge>
+                        ))}
+                      </div>
+                      {researchResult.analysis?.postingTimeReason && (
+                        <p className="text-xs text-purple-600">{researchResult.analysis.postingTimeReason}</p>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -760,7 +844,7 @@ export default function WorkflowWizard() {
                   <RotateCcw className="h-4 w-4 mr-2" />
                   重新生成方案
                 </Button>
-                <Button variant="ghost" onClick={() => { setStep(3); toast({ title: "已跳过，直接开始创作" }); }}>
+                <Button variant="ghost" onClick={() => { setStep(2); toast({ title: "已跳过，直接开始创作" }); }}>
                   跳过，直接创作
                   <ArrowRight className="h-4 w-4 ml-1" />
                 </Button>
@@ -770,7 +854,7 @@ export default function WorkflowWizard() {
 
           {!researchResult && !researchMutation.isPending && (
             <div className="text-center py-2">
-              <Button variant="ghost" className="text-muted-foreground" onClick={() => { setStep(3); toast({ title: "已跳过灵感研究" }); }}>
+              <Button variant="ghost" className="text-muted-foreground" onClick={() => { setStep(2); toast({ title: "已跳过灵感研究" }); }}>
                 我已有内容思路，跳过此步
                 <ArrowRight className="h-4 w-4 ml-1" />
               </Button>
@@ -779,8 +863,8 @@ export default function WorkflowWizard() {
         </div>
       )}
 
-      {/* Step 3: Create Content + Preview (Merged) */}
-      {step === 3 && !aiProgress.active && (
+      {/* Step 2: Create Content + Preview (Merged) */}
+      {step === 2 && !aiProgress.active && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
             {selectedSuggestion !== null && researchResult?.suggestions?.[selectedSuggestion] && (
@@ -790,7 +874,7 @@ export default function WorkflowWizard() {
                   <span className="font-medium text-green-800">已采用方案 {selectedSuggestion + 1}：</span>
                   <span className="text-green-700">{researchResult.suggestions[selectedSuggestion].angle}</span>
                 </div>
-                <Button size="sm" variant="ghost" className="text-xs" onClick={() => setStep(2)}>
+                <Button size="sm" variant="ghost" className="text-xs" onClick={() => setStep(1)}>
                   重新选择
                 </Button>
               </div>
@@ -804,13 +888,15 @@ export default function WorkflowWizard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
-                  <span className="text-muted-foreground">发布账号：</span>
-                  <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                  <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
-                    {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
-                  </Badge>
-                </div>
+                {form.accountId > 0 && (
+                  <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-center gap-2">
+                    <span className="text-muted-foreground">发布账号：</span>
+                    <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
+                    <Badge variant="secondary" className="text-xs" data-account-region={selectedAccount()?.region}>
+                      {regionLabels[selectedAccount()?.region] || selectedAccount()?.region}
+                    </Badge>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -955,7 +1041,7 @@ export default function WorkflowWizard() {
                       <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-[10px] font-medium">
                         {selectedAccount()?.nickname?.[0] || "?"}
                       </div>
-                      <span className="text-[10px] text-gray-500">{selectedAccount()?.nickname}</span>
+                      <span className="text-[10px] text-gray-500">{selectedAccount()?.nickname || "未选择账号"}</span>
                     </div>
                   </div>
                 </div>
@@ -1008,14 +1094,60 @@ export default function WorkflowWizard() {
               </CardContent>
             </Card>
 
-            {/* AI Image Generation */}
+            {/* AI Image Generation - Enhanced with Reference Mode */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI生成配图</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI配图</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="flex gap-1 bg-muted rounded-lg p-1">
+                  <button
+                    onClick={() => setImageMode("generate")}
+                    className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${imageMode === "generate" ? "bg-white shadow-sm font-medium" : "text-muted-foreground"}`}
+                  >
+                    文字生成配图
+                  </button>
+                  <button
+                    onClick={() => setImageMode("reference")}
+                    className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${imageMode === "reference" ? "bg-white shadow-sm font-medium" : "text-muted-foreground"}`}
+                  >
+                    参考图伪原创
+                  </button>
+                </div>
+
+                {imageMode === "reference" && (
+                  <div className="space-y-2">
+                    <div className="p-2.5 rounded-lg bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200">
+                      <div className="flex items-start gap-2">
+                        <RefreshCw className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
+                        <p className="text-xs text-purple-700">上传竞品/爆款图片作为参考，AI将模仿其风格创作全新配图，既保持爆款视觉效果，又确保原创性。</p>
+                      </div>
+                    </div>
+                    {referenceImageUrl ? (
+                      <div className="relative group">
+                        <img src={referenceImageUrl} alt="参考图" className="w-full h-32 object-cover rounded-lg border" />
+                        <button onClick={() => setReferenceImageUrl("")}
+                          className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <X className="h-3 w-3" />
+                        </button>
+                        <div className="absolute bottom-1 left-1">
+                          <Badge className="bg-purple-500 text-white text-[10px]">参考图</Badge>
+                        </div>
+                      </div>
+                    ) : (
+                      <ObjectUploader maxNumberOfFiles={1} maxFileSize={10485760}
+                        allowedFileTypes={["image/*"]}
+                        onGetUploadParameters={handleGetUploadParameters} onComplete={handleRefImageUploadComplete}
+                        buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg text-xs font-medium h-20 px-3 border-2 border-dashed border-purple-300 bg-purple-50/50 text-purple-600 hover:bg-purple-100 hover:border-purple-400 transition-colors">
+                        <Upload className="h-4 w-4 mr-1" />上传参考图片（爆款/竞品截图）
+                      </ObjectUploader>
+                    )}
+                  </div>
+                )}
+
                 <Textarea value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder="描述你想要的配图..." rows={3} className="text-sm" />
+                  placeholder={imageMode === "reference" ? "描述你想要的变化方向，如：换成粉色系配色、加上美食元素..." : "描述你想要的配图..."}
+                  rows={3} className="text-sm" />
                 <Select value={imageSize} onValueChange={setImageSize}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -1025,9 +1157,15 @@ export default function WorkflowWizard() {
                   </SelectContent>
                 </Select>
                 <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
-                  disabled={imageMutation.isPending || !imagePrompt.trim()}
-                  onClick={() => imageMutation.mutate({ prompt: imagePrompt, size: imageSize })}>
-                  {imageMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</> : <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>}
+                  disabled={isImageGenerating || !imagePrompt.trim() || (imageMode === "reference" && !referenceImageUrl)}
+                  onClick={handleGenerateOrEditImage}>
+                  {isImageGenerating ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
+                  ) : imageMode === "reference" ? (
+                    <><RefreshCw className="h-4 w-4 mr-2" />参考图伪原创</>
+                  ) : (
+                    <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
+                  )}
                 </Button>
               </CardContent>
             </Card>
@@ -1082,9 +1220,108 @@ export default function WorkflowWizard() {
         </div>
       )}
 
-      {/* Step 4: Publish */}
-      {step === 4 && (
+      {/* Step 3: Publish */}
+      {step === 3 && (
         <div className="max-w-2xl mx-auto space-y-6">
+          {/* Posting Time Recommendation */}
+          {researchResult?.analysis?.bestPostingTimes?.length > 0 && (
+            <Card className="border-purple-200 bg-gradient-to-r from-purple-50 to-blue-50">
+              <CardContent className="py-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
+                    <Clock className="h-5 w-5 text-purple-500" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-purple-800 mb-1">AI推荐发布时间</p>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {researchResult.analysis.bestPostingTimes.map((time: string, i: number) => (
+                        <Badge key={i} className="bg-purple-100 text-purple-700 border border-purple-200">{time}</Badge>
+                      ))}
+                    </div>
+                    {researchResult.analysis?.postingTimeReason && (
+                      <p className="text-xs text-purple-600">{researchResult.analysis.postingTimeReason}</p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Image & Video Download Section */}
+          {(form.imageUrls.length > 0 || form.videoUrl) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Download className="h-5 w-5 text-blue-500" />
+                    下载素材
+                  </span>
+                  {form.imageUrls.length > 1 && (
+                    <Button size="sm" variant="outline" onClick={handleDownloadAllImages}>
+                      <Download className="h-3.5 w-3.5 mr-1.5" />
+                      下载全部图片 ({form.imageUrls.length})
+                    </Button>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                  <div className="flex items-start gap-2">
+                    <Lightbulb className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-amber-700">
+                      小红书创作中心不支持直接粘贴图片/视频，请先下载素材到手机/电脑，然后在创作中心手动上传。
+                    </p>
+                  </div>
+                </div>
+
+                {form.imageUrls.length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                      <ImageIcon className="h-4 w-4 text-green-500" />
+                      配图素材 ({form.imageUrls.length}张)
+                    </p>
+                    <div className="grid grid-cols-3 gap-3">
+                      {form.imageUrls.map((url, i) => (
+                        <div key={i} className="relative group">
+                          <div className="aspect-square rounded-lg overflow-hidden border bg-muted">
+                            <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" />
+                          </div>
+                          <button
+                            onClick={() => handleDownloadImage(url, i)}
+                            className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <div className="bg-white rounded-full p-2 shadow-lg">
+                              <Download className="h-4 w-4 text-gray-700" />
+                            </div>
+                          </button>
+                          <div className="absolute top-1 left-1">
+                            <Badge className="bg-black/60 text-white text-[10px] h-5">{i + 1}</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {form.videoUrl && (
+                  <div>
+                    <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                      <Video className="h-4 w-4 text-blue-500" />
+                      视频素材
+                    </p>
+                    <div className="rounded-lg overflow-hidden border bg-muted">
+                      <video src={form.videoUrl} controls className="w-full max-h-48 object-contain" />
+                    </div>
+                    <Button size="sm" variant="outline" className="mt-2 w-full" onClick={handleDownloadVideo}>
+                      <Download className="h-3.5 w-3.5 mr-1.5" />下载视频
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Publish Steps */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-red-500" />发布到小红书</CardTitle>
@@ -1096,8 +1333,8 @@ export default function WorkflowWizard() {
                     {publishStep !== "ready" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium">{publishStep !== "ready" ? "内容已复制到剪贴板 ✓" : "正在复制内容..."}</p>
-                    <p className="text-sm text-muted-foreground mt-1">标题、正文和标签已自动复制，可直接粘贴到小红书</p>
+                    <p className="font-medium">{publishStep !== "ready" ? "文字内容已复制到剪贴板 ✓" : "正在复制内容..."}</p>
+                    <p className="text-sm text-muted-foreground mt-1">标题、正文和标签已自动复制，在创作中心直接粘贴即可</p>
                     {publishStep === "ready" && (
                       <Button className="mt-3 bg-red-500 hover:bg-red-600 text-white" size="sm" onClick={handleCopyContent}>
                         <Copy className="h-4 w-4 mr-2" />手动复制
@@ -1106,13 +1343,29 @@ export default function WorkflowWizard() {
                   </div>
                 </div>
 
+                {(form.imageUrls.length > 0 || form.videoUrl) && (
+                  <div className="flex items-start gap-4 p-4 rounded-xl border-2 border-blue-200 bg-blue-50">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-blue-500 text-white">
+                      <Download className="h-4 w-4" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-medium text-blue-800">下载图片/视频素材</p>
+                      <p className="text-sm text-blue-600 mt-1">
+                        请先用上方的下载按钮保存{form.imageUrls.length > 0 ? ` ${form.imageUrls.length}张图片` : ""}
+                        {form.videoUrl ? (form.imageUrls.length > 0 ? "和视频" : "视频") : ""}
+                        到本地，然后在创作中心手动上传
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishStep === "opened" ? "border-green-200 bg-green-50" : "border-border"}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishStep === "opened" ? "bg-green-500 text-white" : publishStep === "copied" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>
                     {publishStep === "opened" ? <Check className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">打开小红书创作中心</p>
-                    <p className="text-sm text-muted-foreground mt-1">跳转到小红书网页版，粘贴内容即可发布</p>
+                    <p className="text-sm text-muted-foreground mt-1">在创作中心粘贴文字 → 上传图片/视频 → 发布</p>
                     <Button className="mt-3 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white" onClick={handleOpenXHS}>
                       <ExternalLink className="h-4 w-4 mr-2" />打开小红书创作中心
                     </Button>
@@ -1155,6 +1408,10 @@ export default function WorkflowWizard() {
               <div className="bg-muted rounded-lg p-4 text-sm whitespace-pre-wrap font-mono max-h-64 overflow-auto">
                 {buildPublishContent()}
               </div>
+              <Button variant="outline" size="sm" className="mt-3" onClick={handleCopyContent}>
+                <Copy className="h-3.5 w-3.5 mr-1.5" />
+                {copied ? "已复制 ✓" : "重新复制"}
+              </Button>
             </CardContent>
           </Card>
         </div>
@@ -1167,20 +1424,20 @@ export default function WorkflowWizard() {
           {step > 1 ? "上一步" : "返回仪表盘"}
         </Button>
         <div className="flex gap-3">
-          {step === 3 && (
+          {step === 2 && (
             <Button variant="outline" onClick={handleSave} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               {contentSaved ? "已保存" : "保存草稿"}
             </Button>
           )}
-          {step === 2 && (
-            <Button onClick={() => { setStep(3); }} variant="outline" className="text-muted-foreground">
+          {step === 1 && (
+            <Button onClick={() => { setStep(2); }} variant="outline" className="text-muted-foreground">
               跳过，直接创作<ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           )}
-          {step < 4 && step !== 2 && (
+          {step < 3 && step !== 1 && (
             <Button onClick={handleNext} disabled={!canProceed()} className="bg-red-500 hover:bg-red-600 text-white">
-              {step === 3 ? "去发布" : "下一步"}<ChevronRight className="h-4 w-4 ml-1" />
+              {step === 2 ? "去发布" : "下一步"}<ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           )}
         </div>

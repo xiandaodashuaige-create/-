@@ -178,7 +178,7 @@ export default function LandingPage() {
 
         <div className="mt-16 grid grid-cols-3 gap-8 max-w-lg mx-auto text-center">
           <div>
-            <p className="text-3xl font-bold text-red-500">4</p>
+            <p className="text-3xl font-bold text-red-500">3</p>
             <p className="text-sm text-gray-500">{lang === "zh" ? "步完成发布" : "Steps to Publish"}</p>
           </div>
           <div>
