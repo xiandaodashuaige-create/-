@@ -1,22 +1,35 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: XHS AI Tool API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: accounts
+    description: XHS account management
+  - name: content
+    description: Content creation and management
+  - name: assets
+    description: Asset management
+  - name: ai
+    description: AI content operations
+  - name: dashboard
+    description: Dashboard analytics
+  - name: schedules
+    description: Content scheduling
+  - name: storage
+    description: Object storage
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +37,561 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounts]
+      summary: List all accounts
+      parameters:
+        - name: region
+          in: query
+          schema:
+            type: string
+            enum: [SG, HK, MY, ALL]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, banned, all]
+      responses:
+        "200":
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Account"
+    post:
+      operationId: createAccount
+      tags: [accounts]
+      summary: Create a new account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAccountBody"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+
+  /accounts/{id}:
+    get:
+      operationId: getAccount
+      tags: [accounts]
+      summary: Get account details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateAccount
+      tags: [accounts]
+      summary: Update account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountBody"
+      responses:
+        "200":
+          description: Account updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+    delete:
+      operationId: deleteAccount
+      tags: [accounts]
+      summary: Delete account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Account deleted
+
+  /content:
+    get:
+      operationId: listContent
+      tags: [content]
+      summary: List content
+      parameters:
+        - name: accountId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, scheduled, published, failed, all]
+        - name: region
+          in: query
+          schema:
+            type: string
+            enum: [SG, HK, MY, ALL]
+      responses:
+        "200":
+          description: List of content
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Content"
+    post:
+      operationId: createContent
+      tags: [content]
+      summary: Create content draft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContentBody"
+      responses:
+        "201":
+          description: Content created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+
+  /content/{id}:
+    get:
+      operationId: getContent
+      tags: [content]
+      summary: Get content details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Content details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+    patch:
+      operationId: updateContent
+      tags: [content]
+      summary: Update content
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContentBody"
+      responses:
+        "200":
+          description: Content updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+    delete:
+      operationId: deleteContent
+      tags: [content]
+      summary: Delete content
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Content deleted
+
+  /content/{id}/schedule:
+    post:
+      operationId: scheduleContent
+      tags: [content]
+      summary: Schedule content for publishing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleContentBody"
+      responses:
+        "200":
+          description: Content scheduled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+
+  /content/{id}/publish:
+    post:
+      operationId: markContentPublished
+      tags: [content]
+      summary: Mark content as published
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Content marked published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Content"
+
+  /assets:
+    get:
+      operationId: listAssets
+      tags: [assets]
+      summary: List assets
+      parameters:
+        - name: accountId
+          in: query
+          schema:
+            type: integer
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [image, video, all]
+      responses:
+        "200":
+          description: List of assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Asset"
+    post:
+      operationId: createAsset
+      tags: [assets]
+      summary: Register an uploaded asset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAssetBody"
+      responses:
+        "201":
+          description: Asset created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Asset"
+
+  /assets/{id}:
+    delete:
+      operationId: deleteAsset
+      tags: [assets]
+      summary: Delete an asset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Asset deleted
+
+  /ai/rewrite:
+    post:
+      operationId: aiRewriteContent
+      tags: [ai]
+      summary: AI rewrite content based on reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiRewriteBody"
+      responses:
+        "200":
+          description: Rewritten content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRewriteResponse"
+
+  /ai/check-sensitivity:
+    post:
+      operationId: aiCheckSensitivity
+      tags: [ai]
+      summary: Check content for sensitive words
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiCheckSensitivityBody"
+      responses:
+        "200":
+          description: Sensitivity check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCheckSensitivityResponse"
+
+  /ai/generate-title:
+    post:
+      operationId: aiGenerateTitle
+      tags: [ai]
+      summary: AI generate catchy titles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiGenerateTitleBody"
+      responses:
+        "200":
+          description: Generated titles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiGenerateTitleResponse"
+
+  /ai/generate-hashtags:
+    post:
+      operationId: aiGenerateHashtags
+      tags: [ai]
+      summary: AI generate relevant hashtags
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiGenerateHashtagsBody"
+      responses:
+        "200":
+          description: Generated hashtags
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiGenerateHashtagsResponse"
+
+  /schedules:
+    get:
+      operationId: listSchedules
+      tags: [schedules]
+      summary: List scheduled content
+      parameters:
+        - name: accountId
+          in: query
+          schema:
+            type: integer
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Scheduled content list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Schedule"
+
+  /schedules/{id}:
+    delete:
+      operationId: deleteSchedule
+      tags: [schedules]
+      summary: Cancel a schedule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Schedule cancelled
+
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /dashboard/recent-activity:
+    get:
+      operationId: getRecentActivity
+      tags: [dashboard]
+      summary: Get recent activity
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+
+  /dashboard/content-by-region:
+    get:
+      operationId: getContentByRegion
+      tags: [dashboard]
+      summary: Content count grouped by region
+      responses:
+        "200":
+          description: Content by region
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RegionCount"
+
+  /dashboard/content-by-status:
+    get:
+      operationId: getContentByStatus
+      tags: [dashboard]
+      summary: Content count grouped by status
+      responses:
+        "200":
+          description: Content by status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StatusCount"
+
+  /sensitive-words:
+    get:
+      operationId: listSensitiveWords
+      tags: [ai]
+      summary: List sensitive word rules
+      responses:
+        "200":
+          description: Sensitive words list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SensitiveWord"
+    post:
+      operationId: createSensitiveWord
+      tags: [ai]
+      summary: Add a sensitive word rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSensitiveWordBody"
+      responses:
+        "201":
+          description: Sensitive word added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SensitiveWord"
+
+  /sensitive-words/{id}:
+    delete:
+      operationId: deleteSensitiveWord
+      tags: [ai]
+      summary: Delete a sensitive word rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /storage/uploads/request-url:
+    post:
+      operationId: requestUploadUrl
+      tags: [storage]
+      summary: Request a presigned upload URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestUploadUrlBody"
+      responses:
+        "200":
+          description: Upload URL generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestUploadUrlResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +602,559 @@ components:
       required:
         - status
 
+    Account:
+      type: object
+      properties:
+        id:
+          type: integer
+        nickname:
+          type: string
+        region:
+          type: string
+          enum: [SG, HK, MY]
+        avatarUrl:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [active, inactive, banned]
+        notes:
+          type: ["string", "null"]
+        contentCount:
+          type: integer
+        lastActiveAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - nickname
+        - region
+        - status
+        - contentCount
+        - createdAt
+        - updatedAt
+
+    CreateAccountBody:
+      type: object
+      properties:
+        nickname:
+          type: string
+        region:
+          type: string
+          enum: [SG, HK, MY]
+        avatarUrl:
+          type: string
+        notes:
+          type: string
+      required:
+        - nickname
+        - region
+
+    UpdateAccountBody:
+      type: object
+      properties:
+        nickname:
+          type: string
+        region:
+          type: string
+          enum: [SG, HK, MY]
+        avatarUrl:
+          type: string
+        status:
+          type: string
+          enum: [active, inactive, banned]
+        notes:
+          type: string
+
+    Content:
+      type: object
+      properties:
+        id:
+          type: integer
+        accountId:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        originalReference:
+          type: ["string", "null"]
+        tags:
+          type: array
+          items:
+            type: string
+        imageUrls:
+          type: array
+          items:
+            type: string
+        videoUrl:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [draft, scheduled, published, failed]
+        sensitivityScore:
+          type: ["number", "null"]
+        sensitivityIssues:
+          type: array
+          items:
+            type: string
+        scheduledAt:
+          type: ["string", "null"]
+          format: date-time
+        publishedAt:
+          type: ["string", "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        account:
+          $ref: "#/components/schemas/AccountSummary"
+      required:
+        - id
+        - accountId
+        - title
+        - body
+        - tags
+        - imageUrls
+        - status
+        - sensitivityIssues
+        - createdAt
+        - updatedAt
+
+    AccountSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        nickname:
+          type: string
+        region:
+          type: string
+      required:
+        - id
+        - nickname
+        - region
+
+    CreateContentBody:
+      type: object
+      properties:
+        accountId:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        originalReference:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        imageUrls:
+          type: array
+          items:
+            type: string
+        videoUrl:
+          type: string
+      required:
+        - accountId
+        - title
+        - body
+
+    UpdateContentBody:
+      type: object
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        originalReference:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        imageUrls:
+          type: array
+          items:
+            type: string
+        videoUrl:
+          type: string
+
+    ScheduleContentBody:
+      type: object
+      properties:
+        scheduledAt:
+          type: string
+          format: date-time
+      required:
+        - scheduledAt
+
+    Asset:
+      type: object
+      properties:
+        id:
+          type: integer
+        accountId:
+          type: ["integer", "null"]
+        type:
+          type: string
+          enum: [image, video]
+        filename:
+          type: string
+        objectPath:
+          type: string
+        size:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - type
+        - filename
+        - objectPath
+        - size
+        - tags
+        - createdAt
+
+    CreateAssetBody:
+      type: object
+      properties:
+        accountId:
+          type: integer
+        type:
+          type: string
+          enum: [image, video]
+        filename:
+          type: string
+        objectPath:
+          type: string
+        size:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+      required:
+        - type
+        - filename
+        - objectPath
+        - size
+
+    AiRewriteBody:
+      type: object
+      properties:
+        originalContent:
+          type: string
+        style:
+          type: string
+          enum: [casual, professional, creative, viral]
+        region:
+          type: string
+          enum: [SG, HK, MY]
+        additionalInstructions:
+          type: string
+      required:
+        - originalContent
+
+    AiRewriteResponse:
+      type: object
+      properties:
+        rewrittenTitle:
+          type: string
+        rewrittenBody:
+          type: string
+        suggestedTags:
+          type: array
+          items:
+            type: string
+      required:
+        - rewrittenTitle
+        - rewrittenBody
+        - suggestedTags
+
+    AiCheckSensitivityBody:
+      type: object
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+      required:
+        - title
+        - body
+
+    AiCheckSensitivityResponse:
+      type: object
+      properties:
+        score:
+          type: number
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/SensitivityIssue"
+        suggestion:
+          type: string
+      required:
+        - score
+        - issues
+        - suggestion
+
+    SensitivityIssue:
+      type: object
+      properties:
+        word:
+          type: string
+        reason:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high]
+        suggestion:
+          type: string
+      required:
+        - word
+        - reason
+        - severity
+        - suggestion
+
+    AiGenerateTitleBody:
+      type: object
+      properties:
+        body:
+          type: string
+        style:
+          type: string
+          enum: [casual, professional, creative, viral]
+        count:
+          type: integer
+          default: 5
+      required:
+        - body
+
+    AiGenerateTitleResponse:
+      type: object
+      properties:
+        titles:
+          type: array
+          items:
+            type: string
+      required:
+        - titles
+
+    AiGenerateHashtagsBody:
+      type: object
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        count:
+          type: integer
+          default: 10
+      required:
+        - title
+        - body
+
+    AiGenerateHashtagsResponse:
+      type: object
+      properties:
+        hashtags:
+          type: array
+          items:
+            type: string
+      required:
+        - hashtags
+
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: integer
+        contentId:
+          type: integer
+        accountId:
+          type: integer
+        scheduledAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, completed, failed, cancelled]
+        createdAt:
+          type: string
+          format: date-time
+        content:
+          $ref: "#/components/schemas/ContentSummary"
+        account:
+          $ref: "#/components/schemas/AccountSummary"
+      required:
+        - id
+        - contentId
+        - accountId
+        - scheduledAt
+        - status
+        - createdAt
+
+    ContentSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        status:
+          type: string
+      required:
+        - id
+        - title
+        - status
+
+    DashboardStats:
+      type: object
+      properties:
+        totalAccounts:
+          type: integer
+        activeAccounts:
+          type: integer
+        totalContent:
+          type: integer
+        publishedContent:
+          type: integer
+        scheduledContent:
+          type: integer
+        draftContent:
+          type: integer
+        totalAssets:
+          type: integer
+        contentToday:
+          type: integer
+      required:
+        - totalAccounts
+        - activeAccounts
+        - totalContent
+        - publishedContent
+        - scheduledContent
+        - draftContent
+        - totalAssets
+        - contentToday
+
+    ActivityItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [content_created, content_published, content_scheduled, account_added, sensitivity_flagged]
+        description:
+          type: string
+        contentId:
+          type: ["integer", "null"]
+        accountId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - type
+        - description
+        - createdAt
+
+    RegionCount:
+      type: object
+      properties:
+        region:
+          type: string
+        count:
+          type: integer
+      required:
+        - region
+        - count
+
+    StatusCount:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+      required:
+        - status
+        - count
+
+    SensitiveWord:
+      type: object
+      properties:
+        id:
+          type: integer
+        word:
+          type: string
+        category:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - word
+        - category
+        - severity
+        - createdAt
+
+    CreateSensitiveWordBody:
+      type: object
+      properties:
+        word:
+          type: string
+        category:
+          type: string
+        severity:
+          type: string
+          enum: [low, medium, high]
+      required:
+        - word
+        - category
+        - severity
+
+    RequestUploadUrlBody:
+      type: object
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+        contentType:
+          type: string
+      required:
+        - name
+        - size
+        - contentType
+
+    RequestUploadUrlResponse:
+      type: object
+      properties:
+        uploadURL:
+          type: string
+        objectPath:
+          type: string
+      required:
+        - uploadURL
+        - objectPath

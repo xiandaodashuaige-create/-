@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "小红书AI工具"
+version = "1.0.0"
+id = "artifacts/xhs-tool"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26026
+
+[services.development]
+run = "pnpm --filter @workspace/xhs-tool run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/xhs-tool", "run", "build" ]
+publicDir = "artifacts/xhs-tool/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26026"
+BASE_PATH = "/"
