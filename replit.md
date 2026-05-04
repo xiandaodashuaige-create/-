@@ -210,21 +210,24 @@ Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and Eng
 - HK region triggers Traditional Chinese responses with Hong Kong cultural context
 - Region is selected independently; rewrite and research both use `selectedRegion`
 
-## AutoDL XHS Data Service (Real Competitor Data)
+## XHS Real Data Integration (Hybrid Mode)
 
-- External GPU server (AutoDL, RTX 4090D x2) runs real XHS data scraping via ReaJason/xhs Python SDK
-- Architecture: Playwright sign server (port 5005) → XHS data service (port 6001) → nginx reverse proxy (port 6006 → 6001)
-- External URL: `https://u711560-88e3-c9b28838.cqa1.seetacloud.com:8443`
+- **Primary data source**: RapidAPI "Xiaohongshu All API" (`xiaohongshu-all-api.p.rapidapi.com`)
+  - Env var: `RAPIDAPI_KEY`
+  - No cookies needed, stable third-party API
+  - Endpoints: search-note/v2, get-note-detail/v1, get-user-note-list/v4, search-recommend/v1, search-user/v2
+  - Free plan: 20 requests/month; Pro: $39.99/mo for 1,800 requests
+- **Fallback data source**: AutoDL self-hosted XHS scraper (ReaJason/xhs Python SDK)
+  - Env vars: `AUTODL_XHS_URL`, `AUTODL_API_KEY`
+  - External URL: `https://u711560-88e3-c9b28838.cqa1.seetacloud.com:8443`
+  - Requires XHS cookie (less stable, subject to anti-bot detection)
+- **Hybrid Mode (方案C)**: `tryFetchXhsData()` in xhs.ts tries RapidAPI first → AutoDL fallback → AI-only. The competitor-research endpoint in ai.ts calls this function and injects real note data (title, likes, collects, comments, tags) into the AI prompt. Frontend shows "含真实数据" or "AI智能分析" badge. Response includes `dataSource` field.
 - Replit proxy route: `artifacts/api-server/src/routes/xhs.ts`
-- Env vars: `AUTODL_XHS_URL`, `AUTODL_API_KEY`
 - API endpoints (proxied via Replit backend):
-  - `GET /api/xhs/health` — Check AutoDL service status
-  - `POST /api/xhs/search` — Search XHS notes by keyword (real data)
-  - `GET /api/xhs/note/:noteId` — Get note details with images, stats
+  - `GET /api/xhs/health` — Check data source availability (RapidAPI + AutoDL)
+  - `POST /api/xhs/search` — Search XHS notes by keyword
+  - `GET /api/xhs/note/:noteId` — Get note details
   - `GET /api/xhs/user/:userId/notes` — Get user's published notes
-- XHS Cookie must be refreshed periodically on AutoDL server
-- Services location on AutoDL: `/root/lulian-services/xhs-service/`
-- **Hybrid Mode (方案C)**: `tryFetchXhsData()` in xhs.ts tries real XHS data first, falls back to AI-only when unavailable (cookie expired, AutoDL offline, account flagged). The competitor-research endpoint in ai.ts calls this function and injects real note data into the AI prompt when available. Frontend shows "含真实数据" or "AI智能分析" badge on results. Response includes `dataSource` field ("real-data" or "ai-only").
 
 ## Admin Auto-Assignment
 
