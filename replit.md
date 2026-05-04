@@ -2,7 +2,7 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. **鹿联小红书AI爆款创作间 (LuLian XHS Viral Creator)** — AI content creation tool that analyzes competitor-validated viral content (文案/素材/时间点) and helps clients effortlessly create and publish original content based on proven viral patterns. Features include multi-region account management, AI pseudo-original rewriting, competitor viral analysis, pseudo-original image generation, sensitive word detection, team video upload support, and AI-recommended posting times.
+pnpm workspace monorepo using TypeScript. **鹿联小红书AI爆款创作间 (LuLian XHS Viral Creator)** — AI content creation tool that analyzes industry content strategies and helps clients create and publish original content. Features include multi-region support (SG/HK/MY), AI content strategy analysis, AI pseudo-original rewriting, pseudo-original image generation, automatic sensitive word detection and auto-fix, team video upload support, and AI-recommended posting times.
 
 ## Stack
 
@@ -70,8 +70,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ## Workflow Wizard
 
 - Guided 3-step flow at `/workflow`: 灵感研究 → 创作内容 → 发布
-- Step 1 (灵感研究): Two-card layout — (1) "选择目标地区" with 3 region buttons (🇸🇬 SG, 🇭🇰 HK, 🇲🇾 MY) for AI content matching, (2) "绑定小红书账号" (optional) for XHS account authorization/binding with auth status badges. Region selection is required; account binding is optional. Then AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans with posting time recommendations → user picks one
-- Step 2 (创作内容): Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. Streamlined AI image panel: auto-detects reference mode when competitor image is uploaded, otherwise generates from text prompt. When adopting a research suggestion, AI progress animation overlay auto-fills content, runs sensitivity check, AND auto-generates a cover image — delivering a complete content package ready for review.
+- Step 1 (内容策略): Region selector with 3 region buttons (🇸🇬 SG, 🇭🇰 HK, 🇲🇾 MY), then AI Content Strategy Analysis — input business description/link/niche → AI analyzes industry content strategies → generates 3 original content plans with posting time recommendations → user picks one
+- Step 2 (生成内容): Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. Streamlined AI image panel: auto-detects reference mode when competitor image is uploaded, otherwise generates from text prompt. When adopting a strategy suggestion, AI progress animation overlay auto-fills content, runs sensitivity check with auto-fix (rewrites flagged content automatically), AND auto-generates a cover image — delivering a complete content package ready for review.
 - Step 3 (发布): AI-recommended posting times display, image/video download gallery with per-image download buttons and "download all" option, auto-copy content → open XHS Creator Studio → mark as published → success with "publish next" option
 - Dashboard has prominent gradient CTA card linking to workflow
 - Sidebar has highlighted "创建发布" nav item
@@ -208,7 +208,7 @@ Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and Eng
 - AI competitor research and rewrite prompts adapt for HK region (繁體中文 + Cantonese tone)
 - AI Guide chatbot detects selected region via `data-selected-account-region` DOM attribute
 - HK region triggers Traditional Chinese responses with Hong Kong cultural context
-- Region is selected independently from account binding; rewrite and research both use `selectedRegion` with account fallback
+- Region is selected independently; rewrite and research both use `selectedRegion`
 
 ## Admin Auto-Assignment
 

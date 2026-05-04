@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,16 +13,16 @@ import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@workspace/object-storage-web";
 import InsufficientCreditsDialog from "@/components/InsufficientCreditsDialog";
 import {
-  Check, ChevronRight, ChevronLeft, Users, FileText, Send,
+  Check, ChevronRight, ChevronLeft, FileText, Send,
   Wand2, ShieldCheck, Hash, Type, Loader2, Sparkles, ImagePlus,
-  Upload, X, Copy, ExternalLink, Plus, Globe, CheckCircle2, AlertTriangle,
-  Search, Target, Lightbulb, ArrowRight, RotateCcw, Zap, TrendingUp,
+  Upload, X, Copy, ExternalLink, Globe, CheckCircle2, AlertTriangle,
+  Search, Target, Lightbulb, RotateCcw, Zap, TrendingUp,
   Video, Eye, Download, Clock, Image as ImageIcon, RefreshCw
 } from "lucide-react";
 
 const STEPS = [
-  { id: 1, label: "分析爆款", icon: Search, desc: "选择账号、分析同行验证的爆款文案/配图/时间点" },
-  { id: 2, label: "生成内容", icon: FileText, desc: "AI参考爆款模式生成原创内容、伪原创配图、上传团队视频" },
+  { id: 1, label: "内容策略", icon: Search, desc: "选择地区、AI分析同行内容策略和发布时间" },
+  { id: 2, label: "生成内容", icon: FileText, desc: "AI生成原创内容、配图、自动安全检查" },
   { id: 3, label: "发布", icon: Send, desc: "按AI推荐时间，下载素材+复制内容，发布到小红书" },
 ];
 
@@ -59,8 +59,7 @@ export default function WorkflowWizard() {
   const [researchResult, setResearchResult] = useState<any>(null);
   const [selectedSuggestion, setSelectedSuggestion] = useState<number | null>(null);
 
-  const [showAddAccount, setShowAddAccount] = useState(false);
-  const [newAccount, setNewAccount] = useState({ nickname: "", region: selectedRegion || "SG", xhsId: "" });
+  
   const [aiResult, setAiResult] = useState<any>(null);
   const [sensitivityResult, setSensitivityResult] = useState<any>(null);
   const [imagePrompt, setImagePrompt] = useState("");
@@ -87,28 +86,12 @@ export default function WorkflowWizard() {
     }
   }
 
-  const { data: accounts = [], isLoading: accountsLoading } = useQuery({
-    queryKey: ["accounts"],
-    queryFn: () => api.accounts.list(),
-  });
-
-  const createAccountMutation = useMutation({
-    mutationFn: (data: any) => api.accounts.create(data),
-    onSuccess: (result: any) => {
-      qc.invalidateQueries({ queryKey: ["accounts"] });
-      setForm((prev) => ({ ...prev, accountId: result.id }));
-      setShowAddAccount(false);
-      setNewAccount({ nickname: "", region: selectedRegion || "SG", xhsId: "" });
-      toast({ title: "账号添加成功" });
-    },
-  });
-
   const researchMutation = useMutation({
     mutationFn: (data: any) => api.ai.competitorResearch(data),
     onSuccess: (result) => {
       setResearchResult(result);
       setSelectedSuggestion(null);
-      toast({ title: "同行爆款分析完成！已生成3套验证方案" });
+      toast({ title: "内容策略分析完成！已生成3套原创方案" });
     },
     onError: (e: any) => handleCreditError(e),
   });
@@ -170,10 +153,6 @@ export default function WorkflowWizard() {
     },
   });
 
-  function selectedAccount() {
-    return accounts.find((a: any) => a.id === form.accountId);
-  }
-
   function canProceed(): boolean {
     switch (step) {
       case 1: return !!selectedRegion;
@@ -211,16 +190,16 @@ export default function WorkflowWizard() {
       businessDescription: businessDescription || undefined,
       competitorLink: competitorLink || undefined,
       niche: niche || undefined,
-      region: selectedRegion || selectedAccount()?.region,
+      region: selectedRegion,
     });
   }
 
   const runAiProgressSequence = useCallback(async (suggestion: any) => {
     const steps: AiProgressStep[] = [
-      { label: "正在应用爆款方案...", status: "running" },
+      { label: "正在应用内容方案...", status: "running" },
       { label: "AI正在生成标签和标题...", status: "pending" },
-      { label: "正在进行敏感词检测...", status: "pending" },
-      { label: "AI正在参考同行生成配图...", status: "pending" },
+      { label: "安全检查与自动优化...", status: "pending" },
+      { label: "AI正在生成配图...", status: "pending" },
     ];
     setAiProgress({ active: true, steps: [...steps] });
 
@@ -229,11 +208,15 @@ export default function WorkflowWizard() {
     steps[1].status = "running";
     setAiProgress({ active: true, steps: [...steps] });
 
+    let currentTitle = suggestion.title;
+    let currentBody = suggestion.body;
+    let currentTags = suggestion.tags || [];
+
     setForm((prev) => ({
       ...prev,
-      title: suggestion.title,
-      body: suggestion.body,
-      tags: suggestion.tags || [],
+      title: currentTitle,
+      body: currentBody,
+      tags: currentTags,
     }));
 
     await new Promise(r => setTimeout(r, 400));
@@ -242,11 +225,29 @@ export default function WorkflowWizard() {
     setAiProgress({ active: true, steps: [...steps] });
 
     try {
-      const sensitivityRes = await api.ai.checkSensitivity({ title: suggestion.title, body: suggestion.body });
-      setSensitivityResult(sensitivityRes);
+      const sensitivityRes = await api.ai.checkSensitivity({ title: currentTitle, body: currentBody });
+      const hasIssues = sensitivityRes.issues && sensitivityRes.issues.length > 0;
+      if (hasIssues) {
+        const issueList = sensitivityRes.issues.map((i: any) => `"${i.word}" → ${i.suggestion || "删除"}`).join("；");
+        try {
+          const fixResult = await api.ai.rewrite({
+            originalContent: `标题：${currentTitle}\n\n${currentBody}`,
+            region: selectedRegion || undefined,
+            style: "creative",
+            additionalInstructions: `必须修复以下敏感词问题，替换或删除所有违规表达：${issueList}。保持内容核心信息不变，只修复问题部分。`,
+          });
+          if (fixResult.rewrittenTitle) currentTitle = fixResult.rewrittenTitle;
+          if (fixResult.rewrittenBody) currentBody = fixResult.rewrittenBody;
+          if (fixResult.suggestedTags?.length) currentTags = [...new Set([...currentTags, ...fixResult.suggestedTags])];
+          setForm((prev) => ({ ...prev, title: currentTitle, body: currentBody, tags: currentTags }));
+        } catch {}
+        const recheck = await api.ai.checkSensitivity({ title: currentTitle, body: currentBody });
+        setSensitivityResult(recheck);
+      } else {
+        setSensitivityResult(sensitivityRes);
+      }
     } catch (err: any) {
-      if (err?.status === 403) { handleCreditError(err, 1); }
-      else { toast({ title: "敏感词检测暂时不可用，可稍后手动检测", variant: "destructive" }); }
+      if (err?.status === 403) { handleCreditError(err); }
     }
 
     steps[2].status = "done";
@@ -262,7 +263,7 @@ export default function WorkflowWizard() {
           setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
         }
       } catch (err: any) {
-        if (err?.status === 403) { handleCreditError(err, 5); }
+        if (err?.status === 403) { handleCreditError(err); }
         else { toast({ title: "配图生成暂时不可用，可在编辑页手动生成", variant: "destructive" }); }
       }
     }
@@ -274,7 +275,7 @@ export default function WorkflowWizard() {
     setAiProgress({ active: false, steps: [] });
     setContentSaved(false);
     setStep(2);
-  }, []);
+  }, [selectedRegion]);
 
   function handleAdoptSuggestion(index: number) {
     const suggestion = researchResult?.suggestions?.[index];
@@ -290,7 +291,7 @@ export default function WorkflowWizard() {
     }
     rewriteMutation.mutate({
       originalContent: form.originalReference || form.body,
-      region: selectedRegion || selectedAccount()?.region,
+      region: selectedRegion || undefined,
       style: "creative",
     });
   }
@@ -443,7 +444,7 @@ export default function WorkflowWizard() {
 
   function handleReset() {
     setStep(1);
-    setForm({ accountId: 0, title: "", body: "", originalReference: "", tags: [], tagInput: "", imageUrls: [], videoUrl: "" });
+    setForm({ accountId: 0, title: "", body: "", originalReference: "", tags: [] as string[], tagInput: "", imageUrls: [] as string[], videoUrl: "" });
     setResearchInput({ businessDescription: "", competitorLink: "", niche: "" });
     setResearchResult(null);
     setSelectedSuggestion(null);
@@ -473,7 +474,7 @@ export default function WorkflowWizard() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">创建并发布笔记</h1>
-        <p className="text-muted-foreground">分析同行爆款 → AI生成同款原创 → 轻松发布</p>
+        <p className="text-muted-foreground">AI内容策略 → 生成原创内容 → 轻松发布</p>
       </div>
 
       <div data-workflow-step={step} className="flex items-center justify-between bg-card rounded-xl border p-3 overflow-x-auto">
@@ -560,7 +561,7 @@ export default function WorkflowWizard() {
                 <Globe className="h-4 w-4 text-red-500" />
                 选择目标地区
               </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">AI将自动匹配该地区的同行爆款素材、内容风格和发布策略</p>
+              <p className="text-xs text-muted-foreground mt-1">AI将根据目标地区定制内容风格和发布策略</p>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-3">
@@ -573,8 +574,7 @@ export default function WorkflowWizard() {
                     key={r.code}
                     onClick={() => {
                       setSelectedRegion(r.code);
-                      const matchingAccount = accounts.find((a: any) => a.region === r.code);
-                      if (matchingAccount) setForm((prev) => ({ ...prev, accountId: matchingAccount.id }));
+                      
                     }}
                     className={`relative flex flex-col items-center gap-1.5 p-4 rounded-xl border-2 transition-all ${
                       selectedRegion === r.code
@@ -596,125 +596,12 @@ export default function WorkflowWizard() {
             </CardContent>
           </Card>
 
-          {/* Account Binding */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Users className="h-4 w-4 text-blue-500" />
-                绑定小红书账号
-                <Badge variant="outline" className="text-[10px] font-normal">可选</Badge>
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">绑定账号后，发布内容时可快速关联对应账号，未来支持直接发布</p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {accountsLoading ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : accounts.length === 0 && !showAddAccount ? (
-                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                  <Lightbulb className="h-5 w-5 text-blue-500 shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-blue-800">暂未绑定小红书账号</p>
-                    <p className="text-xs text-blue-600">绑定后可管理多个账号的内容发布</p>
-                  </div>
-                  <Button size="sm" onClick={() => setShowAddAccount(true)} variant="outline" className="shrink-0">
-                    <Plus className="h-3.5 w-3.5 mr-1" />绑定账号
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    {accounts.map((a: any) => (
-                      <div
-                        key={a.id}
-                        onClick={() => {
-                          setForm({ ...form, accountId: a.id });
-                          if (a.region) setSelectedRegion(a.region);
-                        }}
-                        className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
-                          form.accountId === a.id
-                            ? "border-blue-500 bg-blue-50/50"
-                            : "border-border hover:border-blue-200"
-                        }`}
-                      >
-                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0 ${
-                          form.accountId === a.id ? "bg-blue-500" : "bg-gray-400"
-                        }`}>
-                          {a.nickname?.[0] || "?"}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm truncate">{a.nickname}</span>
-                            <Badge variant="secondary" className="text-[10px] h-4 px-1.5 shrink-0" data-account-region={a.region}>
-                              {regionLabels[a.region] || a.region}
-                            </Badge>
-                          </div>
-                          {a.xhsId && <p className="text-[10px] text-muted-foreground mt-0.5">小红书号: {a.xhsId}</p>}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {a.authStatus === "authorized" ? (
-                            <Badge className="bg-green-100 text-green-700 text-[10px]">
-                              <CheckCircle2 className="h-3 w-3 mr-0.5" />已授权
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-300">
-                              待授权
-                            </Badge>
-                          )}
-                          {form.accountId === a.id && <CheckCircle2 className="h-4 w-4 text-blue-500" />}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <Button variant="outline" size="sm" className="w-full" onClick={() => setShowAddAccount(!showAddAccount)}>
-                    <Plus className="h-3.5 w-3.5 mr-1.5" />绑定新账号
-                  </Button>
-                </>
-              )}
-
-              {showAddAccount && (
-                <div className="p-3 border rounded-lg border-dashed space-y-3 bg-muted/30">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs">小红书昵称 *</Label>
-                      <Input value={newAccount.nickname} onChange={(e) => setNewAccount({ ...newAccount, nickname: e.target.value })} placeholder="输入小红书昵称" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">小红书号</Label>
-                      <Input value={newAccount.xhsId} onChange={(e) => setNewAccount({ ...newAccount, xhsId: e.target.value })} placeholder="输入小红书号（个人主页可查看）" />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">账号所在地区</Label>
-                    <Select value={newAccount.region} onValueChange={(v) => setNewAccount({ ...newAccount, region: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="SG">🇸🇬 新加坡</SelectItem>
-                        <SelectItem value="HK">🇭🇰 香港</SelectItem>
-                        <SelectItem value="MY">🇲🇾 马来西亚</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" disabled={!newAccount.nickname.trim() || createAccountMutation.isPending} onClick={() => createAccountMutation.mutate(newAccount)} className="bg-blue-500 hover:bg-blue-600 text-white">
-                      {createAccountMutation.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-                      确认绑定
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setShowAddAccount(false)}>取消</Button>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">提示：绑定账号后，后续将支持直接通过系统发布内容到小红书</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Research Section */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Search className="h-5 w-5 text-red-500" />
-                同行爆款分析 — 站在巨人肩膀上创作
+                AI内容策略分析
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -722,8 +609,8 @@ export default function WorkflowWizard() {
                 <div className="flex items-start gap-3">
                   <Lightbulb className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
                   <div className="text-sm">
-                    <p className="font-medium text-amber-800">分析同行已验证的爆款文案、配图风格和最佳发布时间</p>
-                    <p className="text-amber-600 mt-1">填写以下任意一项，AI就能找到同行跑通的爆款模式，为你生成3套经过验证的内容方案。不用自己从零摸索！</p>
+                    <p className="font-medium text-amber-800">AI智能分析同行内容策略、热门风格和最佳发布时间</p>
+                    <p className="text-amber-600 mt-1">填写以下任意一项，AI将基于行业知识分析同行的内容策略，为你生成3套原创内容方案。</p>
                   </div>
                 </div>
               </div>
@@ -771,23 +658,23 @@ export default function WorkflowWizard() {
 
                 <div className="space-y-3">
                   <div className="p-3 rounded-lg bg-muted/50 text-sm">
-                    <p className="font-medium mb-2 text-muted-foreground">AI帮你分析同行已验证的爆款：</p>
+                    <p className="font-medium mb-2 text-muted-foreground">AI帮你做什么：</p>
                     <div className="space-y-2 text-muted-foreground text-xs">
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">1</span></div>
-                        <span>🔥 爆款文案：同行哪些文案已经跑通？提炼成功要素</span>
+                        <span>📊 策略分析：分析行业热门内容方向和受众画像</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">2</span></div>
-                        <span>🎨 爆款素材：分析热门配图风格，指导伪原创方向</span>
+                        <span>🎨 内容生成：生成小红书风格的原创文案+配图建议</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">3</span></div>
-                        <span>⏰ 爆款时间点：推荐同行验证的最佳发布时间段</span>
+                        <span>⏰ 发布建议：推荐该地区行业最佳发布时间段</span>
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">4</span></div>
-                        <span>📝 3套方案：基于爆款模式，生成可直接采用的原创方案</span>
+                        <span>🔒 安全保障：自动检测并修复敏感词，确保内容合规</span>
                       </div>
                     </div>
                   </div>
@@ -798,12 +685,6 @@ export default function WorkflowWizard() {
                       <Badge variant="secondary" className="text-xs" data-account-region={selectedRegion}>
                         {regionLabels[selectedRegion] || selectedRegion}
                       </Badge>
-                      {selectedAccount() && (
-                        <>
-                          <span className="text-muted-foreground ml-2">绑定账号：</span>
-                          <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                        </>
-                      )}
                     </div>
                   )}
                 </div>
@@ -815,9 +696,9 @@ export default function WorkflowWizard() {
                 className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white h-12 text-base"
               >
                 {researchMutation.isPending ? (
-                  <><Loader2 className="h-5 w-5 animate-spin mr-2" />AI正在分析同行爆款模式，请稍候（约10-20秒）...</>
+                  <><Loader2 className="h-5 w-5 animate-spin mr-2" />AI正在分析同行内容策略，请稍候（约10-20秒）...</>
                 ) : (
-                  <><Zap className="h-5 w-5 mr-2" />开始分析同行爆款</>
+                  <><Zap className="h-5 w-5 mr-2" />AI分析同行内容策略</>
                 )}
               </Button>
             </CardContent>
@@ -830,7 +711,7 @@ export default function WorkflowWizard() {
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Target className="h-4 w-4 text-blue-500" />
-                    同行爆款分析报告
+                    AI策略分析报告
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -845,7 +726,7 @@ export default function WorkflowWizard() {
                     </div>
                   </div>
                   <div className="p-3 rounded-lg bg-white border text-sm">
-                    <p className="text-xs text-muted-foreground font-medium mb-1">同行爆款洞察</p>
+                    <p className="text-xs text-muted-foreground font-medium mb-1">行业内容洞察</p>
                     <p>{researchResult.analysis?.competitorInsights}</p>
                   </div>
                   <div className="p-3 rounded-lg bg-white border text-sm">
@@ -884,9 +765,9 @@ export default function WorkflowWizard() {
               <div>
                 <h3 className="text-lg font-bold mb-1 flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-red-500" />
-                  选择经过验证的爆款方案
+                  选择内容方案
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">以下方案基于同行已验证的爆款模式生成。点击"采用此方案"，AI自动填充内容并检测敏感词。</p>
+                <p className="text-sm text-muted-foreground mb-4">以下方案由AI基于行业分析生成。点击"采用此方案"，AI自动填充内容、检测并修复敏感词。</p>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   {researchResult.suggestions?.map((suggestion: any, index: number) => (
@@ -992,12 +873,6 @@ export default function WorkflowWizard() {
                     <Badge variant="secondary" className="text-xs" data-account-region={selectedRegion}>
                       {regionLabels[selectedRegion] || selectedRegion}
                     </Badge>
-                    {selectedAccount() && (
-                      <>
-                        <span className="text-muted-foreground ml-2">绑定账号：</span>
-                        <Badge variant="outline">{selectedAccount()?.nickname}</Badge>
-                      </>
-                    )}
                   </div>
                 )}
 
@@ -1143,9 +1018,9 @@ export default function WorkflowWizard() {
                     )}
                     <div className="flex items-center gap-2 pt-2 border-t">
                       <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-[10px] font-medium">
-                        {selectedAccount()?.nickname?.[0] || selectedRegion?.[0] || "?"}
+                        {selectedRegion?.[0] || "?"}
                       </div>
-                      <span className="text-[10px] text-gray-500">{selectedAccount()?.nickname || (selectedRegion ? regionLabels[selectedRegion] : "未选择地区")}</span>
+                      <span className="text-[10px] text-gray-500">{selectedRegion ? regionLabels[selectedRegion] : "未选择地区"}</span>
                     </div>
                   </div>
                 </div>
