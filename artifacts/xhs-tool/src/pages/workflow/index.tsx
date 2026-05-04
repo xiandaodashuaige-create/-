@@ -1078,7 +1078,7 @@ export default function WorkflowWizard() {
               </CardContent>
             </Card>
 
-            {/* AI Image Generation - Streamlined */}
+            {/* AI Image Generation - with competitor reference gallery */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI配图</CardTitle>
@@ -1091,15 +1091,57 @@ export default function WorkflowWizard() {
                   </div>
                 )}
 
+                {researchResult?.competitorNotes?.filter((n: any) => n.cover_url).length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="h-3.5 w-3.5 text-red-500" />
+                      <p className="text-xs font-medium text-foreground">同行爆款封面（点击选为参考图）</p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {researchResult.competitorNotes
+                        .filter((n: any) => n.cover_url)
+                        .slice(0, 9)
+                        .map((note: any, i: number) => (
+                          <button
+                            key={note.id || i}
+                            onClick={() => setReferenceImageUrl(note.cover_url)}
+                            className={`relative group rounded-lg overflow-hidden border-2 transition-all aspect-[3/4] ${
+                              referenceImageUrl === note.cover_url
+                                ? "border-red-500 ring-2 ring-red-200"
+                                : "border-transparent hover:border-red-300"
+                            }`}
+                          >
+                            <img
+                              src={note.cover_url}
+                              alt={note.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="absolute bottom-0 left-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <p className="text-[9px] text-white leading-tight line-clamp-2">{note.title}</p>
+                              <p className="text-[8px] text-white/80 mt-0.5">❤️{note.liked_count} ⭐{note.collected_count}</p>
+                            </div>
+                            {referenceImageUrl === note.cover_url && (
+                              <div className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-0.5">
+                                <Check className="h-3 w-3" />
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
                 {referenceImageUrl && (
                   <div className="relative group">
-                    <img src={referenceImageUrl} alt="参考图" className="w-full h-28 object-cover rounded-lg border" />
+                    <img src={referenceImageUrl} alt="参考图" className="w-full h-28 object-cover rounded-lg border-2 border-red-400" />
                     <button onClick={() => setReferenceImageUrl("")}
                       className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <X className="h-3 w-3" />
                     </button>
                     <div className="absolute bottom-1 left-1">
-                      <Badge className="bg-purple-500 text-white text-[10px]">参考图</Badge>
+                      <Badge className="bg-red-500 text-white text-[10px]">已选为参考图</Badge>
                     </div>
                   </div>
                 )}
@@ -1109,7 +1151,7 @@ export default function WorkflowWizard() {
                     allowedFileTypes={["image/*"]}
                     onGetUploadParameters={handleGetUploadParameters} onComplete={handleRefImageUploadComplete}
                     buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg text-xs font-medium h-14 px-3 border border-dashed border-purple-300 bg-purple-50/30 text-purple-600 hover:bg-purple-100 hover:border-purple-400 transition-colors">
-                    <Upload className="h-3.5 w-3.5 mr-1" />上传竞品参考图（可选）
+                    <Upload className="h-3.5 w-3.5 mr-1" />上传自己的参考图（可选）
                   </ObjectUploader>
                 )}
 
@@ -1132,7 +1174,7 @@ export default function WorkflowWizard() {
                   {isImageGenerating ? (
                     <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
                   ) : referenceImageUrl ? (
-                    <><RefreshCw className="h-4 w-4 mr-2" />参考图伪原创</>
+                    <><RefreshCw className="h-4 w-4 mr-2" />基于参考图生成配图</>
                   ) : (
                     <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
                   )}

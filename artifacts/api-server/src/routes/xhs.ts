@@ -21,6 +21,7 @@ interface NormalizedNote {
   tags: string[];
   type: string;
   source: string;
+  cover_url: string;
 }
 
 async function fetchFromTikHub(endpoint: string, params: Record<string, string> = {}): Promise<any> {
@@ -70,6 +71,7 @@ function normalizeTikHubNotes(rawData: any): NormalizedNote[] {
       tags: tags.map((t: string) => t.replace(/\[话题\]/g, "").replace("#", "")),
       type: note.type || "normal",
       source: "tikhub",
+      cover_url: note.cover?.urlDefault || note.cover?.url || "",
     };
   });
 }
@@ -121,6 +123,7 @@ function normalizeRapidAPINotes(rawItems: any[]): NormalizedNote[] {
       tags: tags.map((t: string) => t.replace(/\[话题\]/g, "").replace("#", "")),
       type: note.type || "normal",
       source: "rapidapi",
+      cover_url: note.cover?.url || note.image_list?.[0]?.url || "",
     };
   });
 }

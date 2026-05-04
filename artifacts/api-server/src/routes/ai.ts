@@ -499,11 +499,13 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     const searchKeyword = ni || bd.slice(0, 20);
     let realDataContext = "";
     let dataSource = "ai-only";
+    let competitorNotes: any[] = [];
 
     if (searchKeyword) {
       const xhsResult = await tryFetchXhsData(searchKeyword);
       dataSource = xhsResult.source;
       if (xhsResult.available && xhsResult.notes.length > 0) {
+        competitorNotes = xhsResult.notes;
         const noteSummaries = xhsResult.notes.map((n: any, i: number) =>
           `${i + 1}. 「${n.title}」by @${n.author} — ❤️${n.liked_count} ⭐${n.collected_count} 💬${n.comment_count} | 标签: ${(n.tags || []).join(", ")}`
         ).join("\n");
@@ -587,7 +589,7 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     }
 
     await deductCredits(req, "ai-competitor-research");
-    res.json({ analysis: result.analysis || {}, suggestions: validSuggestions, dataSource });
+    res.json({ analysis: result.analysis || {}, suggestions: validSuggestions, dataSource, competitorNotes });
   } catch (err) {
     req.log.error(err, "Failed to do competitor research");
     res.status(500).json({ error: "竞品分析失败，请稍后重试" });
