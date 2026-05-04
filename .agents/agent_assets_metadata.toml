@@ -18,3 +18,9 @@ id = "1RQuaPgt2ydBOo6hPPaAV"
 uri = "file://.local/需求沟通模板.md"
 type = "text"
 title = "AI Agent 需求沟通模板 v1.0"
+
+[[outputs]]
+id = "hM4yoctQ5FBbrJpC9H0w6"
+uri = "file://.local/TikTok系统需求文档.md"
+type = "text"
+title = "TikTok AI 爆款创作系统 — 完整需求文档 v1.0"
