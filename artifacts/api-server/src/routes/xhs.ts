@@ -3,15 +3,77 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+const TIKHUB_API_KEY = process.env.TIKHUB_API_KEY || "";
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
 const RAPIDAPI_HOST = "xiaohongshu-all-api.p.rapidapi.com";
 const AUTODL_XHS_URL = process.env.AUTODL_XHS_URL || "";
 const AUTODL_API_KEY = process.env.AUTODL_API_KEY || "";
 
-async function fetchFromRapidAPI(endpoint: string, params: Record<string, string> = {}): Promise<any> {
-  if (!RAPIDAPI_KEY) {
-    throw new Error("RapidAPI key not configured");
+interface NormalizedNote {
+  id: string;
+  title: string;
+  desc: string;
+  liked_count: number;
+  collected_count: number;
+  comment_count: number;
+  shared_count: number;
+  author: string;
+  tags: string[];
+  type: string;
+  source: string;
+}
+
+async function fetchFromTikHub(endpoint: string, params: Record<string, string> = {}): Promise<any> {
+  if (!TIKHUB_API_KEY) throw new Error("TikHub API key not configured");
+
+  const url = new URL(`https://api.tikhub.io${endpoint}`);
+  for (const [k, v] of Object.entries(params)) {
+    if (v) url.searchParams.set(k, v);
   }
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    signal: AbortSignal.timeout(15_000),
+    headers: {
+      "Authorization": `Bearer ${TIKHUB_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`TikHub error ${res.status}: ${text}`);
+  }
+
+  return res.json();
+}
+
+function normalizeTikHubNotes(rawData: any): NormalizedNote[] {
+  const items = rawData?.data?.items || rawData?.data?.notes || [];
+  if (!Array.isArray(items)) return [];
+
+  return items.map((item: any) => {
+    const note = item.note_card || item.note || item;
+    const interactInfo = note.interact_info || {};
+    const tags = (note.desc || "").match(/#[^\s#]+/g) || [];
+    return {
+      id: note.note_id || note.id || item.id || "",
+      title: note.title || note.display_title || "",
+      desc: (note.desc || "").slice(0, 200),
+      liked_count: interactInfo.liked_count || note.liked_count || note.likes || 0,
+      collected_count: interactInfo.collected_count || note.collected_count || 0,
+      comment_count: interactInfo.comment_count || note.comments_count || 0,
+      shared_count: interactInfo.share_count || note.shared_count || 0,
+      author: note.user?.nickname || note.user?.nick_name || "",
+      tags: tags.map((t: string) => t.replace(/\[话题\]/g, "").replace("#", "")),
+      type: note.type || "normal",
+      source: "tikhub",
+    };
+  });
+}
+
+async function fetchFromRapidAPI(endpoint: string, params: Record<string, string> = {}): Promise<any> {
+  if (!RAPIDAPI_KEY) throw new Error("RapidAPI key not configured");
 
   const url = new URL(`https://${RAPIDAPI_HOST}${endpoint}`);
   for (const [k, v] of Object.entries(params)) {
@@ -41,7 +103,7 @@ async function fetchFromRapidAPI(endpoint: string, params: Record<string, string
   return data;
 }
 
-function normalizeRapidAPINotes(rawItems: any[]): any[] {
+function normalizeRapidAPINotes(rawItems: any[]): NormalizedNote[] {
   return rawItems.map((item: any) => {
     const note = item.note || item;
     const tags = (note.desc || "").match(/#[^\s#]+/g) || [];
@@ -62,9 +124,7 @@ function normalizeRapidAPINotes(rawItems: any[]): any[] {
 }
 
 async function proxyToAutoDL(path: string, options: RequestInit = {}): Promise<any> {
-  if (!AUTODL_XHS_URL) {
-    throw new Error("AutoDL XHS service not configured");
-  }
+  if (!AUTODL_XHS_URL) throw new Error("AutoDL XHS service not configured");
 
   const url = `${AUTODL_XHS_URL}${path}`;
   const res = await fetch(url, {
@@ -85,7 +145,26 @@ async function proxyToAutoDL(path: string, options: RequestInit = {}): Promise<a
   return res.json();
 }
 
-export async function tryFetchXhsData(keyword: string): Promise<{ available: boolean; notes: any[]; source: string }> {
+export async function tryFetchXhsData(keyword: string): Promise<{ available: boolean; notes: NormalizedNote[]; source: string }> {
+  if (TIKHUB_API_KEY) {
+    try {
+      const data = await fetchFromTikHub("/api/v1/xiaohongshu/web_v3/fetch_search_notes", {
+        keyword,
+        page: "1",
+        sort: "general",
+        note_type: "0",
+      });
+
+      const notes = normalizeTikHubNotes(data).slice(0, 10);
+      if (notes.length > 0) {
+        logger.info({ count: notes.length }, "TikHub XHS search succeeded");
+        return { available: true, notes, source: "real-data" };
+      }
+    } catch (e: any) {
+      logger.warn({ err: e.message }, "TikHub XHS search failed, trying RapidAPI");
+    }
+  }
+
   if (RAPIDAPI_KEY) {
     try {
       const data = await fetchFromRapidAPI("/api/xiaohongshu/search-note/v2", {
@@ -96,33 +175,29 @@ export async function tryFetchXhsData(keyword: string): Promise<{ available: boo
       const rawItems = data?.data?.items || [];
       if (rawItems.length > 0) {
         const notes = normalizeRapidAPINotes(rawItems).slice(0, 10);
+        logger.info({ count: notes.length }, "RapidAPI XHS search succeeded");
         return { available: true, notes, source: "real-data" };
       }
     } catch (e: any) {
-      logger.warn({ err: e.message }, "RapidAPI XHS search failed, trying AutoDL fallback");
+      logger.warn({ err: e.message }, "RapidAPI XHS search failed, trying AutoDL");
     }
   }
 
   if (AUTODL_XHS_URL) {
     try {
       const healthRes = await proxyToAutoDL("/health");
-      if (!healthRes?.xhs_ready) {
-        return { available: false, notes: [], source: "ai-only" };
-      }
+      if (healthRes?.xhs_ready) {
+        const data = await proxyToAutoDL("/api/xhs/search", {
+          method: "POST",
+          body: JSON.stringify({ keyword, page: 1, sort: "hot" }),
+        });
 
-      const data = await proxyToAutoDL("/api/xhs/search", {
-        method: "POST",
-        body: JSON.stringify({ keyword, page: 1, sort: "hot" }),
-      });
-
-      if (data?.error) {
-        logger.warn({ error: data.error }, "AutoDL XHS search returned error");
-        return { available: false, notes: [], source: "ai-only" };
-      }
-
-      const notes = (data?.notes || []).slice(0, 10);
-      if (notes.length > 0) {
-        return { available: true, notes, source: "real-data" };
+        if (!data?.error) {
+          const notes = (data?.notes || []).slice(0, 10);
+          if (notes.length > 0) {
+            return { available: true, notes, source: "real-data" };
+          }
+        }
       }
     } catch (e: any) {
       logger.warn({ err: e.message }, "AutoDL XHS data fetch also failed");
@@ -133,7 +208,14 @@ export async function tryFetchXhsData(keyword: string): Promise<{ available: boo
 }
 
 router.get("/xhs/health", async (_req, res): Promise<void> => {
-  const status: any = { rapidapi: false, autodl: false };
+  const status: any = { tikhub: false, rapidapi: false, autodl: false };
+
+  if (TIKHUB_API_KEY) {
+    try {
+      await fetchFromTikHub("/api/v1/xiaohongshu/web/test");
+      status.tikhub = true;
+    } catch { /* ignore */ }
+  }
 
   if (RAPIDAPI_KEY) {
     try {
@@ -149,7 +231,7 @@ router.get("/xhs/health", async (_req, res): Promise<void> => {
     } catch { /* ignore */ }
   }
 
-  status.anyAvailable = status.rapidapi || status.autodl;
+  status.anyAvailable = status.tikhub || status.rapidapi || status.autodl;
   res.json(status);
 });
 
@@ -159,6 +241,24 @@ router.post("/xhs/search", async (req, res): Promise<void> => {
     if (!keyword) {
       res.status(400).json({ error: "keyword is required" });
       return;
+    }
+
+    if (TIKHUB_API_KEY) {
+      try {
+        const data = await fetchFromTikHub("/api/v1/xiaohongshu/web_v3/fetch_search_notes", {
+          keyword,
+          page: String(page || 1),
+          sort: "general",
+          note_type: "0",
+        });
+        const notes = normalizeTikHubNotes(data);
+        if (notes.length > 0) {
+          res.json({ notes, source: "tikhub", total: notes.length });
+          return;
+        }
+      } catch (e: any) {
+        logger.warn({ err: e.message }, "TikHub search failed, trying RapidAPI");
+      }
     }
 
     if (RAPIDAPI_KEY) {
@@ -195,6 +295,16 @@ router.post("/xhs/search", async (req, res): Promise<void> => {
 router.get("/xhs/note/:noteId", async (req, res): Promise<void> => {
   try {
     const { noteId } = req.params;
+
+    if (TIKHUB_API_KEY) {
+      try {
+        const data = await fetchFromTikHub("/api/v1/xiaohongshu/web_v3/fetch_note_detail", { note_id: noteId });
+        res.json({ data: data?.data, source: "tikhub" });
+        return;
+      } catch (e: any) {
+        logger.warn({ err: e.message }, "TikHub note detail failed, trying RapidAPI");
+      }
+    }
 
     if (RAPIDAPI_KEY) {
       try {

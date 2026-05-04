@@ -212,19 +212,21 @@ Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and Eng
 
 ## XHS Real Data Integration (Hybrid Mode)
 
-- **Primary data source**: RapidAPI "Xiaohongshu All API" (`xiaohongshu-all-api.p.rapidapi.com`)
+- **Priority 1 — TikHub** (cheapest, $0.001/request): `api.tikhub.io`
+  - Env var: `TIKHUB_API_KEY`
+  - Endpoints: /api/v1/xiaohongshu/web_v3/fetch_search_notes, fetch_note_detail
+  - Free daily check-in credits, no credit card required
+- **Priority 2 — RapidAPI** (backup): `xiaohongshu-all-api.p.rapidapi.com`
   - Env var: `RAPIDAPI_KEY`
-  - No cookies needed, stable third-party API
-  - Endpoints: search-note/v2, get-note-detail/v1, get-user-note-list/v4, search-recommend/v1, search-user/v2
   - Free plan: 20 requests/month; Pro: $39.99/mo for 1,800 requests
-- **Fallback data source**: AutoDL self-hosted XHS scraper (ReaJason/xhs Python SDK)
+- **Priority 3 — AutoDL** (self-hosted scraper, cookie-dependent)
   - Env vars: `AUTODL_XHS_URL`, `AUTODL_API_KEY`
-  - External URL: `https://u711560-88e3-c9b28838.cqa1.seetacloud.com:8443`
-  - Requires XHS cookie (less stable, subject to anti-bot detection)
-- **Hybrid Mode (方案C)**: `tryFetchXhsData()` in xhs.ts tries RapidAPI first → AutoDL fallback → AI-only. The competitor-research endpoint in ai.ts calls this function and injects real note data (title, likes, collects, comments, tags) into the AI prompt. Frontend shows "含真实数据" or "AI智能分析" badge. Response includes `dataSource` field.
-- Replit proxy route: `artifacts/api-server/src/routes/xhs.ts`
-- API endpoints (proxied via Replit backend):
-  - `GET /api/xhs/health` — Check data source availability (RapidAPI + AutoDL)
+  - Requires XHS cookie refresh, subject to anti-bot detection
+- **Priority 4 — AI-only** (always available, no real data)
+- **Hybrid Mode**: `tryFetchXhsData()` in xhs.ts cascades: TikHub → RapidAPI → AutoDL → AI-only. The competitor-research endpoint in ai.ts injects real note data into the AI prompt when available. Frontend shows "含真实数据" or "AI智能分析" badge. Response includes `dataSource` field.
+- Route file: `artifacts/api-server/src/routes/xhs.ts`
+- API endpoints:
+  - `GET /api/xhs/health` — Check all data source availability
   - `POST /api/xhs/search` — Search XHS notes by keyword
   - `GET /api/xhs/note/:noteId` — Get note details
   - `GET /api/xhs/user/:userId/notes` — Get user's published notes
