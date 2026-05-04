@@ -210,6 +210,21 @@ Supports Simplified Chinese (zh), Hong Kong Traditional Chinese (zh-HK), and Eng
 - HK region triggers Traditional Chinese responses with Hong Kong cultural context
 - Region is selected independently; rewrite and research both use `selectedRegion`
 
+## AutoDL XHS Data Service (Real Competitor Data)
+
+- External GPU server (AutoDL, RTX 4090D x2) runs real XHS data scraping via ReaJason/xhs Python SDK
+- Architecture: Playwright sign server (port 5005) → XHS data service (port 6001) → nginx reverse proxy (port 6006 → 6001)
+- External URL: `https://u711560-88e3-c9b28838.cqa1.seetacloud.com:8443`
+- Replit proxy route: `artifacts/api-server/src/routes/xhs.ts`
+- Env vars: `AUTODL_XHS_URL`, `AUTODL_API_KEY`
+- API endpoints (proxied via Replit backend):
+  - `GET /api/xhs/health` — Check AutoDL service status
+  - `POST /api/xhs/search` — Search XHS notes by keyword (real data)
+  - `GET /api/xhs/note/:noteId` — Get note details with images, stats
+  - `GET /api/xhs/user/:userId/notes` — Get user's published notes
+- XHS Cookie must be refreshed periodically on AutoDL server
+- Services location on AutoDL: `/root/lulian-services/xhs-service/`
+
 ## Admin Auto-Assignment
 
 - Admin emails configured in `creditSystem.ts`: xiandao456@gmail.com, xiandaodashuaige@gmail.com
