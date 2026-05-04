@@ -176,7 +176,7 @@ def get_user_notes(user_id):
 
 if __name__ == "__main__":
     threading.Thread(target=init_xhs_client, daemon=True).start()
-    app.run(host="0.0.0.0", port=6000, debug=False)
+    app.run(host="0.0.0.0", port=6006, debug=False)
 XHSEOF
 
 echo ""
@@ -308,13 +308,13 @@ nohup python sign_server.py > /root/sign_server.log 2>&1 &
 echo "  PID: $!"
 sleep 5
 
-echo "[2/3] 启动小红书数据服务 (端口6000)..."
+echo "[2/3] 启动小红书数据服务 (端口6006)..."
 nohup python app.py > /root/xhs_service.log 2>&1 &
 echo "  PID: $!"
 
-echo "[3/3] 启动ComfyUI (端口8188)..."
+echo "[3/3] 启动ComfyUI (端口6008)..."
 cd "$DEPLOY_DIR/ComfyUI"
-nohup python main.py --listen 0.0.0.0 --port 8188 > /root/comfyui.log 2>&1 &
+nohup python main.py --listen 0.0.0.0 --port 6008 > /root/comfyui.log 2>&1 &
 echo "  PID: $!"
 
 echo ""
@@ -324,13 +324,12 @@ echo "=========================================="
 echo ""
 echo "服务端口:"
 echo "  - 签名服务: localhost:5005 (内部)"
-echo "  - 小红书数据: localhost:6000"
-echo "  - ComfyUI:   localhost:8188"
+echo "  - 小红书数据: localhost:6006 → 外网: https://u711560-88e3-c9b28838.cqa1.seetacloud.com:8443"
+echo "  - ComfyUI:   localhost:6008 → 外网: https://u2711560-88e3-c9b28838.cqa1.seetacloud.com:8443"
 echo ""
-echo "AutoDL自定义服务映射:"
-echo "  在AutoDL控制台 → 你的实例 → 自定义服务"
-echo "  映射端口6000即可通过外网访问小红书数据服务"
-echo "  映射端口8188即可通过外网访问ComfyUI服务"
+echo "AutoDL自定义服务已映射:"
+echo "  端口6006 → 小红书数据服务"
+echo "  端口6008 → ComfyUI伪原创图片服务"
 echo ""
 echo "查看日志:"
 echo "  tail -f /root/sign_server.log"
@@ -365,6 +364,7 @@ echo ""
 echo "3. 启动所有服务:"
 echo "   cd /root/lulian-services && bash start_all.sh"
 echo ""
-echo "4. 在AutoDL控制台设置自定义服务端口映射"
-echo "   映射端口: 6000 (小红书数据) 和 8188 (ComfyUI)"
+echo "4. AutoDL端口映射已配置好:"
+echo "   端口6006 → 小红书数据服务"
+echo "   端口6008 → ComfyUI伪原创图片服务"
 echo ""
