@@ -17,7 +17,7 @@ pnpm workspace monorepo using TypeScript. Xiaohongshu (Little Red Book) AI conte
 - **State**: TanStack React Query
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
-- **AI**: OpenAI via Replit AI Integrations (gpt-4o-mini for text, dall-e-3 for images)
+- **AI**: OpenAI via Replit AI Integrations (gpt-4o-mini for text, gpt-image-1 for images)
 - **Auth**: Clerk (Replit-managed)
 - **File Storage**: Replit Object Storage (GCS-backed, presigned URL uploads)
 - **Build**: esbuild (CJS bundle)
@@ -58,20 +58,19 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 ## AI Image Generation
 
-- `POST /api/ai/generate-image` — generates images via DALL-E 3
-- Accepts prompt, style (optional), size (1024x1024, 1024x1792, 1792x1024)
-- Auto-saves generated images to object storage
-- Returns both direct URL and stored object path
+- `POST /api/ai/generate-image` — generates images via gpt-image-1
+- Accepts prompt, style (optional), size (1024x1024, 1024x1536, 1536x1024, auto)
+- Default size: 1024x1536 (portrait, optimized for XHS phone display)
+- Returns b64_json, auto-uploads to object storage, falls back to data URL
 - Integrated in content editor and workflow wizard with Chinese prompt support
 
 ## Workflow Wizard
 
-- Guided 5-step flow at `/workflow`: 选择账号 → 灵感研究 → 创作内容 → 预览检查 → 发布
+- Guided 4-step flow at `/workflow`: 选择账号 → 灵感研究 → 创作内容 → 发布
 - Step 1: Select or create XHS account with visual card selection
-- Step 2: AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans → user picks one to pre-fill editor
-- Step 3: AI-assisted content creation (rewrite, title/hashtag generation, image generation/upload), pre-filled if user adopted a research suggestion
-- Step 4: XHS-style preview card + sensitivity check + content stats with tips
-- Step 5: One-click copy content → open XHS Creator Studio → mark as published
+- Step 2: AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans → user picks one
+- Step 3: Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. When adopting a research suggestion, AI progress animation overlay auto-fills content and runs sensitivity check.
+- Step 4: Auto-copy content on entry → open XHS Creator Studio → mark as published → success with "publish next" option
 - Dashboard has prominent gradient CTA card linking to workflow
 - Sidebar has highlighted "创建发布" nav item
 
@@ -89,7 +88,8 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 - All AI and content operations consume credits
 - Free users start with 20 credits (1 full workflow trial), admin users bypass credit costs
-- Pricing tiers (USD): Free (20 credits), Starter $12.9/mo (100 credits, 1 account), Pro $39.9/mo (500 credits, unlimited accounts)
+- Plan names: 体验版(Trial) / 续费版(Growth) / 定制版(Custom)
+- Pricing tiers (USD): Trial (20 credits free), Growth $12.9/mo (100 credits, 1 account), Custom $39.9/mo (500 credits, unlimited accounts)
 - Credit packs (USD): 50/$3.9, 200/$12.9, 500/$24.9
 - One complete publish workflow costs ~20 credits
 - Credit costs: ai-rewrite(3), ai-competitor-research(5), ai-generate-title(1), ai-generate-hashtags(1), ai-generate-image(5), ai-guide(1), ai-check-sensitivity(1), content-publish(2), content-create(1), asset-upload(1)
@@ -147,7 +147,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 - `POST /ai/check-sensitivity` — Sensitivity check
 - `POST /ai/generate-title` — AI title generation
 - `POST /ai/generate-hashtags` — AI hashtag generation
-- `POST /ai/generate-image` — AI image generation (DALL-E 3)
+- `POST /ai/generate-image` — AI image generation (gpt-image-1)
 - `POST /ai/competitor-research` — AI competitor analysis + content plan generation
 - `POST /ai/guide` — AI operations guide chatbot (step-aware in workflow)
 - `GET /dashboard/stats` — Dashboard statistics
@@ -191,3 +191,9 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 ## UI Language
 
 Supports Simplified Chinese (zh) and English (en) with language switcher in sidebar. Default: Chinese.
+
+## Admin Auto-Assignment
+
+- Admin emails configured in `creditSystem.ts`: xiandao456@gmail.com, xiandaodashuaige@gmail.com
+- When these emails register via Clerk, they are automatically assigned "admin" role on first login
+- Admin users bypass credit costs and see the admin panel in sidebar

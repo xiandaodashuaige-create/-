@@ -315,35 +315,32 @@ router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (re
       return;
     }
 
-    const validSizes = ["1024x1024", "1024x1792", "1792x1024"];
-    const imageSize = validSizes.includes(size) ? size : "1024x1024";
+    const validSizes = ["1024x1024", "1024x1536", "1536x1024", "auto"];
+    const imageSize = validSizes.includes(size) ? size : "1024x1536";
     const imageStyle = style || "小红书风格，精美，高质量";
     const fullPrompt = `${prompt}. Style: ${imageStyle}. High quality, professional, suitable for Xiaohongshu (Little Red Book) social media post.`;
 
     const response = await openai.images.generate({
-      model: "dall-e-3",
+      model: "gpt-image-1",
       prompt: fullPrompt,
       n: 1,
-      size: imageSize as "1024x1024" | "1024x1792" | "1792x1024",
-      quality: "standard",
+      size: imageSize as "1024x1024" | "1024x1536" | "1536x1024" | "auto",
+      quality: "auto",
     });
 
-    const imageUrl = response.data?.[0]?.url;
-    const revisedPrompt = response.data?.[0]?.revised_prompt;
-
-    if (!imageUrl) {
+    const b64Data = response.data?.[0]?.b64_json;
+    if (!b64Data) {
       res.status(500).json({ error: "Failed to generate image" });
       return;
     }
 
+    const imageBuffer = Buffer.from(b64Data, "base64");
+
     let objectPath: string | null = null;
+    let storedUrl: string | null = null;
     try {
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-
-      const imageResponse = await fetch(imageUrl);
-      if (!imageResponse.ok) throw new Error("Failed to download generated image");
-      const imageBuffer = await imageResponse.arrayBuffer();
+      const candidatePath = objectStorageService.normalizeObjectEntityPath(uploadURL);
 
       const uploadRes = await fetch(uploadURL, {
         method: "PUT",
@@ -352,17 +349,24 @@ router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (re
       });
 
       if (!uploadRes.ok) throw new Error("Failed to upload to storage");
+      objectPath = candidatePath;
+      storedUrl = `/api/storage${objectPath}`;
     } catch (uploadErr) {
-      req.log.warn(uploadErr, "Failed to save generated image to storage, returning URL only");
+      req.log.warn(uploadErr, "Failed to save generated image to storage");
       objectPath = null;
+      storedUrl = null;
+    }
+
+    if (!storedUrl) {
+      res.status(500).json({ error: "AI图片已生成但存储失败，请重试" });
+      return;
     }
 
     await deductCredits(req, "ai-generate-image");
     res.json({
-      imageUrl,
+      imageUrl: storedUrl,
       objectPath,
-      storedUrl: objectPath ? `/api/storage${objectPath}` : null,
-      revisedPrompt,
+      storedUrl,
     });
   } catch (err: any) {
     req.log.error(err, "Failed to generate image");
@@ -475,7 +479,7 @@ router.post("/ai/guide", requireCredits("ai-guide"), async (req, res): Promise<v
     }
 
     const stepNum = typeof workflowStep === "number" ? workflowStep : null;
-    const stepNames: Record<number, string> = { 1: "选择账号", 2: "灵感研究", 3: "创作内容", 4: "预览检查", 5: "发布" };
+    const stepNames: Record<number, string> = { 1: "选择账号", 2: "灵感研究", 3: "创作内容", 4: "发布" };
     const currentStepName = stepNum ? stepNames[stepNum] || "" : "";
     const regionStr = typeof accountRegion === "string" ? accountRegion : "";
 
@@ -492,12 +496,11 @@ router.post("/ai/guide", requireCredits("ai-guide"), async (req, res): Promise<v
 ${stepNum ? `用户正处于创作向导的【步骤${stepNum}: ${currentStepName}】` : ""}
 ${regionStr ? `用户选择的账号地区：${regionStr}` : ""}
 ${currentPage === "/workflow" ? `
-创作向导有5个步骤，用户当前在步骤${stepNum || "未知"}：
+创作向导有4个步骤，用户当前在步骤${stepNum || "未知"}：
 ${stepNum === 1 ? "【当前：选择账号】帮助用户选对账号，提醒不同地区（新加坡/香港/马来西亚）的内容差异和受众特点。" : ""}
 ${stepNum === 2 ? "【当前：灵感研究】这是核心功能！用户需要输入业务描述，AI会分析同行并生成3套内容方案。主动引导用户描述清楚业务特点、目标客群、竞品名称。提醒用户：描述越详细，生成的方案越精准。" : ""}
-${stepNum === 3 ? "【当前：创作内容】用户正在编辑笔记。帮助优化标题（使用爆款公式：数字+痛点+解决方案）、正文（前3行是黄金区域，要有hook）、标签（3个大词+3个长尾词）、配图（封面决定点击率）。" : ""}
-${stepNum === 4 ? "【当前：预览检查】帮用户做最后的质量把关。提醒检查：1)标题是否超20字 2)正文是否有违禁词 3)配图是否清晰 4)标签是否精准。" : ""}
-${stepNum === 5 ? "【当前：发布】提醒发布后的互动策略：1)黄金2小时内回复每条评论 2)引导互动 3)观察数据。恭喜用户完成创作流程！" : ""}
+${stepNum === 3 ? "【当前：创作内容】用户正在编辑笔记，右侧有实时预览和AI工具。帮助优化标题（使用爆款公式：数字+痛点+解决方案）、正文（前3行是黄金区域，要有hook）、标签（3个大词+3个长尾词）、配图（封面决定点击率）。提醒检查：1)标题是否超20字 2)正文是否有违禁词 3)配图是否清晰 4)标签是否精准。" : ""}
+${stepNum === 4 ? "【当前：发布】内容已自动复制到剪贴板。提醒发布后的互动策略：1)黄金2小时内回复每条评论 2)引导互动 3)观察数据。恭喜用户完成创作流程！" : ""}
 ${!stepNum ? "用户正在使用创作发布向导，帮助其完成从灵感研究到发布的全流程。" : ""}` : ""}
 ${currentPage === "/content" ? "用户在查看内容列表。可以帮用户分析内容表现规律，提出优化已有内容、复制爆款模式的建议。" : ""}
 ${currentPage === "/dashboard" ? "用户在查看仪表盘。帮用户解读数据趋势，制定下一步运营计划，保持运营节奏。" : ""}

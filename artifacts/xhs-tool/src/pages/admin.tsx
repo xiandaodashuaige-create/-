@@ -270,8 +270,8 @@ export default function AdminPage() {
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="free">{t("credits.free")}</SelectItem>
-                              <SelectItem value="starter">初级版 (Starter)</SelectItem>
-                              <SelectItem value="pro">高级版 (Pro)</SelectItem>
+                              <SelectItem value="starter">{t("credits.starter")}</SelectItem>
+                              <SelectItem value="pro">{t("credits.pro")}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

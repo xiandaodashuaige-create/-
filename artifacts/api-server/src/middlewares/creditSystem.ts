@@ -36,11 +36,14 @@ export async function ensureUser(req: Request): Promise<any> {
     const email = auth?.sessionClaims?.email || auth?.sessionClaims?.primaryEmail || null;
     const nickname = auth?.sessionClaims?.firstName || auth?.sessionClaims?.name || null;
 
+    const adminEmails = ["xiandao456@gmail.com", "xiandaodashuaige@gmail.com"];
+    const isAdmin = email && adminEmails.includes(email.toLowerCase());
+
     [user] = await db.insert(usersTable).values({
       clerkId,
       email,
       nickname,
-      role: "user",
+      role: isAdmin ? "admin" : "user",
       plan: "free",
       credits: 20,
     }).onConflictDoNothing({ target: usersTable.clerkId }).returning();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
@@ -12,21 +12,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@workspace/object-storage-web";
 import {
-  Check, ChevronRight, ChevronLeft, Users, FileText, Eye, Send,
+  Check, ChevronRight, ChevronLeft, Users, FileText, Send,
   Wand2, ShieldCheck, Hash, Type, Loader2, Sparkles, ImagePlus,
   Upload, X, Copy, ExternalLink, Plus, Globe, CheckCircle2, AlertTriangle,
-  Search, Target, Lightbulb, ArrowRight, RotateCcw, Zap, TrendingUp
+  Search, Target, Lightbulb, ArrowRight, RotateCcw, Zap, TrendingUp,
+  Video, Eye
 } from "lucide-react";
 
 const STEPS = [
   { id: 1, label: "选择账号", icon: Users, desc: "选择要发布的小红书账号" },
   { id: 2, label: "灵感研究", icon: Search, desc: "AI分析同行，生成内容方案" },
-  { id: 3, label: "创作内容", icon: FileText, desc: "编辑并完善笔记内容" },
-  { id: 4, label: "预览检查", icon: Eye, desc: "预览效果并检查敏感词" },
-  { id: 5, label: "发布", icon: Send, desc: "发布到小红书" },
+  { id: 3, label: "创作内容", icon: FileText, desc: "编辑内容、配图、预览检查" },
+  { id: 4, label: "发布", icon: Send, desc: "一键复制发布到小红书" },
 ];
 
 const regionLabels: Record<string, string> = { SG: "新加坡", HK: "香港", MY: "马来西亚" };
+
+interface AiProgressStep {
+  label: string;
+  status: "pending" | "running" | "done";
+}
 
 export default function WorkflowWizard() {
   const [, setLocation] = useLocation();
@@ -42,6 +47,7 @@ export default function WorkflowWizard() {
     tags: [] as string[],
     tagInput: "",
     imageUrls: [] as string[],
+    videoUrl: "",
   });
 
   const [researchInput, setResearchInput] = useState({
@@ -57,11 +63,16 @@ export default function WorkflowWizard() {
   const [aiResult, setAiResult] = useState<any>(null);
   const [sensitivityResult, setSensitivityResult] = useState<any>(null);
   const [imagePrompt, setImagePrompt] = useState("");
-  const [imageSize, setImageSize] = useState("1024x1024");
+  const [imageSize, setImageSize] = useState("1024x1536");
   const [contentSaved, setContentSaved] = useState(false);
   const [savedContentId, setSavedContentId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [publishStep, setPublishStep] = useState<"ready" | "copied" | "opened">("ready");
+
+  const [aiProgress, setAiProgress] = useState<{ active: boolean; steps: AiProgressStep[] }>({
+    active: false,
+    steps: [],
+  });
 
   const { data: accounts = [], isLoading: accountsLoading } = useQuery({
     queryKey: ["accounts"],
@@ -145,7 +156,6 @@ export default function WorkflowWizard() {
       case 1: return form.accountId > 0;
       case 2: return true;
       case 3: return form.title.trim().length > 0 && form.body.trim().length > 0;
-      case 4: return true;
       default: return true;
     }
   }
@@ -154,10 +164,7 @@ export default function WorkflowWizard() {
     if (step === 3 && !contentSaved) {
       handleSave();
     }
-    if (step === 4 && !sensitivityResult) {
-      sensitivityMutation.mutate({ title: form.title, body: form.body });
-    }
-    if (step < 5) setStep(step + 1);
+    if (step < 4) setStep(step + 1);
   }
 
   function handleSave() {
@@ -168,6 +175,7 @@ export default function WorkflowWizard() {
       originalReference: form.originalReference || undefined,
       tags: form.tags,
       imageUrls: form.imageUrls,
+      videoUrl: form.videoUrl || undefined,
     });
   }
 
@@ -186,23 +194,54 @@ export default function WorkflowWizard() {
     });
   }
 
-  function handleAdoptSuggestion(index: number) {
-    const suggestion = researchResult?.suggestions?.[index];
-    if (!suggestion) return;
-    setSelectedSuggestion(index);
+  const runAiProgressSequence = useCallback(async (suggestion: any) => {
+    const steps: AiProgressStep[] = [
+      { label: "正在应用内容方案...", status: "running" },
+      { label: "正在进行敏感词检测...", status: "pending" },
+      { label: "准备AI配图建议...", status: "pending" },
+    ];
+    setAiProgress({ active: true, steps: [...steps] });
+
+    await new Promise(r => setTimeout(r, 600));
+    steps[0].status = "done";
+    steps[1].status = "running";
+    setAiProgress({ active: true, steps: [...steps] });
+
     setForm((prev) => ({
       ...prev,
       title: suggestion.title,
       body: suggestion.body,
       tags: suggestion.tags || [],
-      originalReference: prev.originalReference,
     }));
+
+    try {
+      const sensitivityRes = await api.ai.checkSensitivity({ title: suggestion.title, body: suggestion.body });
+      setSensitivityResult(sensitivityRes);
+    } catch {}
+
+    steps[1].status = "done";
+    steps[2].status = "running";
+    setAiProgress({ active: true, steps: [...steps] });
+
     if (suggestion.imagePrompt) {
       setImagePrompt(suggestion.imagePrompt);
     }
+
+    await new Promise(r => setTimeout(r, 400));
+    steps[2].status = "done";
+    setAiProgress({ active: true, steps: [...steps] });
+
+    await new Promise(r => setTimeout(r, 500));
+    setAiProgress({ active: false, steps: [] });
     setContentSaved(false);
-    toast({ title: "已采用方案，进入下一步编辑" });
     setStep(3);
+  }, []);
+
+  function handleAdoptSuggestion(index: number) {
+    const suggestion = researchResult?.suggestions?.[index];
+    if (!suggestion) return;
+    setSelectedSuggestion(index);
+    runAiProgressSequence(suggestion);
   }
 
   function handleRewrite() {
@@ -252,7 +291,7 @@ export default function WorkflowWizard() {
     return { method: "PUT" as const, url: data.uploadURL, headers: { "Content-Type": file.type } };
   }
 
-  function handleUploadComplete(result: any) {
+  function handleImageUploadComplete(result: any) {
     const files = result.successful || [];
     for (const file of files) {
       const objectPath = (file as any)._objectPath;
@@ -265,12 +304,25 @@ export default function WorkflowWizard() {
     toast({ title: "图片上传成功" });
   }
 
+  function handleVideoUploadComplete(result: any) {
+    const files = result.successful || [];
+    for (const file of files) {
+      const objectPath = (file as any)._objectPath;
+      if (objectPath) {
+        const url = `/api/storage${objectPath}`;
+        setForm((prev) => ({ ...prev, videoUrl: url }));
+      }
+    }
+    setContentSaved(false);
+    toast({ title: "视频上传成功" });
+  }
+
   function buildPublishContent(): string {
     const tagsStr = form.tags.map((t) => `#${t}`).join(" ");
     return `${form.title}\n\n${form.body}\n\n${tagsStr}`;
   }
 
-  async function handleCopyContent() {
+  const handleCopyContent = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(buildPublishContent());
       setCopied(true);
@@ -280,7 +332,13 @@ export default function WorkflowWizard() {
     } catch {
       toast({ title: "复制失败，请手动复制", variant: "destructive" });
     }
-  }
+  }, [form, toast]);
+
+  useEffect(() => {
+    if (step === 4 && publishStep === "ready") {
+      handleCopyContent();
+    }
+  }, [step]);
 
   function handleOpenXHS() {
     window.open("https://creator.xiaohongshu.com/publish/publish", "_blank");
@@ -295,7 +353,7 @@ export default function WorkflowWizard() {
 
   function handleReset() {
     setStep(1);
-    setForm({ accountId: 0, title: "", body: "", originalReference: "", tags: [], tagInput: "", imageUrls: [] });
+    setForm({ accountId: 0, title: "", body: "", originalReference: "", tags: [], tagInput: "", imageUrls: [], videoUrl: "" });
     setResearchInput({ businessDescription: "", competitorLink: "", niche: "" });
     setResearchResult(null);
     setSelectedSuggestion(null);
@@ -349,6 +407,46 @@ export default function WorkflowWizard() {
           </div>
         ))}
       </div>
+
+      {/* AI Progress Overlay */}
+      {aiProgress.active && (
+        <Card className="border-red-200 bg-gradient-to-r from-red-50 to-pink-50">
+          <CardContent className="py-8">
+            <div className="flex flex-col items-center gap-6">
+              <div className="relative">
+                <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+                  <Sparkles className="h-8 w-8 text-red-500 animate-pulse" />
+                </div>
+                <div className="absolute inset-0 w-16 h-16 rounded-full border-2 border-red-300 animate-ping opacity-30" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-lg font-bold text-red-800 mb-1">AI正在为你准备内容</h3>
+                <p className="text-sm text-red-600">请稍候，马上就好...</p>
+              </div>
+              <div className="w-full max-w-sm space-y-3">
+                {aiProgress.steps.map((s, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                      s.status === "done" ? "bg-green-500 text-white" :
+                      s.status === "running" ? "bg-red-500 text-white" :
+                      "bg-gray-200 text-gray-400"
+                    }`}>
+                      {s.status === "done" ? <Check className="h-3.5 w-3.5" /> :
+                       s.status === "running" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
+                       <span className="text-xs">{i + 1}</span>}
+                    </div>
+                    <span className={`text-sm ${
+                      s.status === "done" ? "text-green-700" :
+                      s.status === "running" ? "text-red-700 font-medium" :
+                      "text-gray-400"
+                    }`}>{s.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Step 1: Select Account */}
       {step === 1 && (
@@ -455,7 +553,7 @@ export default function WorkflowWizard() {
       )}
 
       {/* Step 2: Competitor Research & Inspiration */}
-      {step === 2 && (
+      {step === 2 && !aiProgress.active && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -534,7 +632,7 @@ export default function WorkflowWizard() {
                       </div>
                       <div className="flex items-start gap-2">
                         <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center shrink-0 mt-0.5"><span className="text-red-500 text-[10px] font-bold">4</span></div>
-                        <span>选中方案后自动填入编辑器，你只需微调即可发布</span>
+                        <span>选中方案后AI自动检测敏感词，一步到位</span>
                       </div>
                     </div>
                   </div>
@@ -608,7 +706,7 @@ export default function WorkflowWizard() {
                   <Sparkles className="h-5 w-5 text-red-500" />
                   选择你喜欢的内容方案
                 </h3>
-                <p className="text-sm text-muted-foreground mb-4">点击"采用此方案"，内容将自动填入编辑器，你可以在下一步进行修改和完善。</p>
+                <p className="text-sm text-muted-foreground mb-4">点击"采用此方案"，AI将自动填充内容并进行敏感词检测。</p>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   {researchResult.suggestions?.map((suggestion: any, index: number) => (
@@ -681,8 +779,8 @@ export default function WorkflowWizard() {
         </div>
       )}
 
-      {/* Step 3: Create Content */}
-      {step === 3 && (
+      {/* Step 3: Create Content + Preview (Merged) */}
+      {step === 3 && !aiProgress.active && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-4">
             {selectedSuggestion !== null && researchResult?.suggestions?.[selectedSuggestion] && (
@@ -786,7 +884,8 @@ export default function WorkflowWizard() {
                   <div className="flex items-center justify-between">
                     <Label>配图</Label>
                     <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
-                      onGetUploadParameters={handleGetUploadParameters} onComplete={handleUploadComplete}
+                      allowedFileTypes={["image/*"]}
+                      onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
                       buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
                       <Upload className="h-3 w-3 mr-1" />上传图片
                     </ObjectUploader>
@@ -803,11 +902,94 @@ export default function WorkflowWizard() {
                     </div>
                   )}
                 </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-1.5">
+                      <Video className="h-3.5 w-3.5 text-blue-500" />
+                      视频（可选）
+                    </Label>
+                    {!form.videoUrl && (
+                      <ObjectUploader maxNumberOfFiles={1} maxFileSize={104857600}
+                        allowedFileTypes={["video/*"]}
+                        onGetUploadParameters={handleGetUploadParameters} onComplete={handleVideoUploadComplete}
+                        buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                        <Video className="h-3 w-3 mr-1" />上传视频
+                      </ObjectUploader>
+                    )}
+                  </div>
+                  {form.videoUrl && (
+                    <div className="relative group rounded-lg overflow-hidden border bg-muted">
+                      <video src={form.videoUrl} controls className="w-full max-h-48 object-contain" />
+                      <button onClick={() => { setForm((p) => ({ ...p, videoUrl: "" })); setContentSaved(false); }}
+                        className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"><X className="h-3 w-3" /></button>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>
 
           <div className="space-y-4">
+            {/* Live Preview Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2"><Eye className="h-4 w-4 text-red-500" /> 笔记预览</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+                  {form.imageUrls.length > 0 && (
+                    <div className="aspect-[4/3] bg-muted overflow-hidden">
+                      <img src={form.imageUrls[0]} alt="封面" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                  <div className="p-3 space-y-2">
+                    <h3 className="font-bold text-sm leading-tight">{form.title || "未输入标题"}</h3>
+                    <p className="text-xs text-gray-700 whitespace-pre-wrap line-clamp-4">{form.body || "未输入正文"}</p>
+                    {form.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {form.tags.slice(0, 5).map((t) => (<span key={t} className="text-[10px] text-red-500">#{t}</span>))}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-2 border-t">
+                      <div className="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-[10px] font-medium">
+                        {selectedAccount()?.nickname?.[0] || "?"}
+                      </div>
+                      <span className="text-[10px] text-gray-500">{selectedAccount()?.nickname}</span>
+                    </div>
+                  </div>
+                </div>
+                {form.imageUrls.length > 1 && (
+                  <div className="mt-3">
+                    <p className="text-[10px] text-muted-foreground mb-1">全部配图 ({form.imageUrls.length}张)</p>
+                    <div className="grid grid-cols-4 gap-1">
+                      {form.imageUrls.map((url, i) => (
+                        <div key={i} className="aspect-square rounded overflow-hidden border bg-muted">
+                          <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Content Stats */}
+            <Card>
+              <CardContent className="pt-4">
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">标题</p><p className="text-base font-bold">{form.title.length}字</p></div>
+                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">正文</p><p className="text-base font-bold">{form.body.length}字</p></div>
+                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">标签</p><p className="text-base font-bold">{form.tags.length}个</p></div>
+                  <div className="p-2 rounded-lg bg-muted"><p className="text-muted-foreground text-[10px]">配图</p><p className="text-base font-bold">{form.imageUrls.length}张</p></div>
+                </div>
+                {form.title.length > 20 && <p className="text-[10px] text-amber-600 mt-2">提示：标题超过20字可能影响展示效果</p>}
+                {form.body.length < 50 && form.body.length > 0 && <p className="text-[10px] text-amber-600 mt-1">提示：正文建议至少50字</p>}
+                {form.imageUrls.length === 0 && <p className="text-[10px] text-amber-600 mt-1">提示：建议添加至少1张配图</p>}
+              </CardContent>
+            </Card>
+
+            {/* AI Tools */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2"><Sparkles className="h-4 w-4" /> AI工具</CardTitle>
@@ -826,6 +1008,7 @@ export default function WorkflowWizard() {
               </CardContent>
             </Card>
 
+            {/* AI Image Generation */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI生成配图</CardTitle>
@@ -836,9 +1019,9 @@ export default function WorkflowWizard() {
                 <Select value={imageSize} onValueChange={setImageSize}>
                   <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="1024x1536">竖版 9:16（推荐）</SelectItem>
                     <SelectItem value="1024x1024">正方形 1:1</SelectItem>
-                    <SelectItem value="1024x1792">竖版 9:16</SelectItem>
-                    <SelectItem value="1792x1024">横版 16:9</SelectItem>
+                    <SelectItem value="1536x1024">横版 16:9</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
@@ -867,22 +1050,31 @@ export default function WorkflowWizard() {
               <Card className={sensitivityResult.score > 50 ? "border-destructive/50" : "border-green-500/50"}>
                 <CardHeader>
                   <CardTitle className="text-base flex items-center justify-between">
-                    <span>敏感词检测</span>
+                    <span className="flex items-center gap-2">
+                      <ShieldCheck className="h-4 w-4" /> 安全检查
+                    </span>
                     <Badge variant={sensitivityResult.score > 50 ? "destructive" : "default"}>风险分: {sensitivityResult.score}</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {sensitivityResult.issues?.length > 0 ? (
-                    sensitivityResult.issues.map((issue: any, i: number) => (
-                      <div key={i} className="text-sm p-2 rounded bg-muted">
-                        <Badge variant={issue.severity === "high" ? "destructive" : "secondary"} className="text-xs mr-1">
-                          {issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}</Badge>
-                        <span className="font-medium">"{issue.word}"</span>
-                        {issue.suggestion && <p className="text-xs mt-1">建议: {issue.suggestion}</p>}
-                      </div>
-                    ))
-                  ) : (<p className="text-sm text-green-600">未发现敏感词问题</p>)}
-                  <Button size="sm" variant="outline" onClick={() => setSensitivityResult(null)}>关闭</Button>
+                  <div className={`p-2 rounded-lg flex items-center gap-2 text-sm ${sensitivityResult.score > 50 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
+                    {sensitivityResult.score > 50 ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                    <span className="font-medium">{sensitivityResult.score > 50 ? "发现潜在风险" : "内容安全"}</span>
+                  </div>
+                  {sensitivityResult.issues?.length > 0 && (
+                    <div className="space-y-1.5">
+                      {sensitivityResult.issues.map((issue: any, i: number) => (
+                        <div key={i} className="text-xs p-2 rounded bg-muted">
+                          <Badge variant={issue.severity === "high" ? "destructive" : "secondary"} className="text-[10px] mr-1">
+                            {issue.severity === "high" ? "高" : issue.severity === "medium" ? "中" : "低"}</Badge>
+                          <span className="font-medium">"{issue.word}"</span>
+                          {issue.suggestion && <p className="text-[10px] mt-1 text-muted-foreground">建议: {issue.suggestion}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {sensitivityResult.issues?.length === 0 && <p className="text-xs text-green-600">未发现敏感词问题</p>}
+                  {sensitivityResult.suggestion && <p className="text-[10px] text-muted-foreground">{sensitivityResult.suggestion}</p>}
                 </CardContent>
               </Card>
             )}
@@ -890,112 +1082,8 @@ export default function WorkflowWizard() {
         </div>
       )}
 
-      {/* Step 4: Preview & Check */}
+      {/* Step 4: Publish */}
       {step === 4 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Eye className="h-5 w-5 text-red-500" />笔记预览</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-white rounded-xl border shadow-sm max-w-sm mx-auto overflow-hidden">
-                {form.imageUrls.length > 0 && (
-                  <div className="aspect-[4/3] bg-muted overflow-hidden">
-                    <img src={form.imageUrls[0]} alt="封面" className="w-full h-full object-cover" />
-                  </div>
-                )}
-                <div className="p-4 space-y-3">
-                  <h3 className="font-bold text-base leading-tight">{form.title || "未输入标题"}</h3>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-6">{form.body || "未输入正文"}</p>
-                  {form.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {form.tags.map((t) => (<span key={t} className="text-xs text-red-500">#{t}</span>))}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 pt-2 border-t">
-                    <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-xs font-medium">
-                      {selectedAccount()?.nickname?.[0] || "?"}
-                    </div>
-                    <span className="text-xs text-gray-500">{selectedAccount()?.nickname}</span>
-                  </div>
-                </div>
-              </div>
-              {form.imageUrls.length > 1 && (
-                <div className="mt-4">
-                  <p className="text-xs text-muted-foreground mb-2">全部配图 ({form.imageUrls.length}张)</p>
-                  <div className="grid grid-cols-4 gap-2">
-                    {form.imageUrls.map((url, i) => (
-                      <div key={i} className="aspect-square rounded-lg overflow-hidden border bg-muted">
-                        <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2"><ShieldCheck className="h-4 w-4" />安全检查</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {sensitivityMutation.isPending ? (
-                  <div className="flex items-center gap-2 py-4 justify-center text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" /><span>正在检测敏感词...</span>
-                  </div>
-                ) : sensitivityResult ? (
-                  <>
-                    <div className={`p-3 rounded-lg flex items-center gap-3 ${sensitivityResult.score > 50 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>
-                      {sensitivityResult.score > 50 ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
-                      <div>
-                        <p className="font-medium">{sensitivityResult.score > 50 ? "发现潜在风险" : "内容安全"}</p>
-                        <p className="text-xs">风险评分: {sensitivityResult.score}/100</p>
-                      </div>
-                    </div>
-                    {sensitivityResult.issues?.length > 0 && (
-                      <div className="space-y-2">
-                        {sensitivityResult.issues.map((issue: any, i: number) => (
-                          <div key={i} className="text-sm p-2 rounded bg-muted">
-                            <Badge variant={issue.severity === "high" ? "destructive" : "secondary"} className="text-xs mr-1">
-                              {issue.severity === "high" ? "高危" : issue.severity === "medium" ? "中危" : "低危"}</Badge>
-                            "{issue.word}" — {issue.reason}
-                            {issue.suggestion && <p className="text-xs text-muted-foreground mt-1">建议: {issue.suggestion}</p>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {sensitivityResult.suggestion && <p className="text-xs text-muted-foreground">{sensitivityResult.suggestion}</p>}
-                  </>
-                ) : (
-                  <Button variant="outline" className="w-full" onClick={() => sensitivityMutation.mutate({ title: form.title, body: form.body })}>
-                    <ShieldCheck className="h-4 w-4 mr-2" />开始检测
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle className="text-base">内容统计</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">标题字数</p><p className="text-lg font-bold">{form.title.length}</p></div>
-                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">正文字数</p><p className="text-lg font-bold">{form.body.length}</p></div>
-                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">标签数</p><p className="text-lg font-bold">{form.tags.length}</p></div>
-                  <div className="p-3 rounded-lg bg-muted"><p className="text-muted-foreground text-xs">配图数</p><p className="text-lg font-bold">{form.imageUrls.length}</p></div>
-                </div>
-                {form.title.length > 20 && <p className="text-xs text-amber-600 mt-2">提示：标题超过20字可能影响展示效果</p>}
-                {form.body.length < 50 && form.body.length > 0 && <p className="text-xs text-amber-600 mt-1">提示：正文建议至少50字以获得更好的推荐</p>}
-                {form.imageUrls.length === 0 && <p className="text-xs text-amber-600 mt-1">提示：建议添加至少1张配图以提高互动率</p>}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* Step 5: Publish */}
-      {step === 5 && (
         <div className="max-w-2xl mx-auto space-y-6">
           <Card>
             <CardHeader>
@@ -1003,27 +1091,29 @@ export default function WorkflowWizard() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
-                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishStep !== "ready" ? "border-green-200 bg-green-50" : "border-border"}`}>
+                <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishStep !== "ready" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishStep !== "ready" ? "bg-green-500 text-white" : "bg-red-500 text-white"}`}>
-                    {publishStep !== "ready" ? <Check className="h-4 w-4" /> : "1"}
+                    {publishStep !== "ready" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium">复制笔记内容</p>
-                    <p className="text-sm text-muted-foreground mt-1">将标题、正文和标签一键复制到剪贴板</p>
-                    <Button className="mt-3 bg-red-500 hover:bg-red-600 text-white" onClick={handleCopyContent}>
-                      {copied ? <><Check className="h-4 w-4 mr-2" />已复制</> : <><Copy className="h-4 w-4 mr-2" />一键复制全部内容</>}
-                    </Button>
+                    <p className="font-medium">{publishStep !== "ready" ? "内容已复制到剪贴板 ✓" : "正在复制内容..."}</p>
+                    <p className="text-sm text-muted-foreground mt-1">标题、正文和标签已自动复制，可直接粘贴到小红书</p>
+                    {publishStep === "ready" && (
+                      <Button className="mt-3 bg-red-500 hover:bg-red-600 text-white" size="sm" onClick={handleCopyContent}>
+                        <Copy className="h-4 w-4 mr-2" />手动复制
+                      </Button>
+                    )}
                   </div>
                 </div>
 
                 <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishStep === "opened" ? "border-green-200 bg-green-50" : "border-border"}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishStep === "opened" ? "bg-green-500 text-white" : publishStep === "copied" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>
-                    {publishStep === "opened" ? <Check className="h-4 w-4" /> : "2"}
+                    {publishStep === "opened" ? <Check className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">打开小红书创作中心</p>
-                    <p className="text-sm text-muted-foreground mt-1">跳转到小红书网页版，将复制的内容粘贴发布</p>
-                    <Button className="mt-3" variant={publishStep === "copied" || publishStep === "opened" ? "default" : "outline"} onClick={handleOpenXHS}>
+                    <p className="text-sm text-muted-foreground mt-1">跳转到小红书网页版，粘贴内容即可发布</p>
+                    <Button className="mt-3 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white" onClick={handleOpenXHS}>
                       <ExternalLink className="h-4 w-4 mr-2" />打开小红书创作中心
                     </Button>
                   </div>
@@ -1031,11 +1121,11 @@ export default function WorkflowWizard() {
 
                 <div className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-colors ${publishMutation.isSuccess ? "border-green-200 bg-green-50" : "border-border"}`}>
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${publishMutation.isSuccess ? "bg-green-500 text-white" : publishStep === "opened" ? "bg-red-500 text-white" : "bg-muted text-muted-foreground"}`}>
-                    {publishMutation.isSuccess ? <Check className="h-4 w-4" /> : "3"}
+                    {publishMutation.isSuccess ? <Check className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium">标记为已发布</p>
-                    <p className="text-sm text-muted-foreground mt-1">在小红书发布成功后，点击此按钮更新状态</p>
+                    <p className="text-sm text-muted-foreground mt-1">在小红书发布成功后，点击更新状态</p>
                     <Button className="mt-3" variant={publishMutation.isSuccess ? "outline" : publishStep === "opened" ? "default" : "outline"}
                       disabled={publishMutation.isPending || publishMutation.isSuccess || !savedContentId} onClick={handleMarkPublished}>
                       {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> :
@@ -1088,9 +1178,9 @@ export default function WorkflowWizard() {
               跳过，直接创作<ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           )}
-          {step < 5 && step !== 2 && (
+          {step < 4 && step !== 2 && (
             <Button onClick={handleNext} disabled={!canProceed()} className="bg-red-500 hover:bg-red-600 text-white">
-              下一步<ChevronRight className="h-4 w-4 ml-1" />
+              {step === 3 ? "去发布" : "下一步"}<ChevronRight className="h-4 w-4 ml-1" />
             </Button>
           )}
         </div>
