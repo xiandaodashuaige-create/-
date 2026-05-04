@@ -71,7 +71,7 @@ See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and pa
 
 - Guided 3-step flow at `/workflow`: 灵感研究 → 创作内容 → 发布
 - Step 1 (灵感研究): Quick account selector at top + AI Competitor Research — input business description/link/niche → AI analyzes competitors → generates 3 content plans with posting time recommendations → user picks one
-- Step 2 (创作内容): Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. Dual-mode AI image panel: "文字生成配图" (text-to-image) and "参考图伪原创" (reference image mode with upload). When adopting a research suggestion, AI progress animation overlay auto-fills content and runs sensitivity check.
+- Step 2 (创作内容): Combined content creation + preview — AI-assisted editor (rewrite, title/hashtag/image generation, image/video upload) with live preview card, content stats, and sensitivity check in right sidebar. Streamlined AI image panel: auto-detects reference mode when competitor image is uploaded, otherwise generates from text prompt. When adopting a research suggestion, AI progress animation overlay auto-fills content, runs sensitivity check, AND auto-generates a cover image — delivering a complete content package ready for review.
 - Step 3 (发布): AI-recommended posting times display, image/video download gallery with per-image download buttons and "download all" option, auto-copy content → open XHS Creator Studio → mark as published → success with "publish next" option
 - Dashboard has prominent gradient CTA card linking to workflow
 - Sidebar has highlighted "创建发布" nav item

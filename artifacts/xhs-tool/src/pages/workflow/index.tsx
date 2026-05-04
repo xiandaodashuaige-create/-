@@ -217,9 +217,10 @@ export default function WorkflowWizard() {
 
   const runAiProgressSequence = useCallback(async (suggestion: any) => {
     const steps: AiProgressStep[] = [
-      { label: "正在应用内容方案...", status: "running" },
+      { label: "正在应用爆款方案...", status: "running" },
+      { label: "AI正在生成标签和标题...", status: "pending" },
       { label: "正在进行敏感词检测...", status: "pending" },
-      { label: "准备AI配图建议...", status: "pending" },
+      { label: "AI正在参考同行生成配图...", status: "pending" },
     ];
     setAiProgress({ active: true, steps: [...steps] });
 
@@ -235,21 +236,38 @@ export default function WorkflowWizard() {
       tags: suggestion.tags || [],
     }));
 
-    try {
-      const sensitivityRes = await api.ai.checkSensitivity({ title: suggestion.title, body: suggestion.body });
-      setSensitivityResult(sensitivityRes);
-    } catch {}
-
+    await new Promise(r => setTimeout(r, 400));
     steps[1].status = "done";
     steps[2].status = "running";
     setAiProgress({ active: true, steps: [...steps] });
 
-    if (suggestion.imagePrompt) {
-      setImagePrompt(suggestion.imagePrompt);
+    try {
+      const sensitivityRes = await api.ai.checkSensitivity({ title: suggestion.title, body: suggestion.body });
+      setSensitivityResult(sensitivityRes);
+    } catch (err: any) {
+      if (err?.status === 403) { handleCreditError(err, 1); }
+      else { toast({ title: "敏感词检测暂时不可用，可稍后手动检测", variant: "destructive" }); }
     }
 
-    await new Promise(r => setTimeout(r, 400));
     steps[2].status = "done";
+    steps[3].status = "running";
+    setAiProgress({ active: true, steps: [...steps] });
+
+    if (suggestion.imagePrompt) {
+      setImagePrompt(suggestion.imagePrompt);
+      try {
+        const imageRes = await api.ai.generateImage({ prompt: suggestion.imagePrompt, size: "1024x1536" });
+        const url = imageRes.storedUrl || imageRes.imageUrl;
+        if (url) {
+          setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+        }
+      } catch (err: any) {
+        if (err?.status === 403) { handleCreditError(err, 5); }
+        else { toast({ title: "配图生成暂时不可用，可在编辑页手动生成", variant: "destructive" }); }
+      }
+    }
+
+    steps[3].status = "done";
     setAiProgress({ active: true, steps: [...steps] });
 
     await new Promise(r => setTimeout(r, 500));
@@ -442,7 +460,7 @@ export default function WorkflowWizard() {
   }
 
   function handleGenerateOrEditImage() {
-    if (imageMode === "reference" && referenceImageUrl) {
+    if (referenceImageUrl) {
       editImageMutation.mutate({ prompt: imagePrompt, referenceImageUrl, size: imageSize });
     } else {
       imageMutation.mutate({ prompt: imagePrompt, size: imageSize });
@@ -839,6 +857,7 @@ export default function WorkflowWizard() {
                         <Button
                           className="w-full bg-red-500 hover:bg-red-600 text-white"
                           size="sm"
+                          disabled={aiProgress.active}
                           onClick={() => handleAdoptSuggestion(index)}
                         >
                           <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
@@ -850,25 +869,26 @@ export default function WorkflowWizard() {
                 </div>
               </div>
 
-              <div className="flex justify-center gap-3">
+              <div className="flex justify-center items-center gap-4">
                 <Button variant="outline" onClick={handleResearch} disabled={researchMutation.isPending}>
                   <RotateCcw className="h-4 w-4 mr-2" />
                   重新生成方案
                 </Button>
-                <Button variant="ghost" onClick={() => { setStep(2); toast({ title: "已跳过，直接开始创作" }); }}>
-                  跳过，直接创作
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
+                <button className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors underline underline-offset-4" onClick={() => { setStep(2); }}>
+                  不用方案，直接编辑
+                </button>
               </div>
+              <p className="text-center text-xs text-muted-foreground mt-2">
+                选择方案后，AI将自动生成完整内容（文案+标签+配图）
+              </p>
             </>
           )}
 
           {!researchResult && !researchMutation.isPending && (
             <div className="text-center py-2">
-              <Button variant="ghost" className="text-muted-foreground" onClick={() => { setStep(2); toast({ title: "已跳过爆款分析" }); }}>
-                我已有内容思路，跳过此步
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
+              <button className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors underline underline-offset-4" onClick={() => { setStep(2); }}>
+                我已有现成内容，跳过分析直接编辑
+              </button>
             </div>
           )}
         </div>
@@ -1106,79 +1126,75 @@ export default function WorkflowWizard() {
               </CardContent>
             </Card>
 
-            {/* AI Image Generation - Enhanced with Reference Mode */}
+            {/* AI Image Generation - Streamlined */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2"><ImagePlus className="h-4 w-4" /> AI配图</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex gap-1 bg-muted rounded-lg p-1">
-                  <button
-                    onClick={() => setImageMode("generate")}
-                    className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${imageMode === "generate" ? "bg-white shadow-sm font-medium" : "text-muted-foreground"}`}
-                  >
-                    文字生成配图
-                  </button>
-                  <button
-                    onClick={() => setImageMode("reference")}
-                    className={`flex-1 text-xs py-1.5 rounded-md transition-colors ${imageMode === "reference" ? "bg-white shadow-sm font-medium" : "text-muted-foreground"}`}
-                  >
-                    参考图伪原创
-                  </button>
-                </div>
-
-                {imageMode === "reference" && (
-                  <div className="space-y-2">
-                    <div className="p-2.5 rounded-lg bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200">
-                      <div className="flex items-start gap-2">
-                        <RefreshCw className="h-4 w-4 text-purple-500 mt-0.5 shrink-0" />
-                        <p className="text-xs text-purple-700">上传竞品/爆款图片作为参考，AI将模仿其风格创作全新配图，既保持爆款视觉效果，又确保原创性。</p>
-                      </div>
-                    </div>
-                    {referenceImageUrl ? (
-                      <div className="relative group">
-                        <img src={referenceImageUrl} alt="参考图" className="w-full h-32 object-cover rounded-lg border" />
-                        <button onClick={() => setReferenceImageUrl("")}
-                          className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <X className="h-3 w-3" />
-                        </button>
-                        <div className="absolute bottom-1 left-1">
-                          <Badge className="bg-purple-500 text-white text-[10px]">参考图</Badge>
-                        </div>
-                      </div>
-                    ) : (
-                      <ObjectUploader maxNumberOfFiles={1} maxFileSize={10485760}
-                        allowedFileTypes={["image/*"]}
-                        onGetUploadParameters={handleGetUploadParameters} onComplete={handleRefImageUploadComplete}
-                        buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg text-xs font-medium h-20 px-3 border-2 border-dashed border-purple-300 bg-purple-50/50 text-purple-600 hover:bg-purple-100 hover:border-purple-400 transition-colors">
-                        <Upload className="h-4 w-4 mr-1" />上传参考图片（爆款/竞品截图）
-                      </ObjectUploader>
-                    )}
+                {form.imageUrls.length > 0 && (
+                  <div className="p-2 rounded-lg bg-green-50 border border-green-200 text-xs text-green-700 flex items-center gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                    已生成 {form.imageUrls.length} 张配图，可继续生成或上传替换
                   </div>
                 )}
 
+                {referenceImageUrl && (
+                  <div className="relative group">
+                    <img src={referenceImageUrl} alt="参考图" className="w-full h-28 object-cover rounded-lg border" />
+                    <button onClick={() => setReferenceImageUrl("")}
+                      className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="h-3 w-3" />
+                    </button>
+                    <div className="absolute bottom-1 left-1">
+                      <Badge className="bg-purple-500 text-white text-[10px]">参考图</Badge>
+                    </div>
+                  </div>
+                )}
+
+                {!referenceImageUrl && (
+                  <ObjectUploader maxNumberOfFiles={1} maxFileSize={10485760}
+                    allowedFileTypes={["image/*"]}
+                    onGetUploadParameters={handleGetUploadParameters} onComplete={handleRefImageUploadComplete}
+                    buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-lg text-xs font-medium h-14 px-3 border border-dashed border-purple-300 bg-purple-50/30 text-purple-600 hover:bg-purple-100 hover:border-purple-400 transition-colors">
+                    <Upload className="h-3.5 w-3.5 mr-1" />上传竞品参考图（可选）
+                  </ObjectUploader>
+                )}
+
                 <Textarea value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)}
-                  placeholder={imageMode === "reference" ? "描述你想要的变化方向，如：换成粉色系配色、加上美食元素..." : "描述你想要的配图..."}
-                  rows={3} className="text-sm" />
-                <Select value={imageSize} onValueChange={setImageSize}>
-                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1024x1536">竖版 9:16（推荐）</SelectItem>
-                    <SelectItem value="1024x1024">正方形 1:1</SelectItem>
-                    <SelectItem value="1536x1024">横版 16:9</SelectItem>
-                  </SelectContent>
-                </Select>
+                  placeholder="描述配图风格，如：专业知识图表、柔和配色、包含产品展示..."
+                  rows={2} className="text-sm" />
+                <div className="flex gap-2">
+                  <Select value={imageSize} onValueChange={setImageSize}>
+                    <SelectTrigger className="h-8 text-xs flex-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1024x1536">竖版 9:16</SelectItem>
+                      <SelectItem value="1024x1024">正方形 1:1</SelectItem>
+                      <SelectItem value="1536x1024">横版 16:9</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
-                  disabled={isImageGenerating || !imagePrompt.trim() || (imageMode === "reference" && !referenceImageUrl)}
+                  disabled={isImageGenerating || !imagePrompt.trim()}
                   onClick={handleGenerateOrEditImage}>
                   {isImageGenerating ? (
                     <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
-                  ) : imageMode === "reference" ? (
+                  ) : referenceImageUrl ? (
                     <><RefreshCw className="h-4 w-4 mr-2" />参考图伪原创</>
                   ) : (
                     <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
                   )}
                 </Button>
+
+                <div className="pt-2 border-t">
+                  <p className="text-[10px] text-muted-foreground mb-2">或直接上传自己的图片</p>
+                  <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
+                    allowedFileTypes={["image/*"]}
+                    onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
+                    buttonClassName="w-full inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-8 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                    <Upload className="h-3 w-3 mr-1" />上传自有素材
+                  </ObjectUploader>
+                </div>
               </CardContent>
             </Card>
 
@@ -1442,10 +1458,10 @@ export default function WorkflowWizard() {
               {contentSaved ? "已保存" : "保存草稿"}
             </Button>
           )}
-          {step === 1 && (
-            <Button onClick={() => { setStep(2); }} variant="outline" className="text-muted-foreground">
-              跳过，直接创作<ArrowRight className="h-4 w-4 ml-1" />
-            </Button>
+          {step === 1 && !researchResult && (
+            <button className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors underline underline-offset-4" onClick={() => { setStep(2); }}>
+              跳过分析
+            </button>
           )}
           {step < 3 && step !== 1 && (
             <Button onClick={handleNext} disabled={!canProceed()} className="bg-red-500 hover:bg-red-600 text-white">
