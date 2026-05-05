@@ -506,12 +506,20 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       return;
     }
 
+    if (!rg || !["SG", "HK", "MY"].includes(rg)) {
+      res.status(400).json({ error: "请选择目标地区（SG/HK/MY）" });
+      return;
+    }
+
     const isHK = rg === "HK";
     const langInstruction = isHK
       ? "\n\n🔴 重要：目標受眾係香港人。你必須用繁體中文撰寫所有內容，並融入自然嘅香港廣東話口語表達（例如：搵、嘅、啲、唔、俾、揀、係、咗、嚟、喺）。標題同正文都要用繁體字，語氣要親切自然，符合香港人嘅閱讀習慣。標籤也用繁體中文。分析同行時要重點參考香港地區嘅小紅書爆款內容。"
       : "";
 
-    const searchKeyword = ni || bd.slice(0, 20);
+    const regionKeywordMap: Record<string, string> = { SG: "新加坡", HK: "香港", MY: "马来西亚" };
+    const regionPrefix = regionKeywordMap[rg] || "";
+    const baseKeyword = ni || bd.slice(0, 20);
+    const searchKeyword = regionPrefix ? `${regionPrefix} ${baseKeyword}` : baseKeyword;
     let realDataContext = "";
     let dataSource = "ai-only";
     let competitorNotes: any[] = [];

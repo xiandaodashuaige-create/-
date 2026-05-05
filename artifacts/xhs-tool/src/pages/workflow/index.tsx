@@ -192,6 +192,10 @@ export default function WorkflowWizard() {
 
   function handleResearch() {
     const { businessDescription, competitorLink, niche } = researchInput;
+    if (!selectedRegion) {
+      toast({ title: "请先选择目标地区", description: "AI需要根据地区定制内容策略和爆款分析", variant: "destructive" });
+      return;
+    }
     if (!businessDescription.trim() && !competitorLink.trim() && !niche.trim()) {
       toast({ title: "请至少填写一项信息", variant: "destructive" });
       return;
@@ -716,13 +720,17 @@ export default function WorkflowWizard() {
 
               <Button
                 onClick={handleResearch}
-                disabled={researchMutation.isPending || !hasResearchInput}
+                disabled={researchMutation.isPending || !hasResearchInput || !selectedRegion}
                 className="w-full bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white h-12 text-base"
               >
                 {researchMutation.isPending ? (
                   <><Loader2 className="h-5 w-5 animate-spin mr-2" />AI正在分析同行内容策略，请稍候（约10-20秒）...</>
+                ) : !selectedRegion ? (
+                  <><AlertTriangle className="h-5 w-5 mr-2" />请先选择目标地区</>
+                ) : !hasResearchInput ? (
+                  <><AlertTriangle className="h-5 w-5 mr-2" />请填写业务描述或行业关键词</>
                 ) : (
-                  <><Zap className="h-5 w-5 mr-2" />AI分析同行内容策略</>
+                  <><Zap className="h-5 w-5 mr-2" />AI分析{regionLabels[selectedRegion]}的同行爆款</>
                 )}
               </Button>
             </CardContent>
