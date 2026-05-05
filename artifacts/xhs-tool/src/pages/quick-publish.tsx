@@ -139,7 +139,7 @@ export default function QuickPublishPage() {
         throw new Error("发布时间必须是将来时间");
       }
 
-      const videoUrl = media.find((m) => m.type === "video")?.url || null;
+      const videoUrl = media.find((m) => m.type === "video")?.url;
       const imageUrls = media.filter((m) => m.type === "image").map((m) => m.url);
 
       const created = await api.content.create({
@@ -150,7 +150,7 @@ export default function QuickPublishPage() {
         body: body.trim(),
         tags,
         imageUrls,
-        videoUrl,
+        ...(videoUrl ? { videoUrl } : {}),
       });
       const cid = created.id;
       const scheduled = await api.content.schedule(cid, new Date(scheduledAt).toISOString());
