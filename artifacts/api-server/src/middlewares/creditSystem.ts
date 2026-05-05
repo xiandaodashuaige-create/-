@@ -8,6 +8,8 @@ export const CREDIT_COSTS: Record<string, number> = {
   "ai-generate-title": 1,
   "ai-generate-hashtags": 1,
   "ai-generate-image": 5,
+  "ai-analyze-reference-image": 1,
+  "ai-generate-image-prompt": 1,
   "ai-guide": 1,
   "ai-check-sensitivity": 1,
   "content-publish": 2,
@@ -21,6 +23,9 @@ const ROUTE_TO_OPERATION: Record<string, string> = {
   "POST:/ai/generate-title": "ai-generate-title",
   "POST:/ai/generate-hashtags": "ai-generate-hashtags",
   "POST:/ai/generate-image": "ai-generate-image",
+  "POST:/ai/analyze-reference-image": "ai-analyze-reference-image",
+  "POST:/ai/generate-image-prompt": "ai-generate-image-prompt",
+  "POST:/ai/generate-image-pipeline": "ai-generate-image",
   "POST:/ai/guide": "ai-guide",
   "POST:/ai/check-sensitivity": "ai-check-sensitivity",
 };

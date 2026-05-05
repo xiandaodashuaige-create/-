@@ -13,6 +13,8 @@ import {
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
 import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
+import { ComfyUIClient } from "../services/comfyui.js";
+import { analyzeCompetitorImage, generateImagePrompt } from "../services/imagePipeline.js";
 import { tryFetchXhsData } from "./xhs";
 
 const router: IRouter = Router();
@@ -491,6 +493,238 @@ router.post("/ai/edit-image", requireCredits("ai-generate-image"), async (req, r
     res.status(500).json({ error: message });
   }
 });
+
+router.post("/ai/analyze-reference-image", requireCredits("ai-analyze-reference-image"), async (req, res): Promise<void> => {
+  try {
+    const { imageUrl } = req.body;
+    if (!imageUrl || typeof imageUrl !== "string") {
+      res.status(400).json({ error: "imageUrl is required" });
+      return;
+    }
+
+    let resolvedUrl = imageUrl;
+    if (imageUrl.startsWith("/api/storage/") || imageUrl.startsWith("/api/xhs/image-proxy")) {
+      const buf = await fetchImageAsBuffer(imageUrl, req);
+      resolvedUrl = `data:image/png;base64,${buf.toString("base64")}`;
+    }
+
+    const analysis = await analyzeCompetitorImage(resolvedUrl, req.log);
+    await deductCredits(req, "ai-analyze-reference-image");
+    res.json({ analysis });
+  } catch (err: any) {
+    req.log.error(err, "Failed to analyze reference image");
+    res.status(500).json({ error: "图片分析失败，请重试" });
+  }
+});
+
+router.post("/ai/generate-image-prompt", requireCredits("ai-generate-image-prompt"), async (req, res): Promise<void> => {
+  try {
+    const { analysis, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays } = req.body;
+    if (!analysis || typeof analysis !== "object") {
+      res.status(400).json({ error: "analysis is required" });
+      return;
+    }
+    if (!newTopic || typeof newTopic !== "string") {
+      res.status(400).json({ error: "newTopic is required" });
+      return;
+    }
+
+    const prompt = await generateImagePrompt({
+      analysis,
+      newTopic,
+      newTitle,
+      newKeyPoints: Array.isArray(newKeyPoints) ? newKeyPoints : undefined,
+      mimicStrength: ["full", "partial", "minimal"].includes(mimicStrength) ? mimicStrength : "partial",
+      customTextOverlays: Array.isArray(customTextOverlays) ? customTextOverlays : undefined,
+    });
+
+    await deductCredits(req, "ai-generate-image-prompt");
+    res.json(prompt);
+  } catch (err: any) {
+    req.log.error(err, "Failed to generate image prompt");
+    res.status(500).json({ error: "生成图片prompt失败" });
+  }
+});
+
+router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
+  try {
+    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, size } = req.body;
+
+    if (!referenceImageUrl || typeof referenceImageUrl !== "string") {
+      res.status(400).json({ error: "referenceImageUrl is required" });
+      return;
+    }
+    if (!newTopic || typeof newTopic !== "string") {
+      res.status(400).json({ error: "newTopic is required" });
+      return;
+    }
+
+    const strength = ["full", "partial", "minimal"].includes(mimicStrength) ? mimicStrength : "partial";
+
+    let visionInput = referenceImageUrl;
+    let referenceBuffer: Buffer | null = null;
+
+    if (referenceImageUrl.startsWith("/api/storage/") || referenceImageUrl.startsWith("/api/xhs/image-proxy")) {
+      referenceBuffer = await fetchImageAsBuffer(referenceImageUrl, req);
+      visionInput = `data:image/png;base64,${referenceBuffer.toString("base64")}`;
+    } else if (referenceImageUrl.startsWith("http://") || referenceImageUrl.startsWith("https://")) {
+      referenceBuffer = await fetchImageAsBuffer(referenceImageUrl, req);
+    }
+
+    req.log.info("Pipeline step 1: vision analysis");
+    const analysis = await analyzeCompetitorImage(visionInput, req.log);
+
+    req.log.info("Pipeline step 2: prompt generation");
+    const promptResult = await generateImagePrompt({
+      analysis,
+      newTopic,
+      newTitle,
+      newKeyPoints: Array.isArray(newKeyPoints) ? newKeyPoints : undefined,
+      mimicStrength: strength,
+      customTextOverlays: Array.isArray(customTextOverlays) ? customTextOverlays : undefined,
+    });
+
+    req.log.info("Pipeline step 3: image generation");
+    const imageSize = ["1024x1024", "1024x1536", "1536x1024"].includes(size)
+      ? size
+      : promptResult.recommendedSize;
+
+    let imageBuffer: Buffer;
+    let provider = "gpt-image-1";
+    let durationMs = 0;
+    const startGen = Date.now();
+
+    const comfy = ComfyUIClient.fromEnv();
+    if (comfy && referenceBuffer) {
+      const healthy = await comfy.healthCheck();
+      if (healthy) {
+        try {
+          const [w, h] = imageSize.split("x").map(Number);
+          const reduxStrength = strength === "full" ? 0.85 : strength === "partial" ? 0.65 : 0.4;
+          const cnStrength = strength === "full" ? 0.7 : strength === "partial" ? 0.45 : 0.2;
+
+          const fluxResult = await comfy.generateWithReference({
+            referenceImageBase64: referenceBuffer.toString("base64"),
+            prompt: promptResult.imagePrompt,
+            width: w,
+            height: h,
+            reduxStrength,
+            controlnetStrength: cnStrength,
+          });
+
+          if (promptResult.textToOverlay.length > 0) {
+            const overlayResult = await comfy.overlayChineseText({
+              baseImageBase64: fluxResult.imageBase64,
+              textItems: promptResult.textToOverlay.map((t) => ({
+                text: t.text,
+                position: t.position,
+              })),
+            });
+            imageBuffer = Buffer.from(overlayResult.imageBase64, "base64");
+            durationMs = fluxResult.durationMs + overlayResult.durationMs;
+          } else {
+            imageBuffer = Buffer.from(fluxResult.imageBase64, "base64");
+            durationMs = fluxResult.durationMs;
+          }
+          provider = "comfyui-flux-redux";
+        } catch (comfyErr) {
+          req.log.warn(comfyErr, "ComfyUI failed, falling back to gpt-image-1");
+          imageBuffer = await generateWithGptImage(promptResult.imagePrompt, imageSize, promptResult.textToOverlay);
+          provider = "gpt-image-1-fallback";
+          durationMs = Date.now() - startGen;
+        }
+      } else {
+        req.log.warn({ url: process.env.COMFYUI_URL }, "ComfyUI healthcheck failed, using gpt-image-1");
+        imageBuffer = await generateWithGptImage(promptResult.imagePrompt, imageSize, promptResult.textToOverlay);
+        durationMs = Date.now() - startGen;
+      }
+    } else {
+      imageBuffer = await generateWithGptImage(promptResult.imagePrompt, imageSize, promptResult.textToOverlay);
+      durationMs = Date.now() - startGen;
+    }
+
+    let objectPath: string | null = null;
+    let storedUrl: string | null = null;
+    try {
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const candidatePath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const uploadRes = await fetch(uploadURL, {
+        method: "PUT",
+        body: imageBuffer,
+        headers: { "Content-Type": "image/png" },
+      });
+      if (!uploadRes.ok) throw new Error("Failed to upload to storage");
+      objectPath = candidatePath;
+      storedUrl = `/api/storage${objectPath}`;
+    } catch (uploadErr) {
+      req.log.warn(uploadErr, "Failed to save pipeline image to storage");
+    }
+
+    if (!storedUrl) {
+      res.status(500).json({ error: "图片已生成但存储失败，请重试" });
+      return;
+    }
+
+    await deductCredits(req, "ai-generate-image");
+    res.json({
+      imageUrl: storedUrl,
+      objectPath,
+      storedUrl,
+      analysis,
+      promptUsed: promptResult.imagePrompt,
+      textOverlays: promptResult.textToOverlay,
+      provider,
+      durationMs,
+    });
+  } catch (err: any) {
+    req.log.error(err, "Image pipeline failed");
+    const message = err?.message?.includes("content_policy")
+      ? "图片内容不符合安全政策，请修改主题后重试"
+      : "图片生成失败，请重试";
+    res.status(500).json({ error: message });
+  }
+});
+
+async function fetchImageAsBuffer(urlOrPath: string, req: any): Promise<Buffer> {
+  const isExternal = urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://");
+  const fetchUrl = isExternal
+    ? urlOrPath
+    : `http://localhost:${process.env.PORT || 8080}${urlOrPath}`;
+  const res = await fetch(fetchUrl, {
+    method: "GET",
+    redirect: "follow",
+    signal: AbortSignal.timeout(15_000),
+    headers: isExternal ? { "User-Agent": "Mozilla/5.0 (compatible; XHSTool/1.0)" } : {},
+  });
+  if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 1000) throw new Error("Image too small or invalid");
+  return buf;
+}
+
+async function generateWithGptImage(
+  basePrompt: string,
+  size: string,
+  textOverlays: Array<{ text: string; position: string; style: string }>,
+): Promise<Buffer> {
+  const textInstructions = textOverlays.length > 0
+    ? `\n\n图上需要清晰渲染以下中文文字（务必准确，不要出错别字）：\n${textOverlays.map((t) => `- 在${t.position}位置: "${t.text}" (${t.style})`).join("\n")}`
+    : "\n\n不要出现任何文字、水印或logo。";
+
+  const fullPrompt = `${basePrompt}${textInstructions}`;
+
+  const response = await openai.images.generate({
+    model: "gpt-image-1",
+    prompt: fullPrompt,
+    n: 1,
+    size: size as "1024x1024" | "1024x1536" | "1536x1024" | "auto",
+    quality: "high",
+  });
+
+  const b64 = response.data?.[0]?.b64_json;
+  if (!b64) throw new Error("gpt-image-1 returned no image");
+  return Buffer.from(b64, "base64");
+}
 
 router.post("/ai/competitor-research", requireCredits("ai-competitor-research"), async (req, res): Promise<void> => {
   try {
