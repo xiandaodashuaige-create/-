@@ -5,6 +5,7 @@ import type { Request, Response, NextFunction } from "express";
 export const CREDIT_COSTS: Record<string, number> = {
   "ai-rewrite": 3,
   "ai-competitor-research": 5,
+  "ai-operations-strategy": 5,
   "ai-generate-title": 1,
   "ai-generate-hashtags": 1,
   "ai-generate-image": 5,
@@ -175,6 +176,7 @@ function getOperationLabel(op: string): string {
   const labels: Record<string, string> = {
     "ai-rewrite": "AI智能改写",
     "ai-competitor-research": "AI竞品分析",
+    "ai-operations-strategy": "30天运营策略",
     "ai-generate-title": "AI生成标题",
     "ai-generate-hashtags": "AI生成标签",
     "ai-generate-image": "AI生成配图",

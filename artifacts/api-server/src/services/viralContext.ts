@@ -43,7 +43,6 @@ function expandNicheTokens(niche: string): string[] {
 }
 
 function scorePost(p: CompetitorPost, profile: { handle?: string; displayName?: string | null; category?: string | null } | undefined, nicheTokens: string[]): number {
-  if (nicheTokens.length === 0) return 1;
   const haystack = [
     p.description ?? "",
     p.title ?? "",
@@ -53,8 +52,12 @@ function scorePost(p: CompetitorPost, profile: { handle?: string; displayName?: 
     profile?.displayName ?? "",
     profile?.category ?? "",
   ].join(" ").toLowerCase();
-  let s = 0;
+  let s = nicheTokens.length === 0 ? 1 : 0;
   for (const tok of nicheTokens) if (haystack.includes(tok)) s += 1;
+  // 用户长期沉淀的"⭐ 精选"和自动判定的"🔥 viral" → 强加权
+  const starred = (p.analysisJson as any)?.starred === true;
+  if (starred) s += 8;          // 用户亲手收藏 → 最高优先级
+  else if (p.isViral) s += 3;   // 自动判定 viral → 中等加权
   return s;
 }
 

@@ -6,7 +6,7 @@ import {
   competitorPostsTable,
   accountsTable,
 } from "@workspace/db";
-import { ensureUser } from "../middlewares/creditSystem";
+import { ensureUser, requireCredits, deductCredits } from "../middlewares/creditSystem";
 import { logger } from "../lib/logger";
 import {
   fetchTikTokProfile,
@@ -36,6 +36,24 @@ const REGION_LABELS: Record<string, string> = {
 const router: IRouter = Router();
 
 type Platform = "xhs" | "tiktok" | "instagram" | "facebook";
+
+// 把一批 posts（同一同行账号）按"点赞 P75 阈值"动态标 isViral：
+// - P75 是同账号自己的"较好表现线"，比硬编码 likes>1000 精准得多
+// - 至少需要 4 条样本才启用，否则保留来源给的 isViral
+// - 阈值再加一个最低绝对值（防止账号整体很冷时把所有都标爆款）
+function markViralByPercentile<T extends { likeCount?: number; viewCount?: number; isViral?: boolean }>(
+  posts: T[],
+  minAbsoluteLikes = 50,
+): T[] {
+  if (posts.length < 4) return posts;
+  const likes = posts.map((p) => p.likeCount ?? 0).sort((a, b) => a - b);
+  const p75 = likes[Math.floor(likes.length * 0.75)] ?? 0;
+  const threshold = Math.max(p75, minAbsoluteLikes);
+  return posts.map((p) => ({
+    ...p,
+    isViral: (p.likeCount ?? 0) >= threshold || p.isViral === true,
+  }));
+}
 
 function isValidPlatform(p: string): p is Platform {
   return ["xhs", "tiktok", "instagram", "facebook"].includes(p);
@@ -196,8 +214,9 @@ router.post("/competitors", async (req, res): Promise<void> => {
   if (posts.length > 0) {
     // 简单 upsert：先删后插（数量小）
     await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, saved.id));
+    const tunedPosts = markViralByPercentile(posts);
     await db.insert(competitorPostsTable).values(
-      posts.map(p => ({ ...p, competitorId: saved.id })),
+      tunedPosts.map(p => ({ ...p, competitorId: saved.id })),
     );
   }
 
@@ -270,7 +289,8 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
       }).where(eq(competitorProfilesTable.id, id));
       if (vids.length > 0) {
         await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
-        await db.insert(competitorPostsTable).values(vids.map(v => ({
+        const tuned = markViralByPercentile(vids);
+        await db.insert(competitorPostsTable).values(tuned.map(v => ({
           competitorId: id, platform: "tiktok", externalId: v.externalId, mediaType: "video",
           description: v.description, coverUrl: v.coverUrl, mediaUrl: v.videoUrl,
           mediaUrls: v.videoUrl ? [v.videoUrl] : [],
@@ -294,12 +314,13 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
       }
       if (fbPosts.length > 0) {
         await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
-        await db.insert(competitorPostsTable).values(fbPosts.map(p => ({
+        const tuned = markViralByPercentile(fbPosts.map(p => ({ ...p, isViral: p.likeCount > 1000 })));
+        await db.insert(competitorPostsTable).values(tuned.map(p => ({
           competitorId: id, platform: "facebook", externalId: p.externalId, mediaType: p.mediaType,
           description: p.caption, coverUrl: p.mediaUrl, mediaUrl: p.mediaUrl,
           mediaUrls: p.mediaUrl ? [p.mediaUrl] : [], postUrl: p.postUrl,
           viewCount: 0, likeCount: p.likeCount, commentCount: p.commentCount, shareCount: p.shareCount,
-          publishedAt: p.publishedAt, isViral: p.likeCount > 1000,
+          publishedAt: p.publishedAt, isViral: p.isViral,
         })));
       }
       res.json({ ok: true, postsSynced: fbPosts.length });
@@ -318,12 +339,13 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
       }).where(eq(competitorProfilesTable.id, id));
       if (igPosts.length > 0) {
         await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
-        await db.insert(competitorPostsTable).values(igPosts.map(p => ({
+        const tuned = markViralByPercentile(igPosts.map(p => ({ ...p, isViral: p.likeCount > 5000 })));
+        await db.insert(competitorPostsTable).values(tuned.map(p => ({
           competitorId: id, platform: "instagram", externalId: p.externalId, mediaType: p.mediaType,
           description: p.caption, coverUrl: p.mediaUrl, mediaUrl: p.mediaUrl,
           mediaUrls: p.mediaUrl ? [p.mediaUrl] : [], postUrl: p.postUrl,
           viewCount: 0, likeCount: p.likeCount, commentCount: p.commentCount, shareCount: 0,
-          publishedAt: p.publishedAt, isViral: p.likeCount > 5000,
+          publishedAt: p.publishedAt, isViral: p.isViral,
         })));
       }
       res.json({ ok: true, postsSynced: igPosts.length });
@@ -570,6 +592,158 @@ router.get("/competitors/insights/aggregate", async (req, res): Promise<void> =>
     viralFormula, durationStrategy, hashtagStrategy, bgmStrategy, postingStrategy,
     keyInsights, competitorBreakdown,
   });
+});
+
+// ── PATCH /api/competitor-posts/:id/star  body: { starred: boolean } ─────────
+// 把同行单条作品收藏到"⭐ 精选库"（长期沉淀，AI 生成时优先借鉴）
+// 用 analysisJson.starred 标记，无需 schema 迁移
+router.patch("/competitor-posts/:id/star", async (req, res): Promise<void> => {
+  const user = await ensureUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "invalid_id" }); return; }
+  const starred = req.body?.starred === true;
+
+  // ownership join: post → profile.userId === user.id
+  const [row] = await db.select({ post: competitorPostsTable, ownerId: competitorProfilesTable.userId })
+    .from(competitorPostsTable)
+    .innerJoin(competitorProfilesTable, eq(competitorPostsTable.competitorId, competitorProfilesTable.id))
+    .where(eq(competitorPostsTable.id, id));
+  if (!row || row.ownerId !== user.id) { res.status(404).json({ error: "not_found" }); return; }
+
+  const prev = (row.post.analysisJson ?? {}) as Record<string, any>;
+  const nextAnalysis = { ...prev, starred, starredAt: starred ? new Date().toISOString() : null };
+  const [updated] = await db.update(competitorPostsTable)
+    .set({ analysisJson: nextAnalysis })
+    .where(eq(competitorPostsTable.id, id))
+    .returning();
+  res.json(updated);
+});
+
+// ── GET /api/competitors/strategy?platform=&niche= ───────────────────────────
+// 长期内容运营策略卡：不是"做哪一条"，而是"未来一个月怎么做"
+// 数据源：用户已添加同行的 ⭐ 精选 + 🔥 viral 作品（精挑过的）
+// 返回：内容支柱 / 发布频率 / 钩子模板库 / 标签策略 / 周节奏
+router.get("/competitors/strategy", requireCredits("ai-operations-strategy"), async (req, res): Promise<void> => {
+  const user = await ensureUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const platform = (req.query.platform as string) || "";
+  const niche = ((req.query.niche as string) || "").trim().slice(0, 60);
+  if (!isValidPlatform(platform)) { res.status(400).json({ error: "invalid_platform" }); return; }
+
+  const profiles = await db.select().from(competitorProfilesTable)
+    .where(and(
+      eq(competitorProfilesTable.userId, user.id),
+      eq(competitorProfilesTable.platform, platform),
+    ));
+  if (profiles.length === 0) {
+    res.status(404).json({ error: "no_competitors", message: "请先在同行库添加 3-5 个对标账号" });
+    return;
+  }
+
+  const allPosts = await db.select().from(competitorPostsTable)
+    .where(inArray(competitorPostsTable.competitorId, profiles.map((p) => p.id)));
+
+  // 精挑：starred 优先 → viral → 互动 Top；至少 6 条样本
+  const starred = allPosts.filter((p) => (p.analysisJson as any)?.starred === true);
+  const viral = allPosts.filter((p) => p.isViral && !((p.analysisJson as any)?.starred === true));
+  const sortedByLikes = [...allPosts].sort((a, b) => (b.likeCount ?? 0) - (a.likeCount ?? 0));
+  const curated = [...starred, ...viral.slice(0, 12)];
+  if (curated.length < 6) {
+    for (const p of sortedByLikes) {
+      if (curated.find((c) => c.id === p.id)) continue;
+      curated.push(p);
+      if (curated.length >= 6) break;
+    }
+  }
+  const sampleSet = curated.slice(0, 16);
+  if (sampleSet.length === 0) {
+    res.status(409).json({ error: "no_samples", message: "已添加同行但未抓取作品，请点 ↻ 同步" });
+    return;
+  }
+
+  const profilesById = new Map(profiles.map((p) => [p.id, p]));
+  const sampleBlock = sampleSet.map((p) => {
+    const owner = profilesById.get(p.competitorId);
+    const tag = (p.analysisJson as any)?.starred ? "⭐" : p.isViral ? "🔥" : "·";
+    const text = (p.title ?? p.description ?? "").trim().slice(0, 100);
+    return `${tag} @${owner?.handle ?? "?"} · ❤${p.likeCount ?? 0} 👁${p.viewCount ?? 0}${p.duration ? ` ⏱${p.duration}s` : ""} · "${text}" [${(p.hashtags ?? []).slice(0, 4).join(" ")}]`;
+  }).join("\n");
+
+  const platformLabel = platform === "xhs" ? "小红书" : platform === "instagram" ? "Instagram" : platform === "facebook" ? "Facebook" : "TikTok";
+  const accountList = profiles.slice(0, 8).map((p) => `@${p.handle}（${p.followerCount}粉）`).join("、");
+
+  const systemPrompt = `你是${platformLabel}内容运营顾问。基于该客户长期沉淀的精选同行素材，给出未来 30 天的内容运营策略。
+返回严格 JSON：
+{
+  "summary": "一段话总结：未来 30 天该客户应当如何运营（不超过 150 字，必须引用具体证据）",
+  "contentPillars": [
+    {"name": "支柱 1 名称", "ratio": 40, "description": "做什么/为什么/参考哪条样本"},
+    ... 3-4 个，ratio 之和约等于 100
+  ],
+  "weeklyCadence": {"postsPerWeek": 数字, "rationale": "依据"},
+  "hookTemplates": [
+    {"template": "钩子模板（含占位符）", "evidence": "来自哪条样本/数字"},
+    ... 4-6 条，必须可直接套用
+  ],
+  "hashtagStrategy": {"core": ["#xxx", ...3-5个长期主标签], "rotation": ["#xxx", ...5-8个轮换标签]},
+  "bestPostingWindows": ["周X HH:00", ... 3 个],
+  "doList": ["要做的事 1", ... 3-5 条具体动作],
+  "dontList": ["要避免 1", ... 2-4 条],
+  "next30DaysRoadmap": [
+    {"week": 1, "focus": "本周主题", "deliverables": "本周交付什么"},
+    {"week": 2, ...},
+    {"week": 3, ...},
+    {"week": 4, ...}
+  ]
+}
+约束：
+- 所有结论必须引用上面 sampleBlock 里的具体账号/数字/标签作为证据
+- 行业【${niche || "未指定"}】是硬约束，主题必须围绕它
+- 不要套话；每条建议都要可执行
+只返回 JSON。`;
+
+  const userPrompt = `【客户信息】
+- 平台：${platformLabel}
+- 行业：${niche || "未指定"}
+- 已收集对标账号（${profiles.length} 个）：${accountList}
+
+【精挑同行素材】（⭐=用户收藏，🔥=自动判定爆款）
+${sampleBlock}
+
+请输出 30 天运营策略 JSON。`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }, { timeout: 60_000, maxRetries: 1 });
+
+    const raw = completion.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw);
+
+    await deductCredits(req, "ai-operations-strategy");
+
+    res.json({
+      platform,
+      niche: niche || null,
+      strategy: parsed,
+      meta: {
+        competitorsAnalyzed: profiles.length,
+        starredSamples: starred.length,
+        viralSamples: viral.length,
+        totalSamplesUsed: sampleSet.length,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err: any) {
+    logger.error({ err: err?.message, platform, niche }, "competitors strategy generation failed");
+    res.status(500).json({ error: "ai_failed", message: err?.message ?? "AI 生成失败" });
+  }
 });
 
 export default router;

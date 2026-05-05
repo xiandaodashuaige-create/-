@@ -7,10 +7,12 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users2, RefreshCw, Trash2, Search, Sparkles, Heart, MessageCircle, Eye, Plus, ExternalLink, Loader2,
-  TrendingUp, Hash, Music, Clock, BarChart3,
+  TrendingUp, Hash, Music, Clock, BarChart3, Star, Compass, Calendar, CheckCircle2, XCircle,
 } from "lucide-react";
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -56,6 +58,9 @@ export default function CompetitorsPage() {
   const [discovering, setDiscovering] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [insightsOpen, setInsightsOpen] = useState(false);
+  const [postFilter, setPostFilter] = useState<"all" | "starred" | "viral">("all");
+  const [strategyOpen, setStrategyOpen] = useState(false);
+  const [strategyNiche, setStrategyNiche] = useState("");
 
   const { data: list = [], isLoading } = useQuery({
     queryKey: ["competitors", platform],
@@ -104,6 +109,45 @@ export default function CompetitorsPage() {
     },
   });
 
+  const starMut = useMutation({
+    mutationFn: ({ postId, starred }: { postId: number; starred: boolean }) =>
+      api.competitors.starPost(postId, starred),
+    onMutate: async ({ postId, starred }) => {
+      // 乐观更新，避免按钮抖动
+      await qc.cancelQueries({ queryKey: ["competitor-posts", openId] });
+      const prev = qc.getQueryData<any[]>(["competitor-posts", openId]);
+      if (prev) {
+        qc.setQueryData<any[]>(["competitor-posts", openId], prev.map((p) =>
+          p.id === postId ? { ...p, analysisJson: { ...(p.analysisJson ?? {}), starred } } : p,
+        ));
+      }
+      return { prev };
+    },
+    onError: (err: any, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["competitor-posts", openId], ctx.prev);
+      toast({ title: "收藏失败", description: err?.message, variant: "destructive" });
+    },
+    onSuccess: (_d, { starred }) => {
+      toast({ title: starred ? "已加入精选库 ⭐" : "已取消精选" });
+    },
+  });
+
+  const strategyQuery = useQuery({
+    queryKey: ["competitor-strategy", platform, strategyNiche],
+    queryFn: ({ signal }) => api.competitors.operationsStrategy(platform, strategyNiche || undefined, { signal }),
+    enabled: strategyOpen,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const filteredPosts = posts.filter((p: any) => {
+    if (postFilter === "starred") return p.analysisJson?.starred === true;
+    if (postFilter === "viral") return p.isViral === true;
+    return true;
+  });
+  const starredCount = posts.filter((p: any) => p.analysisJson?.starred === true).length;
+  const viralCount = posts.filter((p: any) => p.isViral === true).length;
+
   async function handleDiscover() {
     if (!keyword.trim()) return;
     setDiscovering(true);
@@ -128,17 +172,28 @@ export default function CompetitorsPage() {
             添加 {platformMeta.name} 同行账号，AI 会基于他们的真实爆款数据帮你制定内容策略
           </p>
         </div>
-        <Button
-          variant={insightsOpen ? "default" : "outline"}
-          onClick={() => {
-            setInsightsOpen((v) => !v);
-            if (!insightsOpen) qc.invalidateQueries({ queryKey: ["competitor-insights", platform] });
-          }}
-          disabled={list.length === 0}
-        >
-          <BarChart3 className="h-4 w-4 mr-2" />
-          {insightsOpen ? "隐藏行业分析" : "运行行业分析"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            className="bg-violet-600 hover:bg-violet-700 text-white"
+            onClick={() => setStrategyOpen(true)}
+            disabled={list.length === 0}
+          >
+            <Compass className="h-4 w-4 mr-2" />
+            30 天运营策略
+          </Button>
+          <Button
+            variant={insightsOpen ? "default" : "outline"}
+            onClick={() => {
+              setInsightsOpen((v) => !v);
+              if (!insightsOpen) qc.invalidateQueries({ queryKey: ["competitor-insights", platform] });
+            }}
+            disabled={list.length === 0}
+          >
+            <BarChart3 className="h-4 w-4 mr-2" />
+            {insightsOpen ? "隐藏行业分析" : "行业分析"}
+          </Button>
+        </div>
       </div>
 
       {/* 添加 + 发现 */}
@@ -350,35 +405,246 @@ export default function CompetitorsPage() {
       {/* 详情 — 同行内容 */}
       {openId && (
         <Card className="p-4">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Sparkles className="h-4 w-4 text-amber-500" />
             <h2 className="font-semibold">高赞内容样本</h2>
-            <Badge variant="secondary" className="ml-auto">{posts.length} 条</Badge>
+            <Badge variant="secondary">{posts.length} 条</Badge>
+            <Tabs value={postFilter} onValueChange={(v) => setPostFilter(v as any)} className="ml-auto">
+              <TabsList className="h-8">
+                <TabsTrigger value="all" className="text-xs h-6">全部</TabsTrigger>
+                <TabsTrigger value="starred" className="text-xs h-6">
+                  <Star className="h-3 w-3 mr-1 fill-amber-400 text-amber-400" />精选 {starredCount}
+                </TabsTrigger>
+                <TabsTrigger value="viral" className="text-xs h-6">🔥 爆款 {viralCount}</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </div>
           {posts.length === 0 ? (
             <div className="text-sm text-muted-foreground py-6 text-center">暂无样本，点 ↻ 刷新</div>
+          ) : filteredPosts.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-6 text-center">
+              {postFilter === "starred" ? "还没收藏任何作品，点作品上的 ⭐ 加入精选库" : "暂无爆款样本"}
+            </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {posts.map((p: any) => (
-                <a key={p.id} href={p.postUrl || "#"} target="_blank" rel="noreferrer" className="block group">
-                  {p.coverUrl ? (
-                    <img src={p.coverUrl} alt="" className="w-full aspect-[3/4] object-cover rounded border" loading="lazy" />
-                  ) : (
-                    <div className="w-full aspect-[3/4] bg-muted rounded border" />
-                  )}
-                  <div className="mt-1.5 text-xs line-clamp-2 group-hover:text-primary">{p.description || p.title || "(无描述)"}</div>
-                  <div className="flex gap-2 mt-1 text-[10px] text-muted-foreground">
-                    {p.viewCount > 0 && <span className="inline-flex items-center gap-0.5"><Eye className="h-3 w-3" />{formatCount(p.viewCount)}</span>}
-                    <span className="inline-flex items-center gap-0.5"><Heart className="h-3 w-3" />{formatCount(p.likeCount)}</span>
-                    <span className="inline-flex items-center gap-0.5"><MessageCircle className="h-3 w-3" />{formatCount(p.commentCount)}</span>
-                    {p.isViral && <Badge className="text-[9px] py-0 px-1 bg-red-500">爆款</Badge>}
+              {filteredPosts.map((p: any) => {
+                const isStarred = p.analysisJson?.starred === true;
+                return (
+                  <div key={p.id} className="block group relative">
+                    <a href={p.postUrl || "#"} target="_blank" rel="noreferrer">
+                      {p.coverUrl ? (
+                        <img src={p.coverUrl} alt="" className="w-full aspect-[3/4] object-cover rounded border" loading="lazy" />
+                      ) : (
+                        <div className="w-full aspect-[3/4] bg-muted rounded border" />
+                      )}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        starMut.mutate({ postId: p.id, starred: !isStarred });
+                      }}
+                      className={`absolute top-1.5 right-1.5 rounded-full p-1.5 backdrop-blur transition ${
+                        isStarred ? "bg-amber-400/95 text-white shadow" : "bg-black/40 text-white/80 hover:bg-black/60"
+                      }`}
+                      title={isStarred ? "取消精选" : "加入精选库（AI 长期借鉴）"}
+                    >
+                      <Star className={`h-3.5 w-3.5 ${isStarred ? "fill-white" : ""}`} />
+                    </button>
+                    <a href={p.postUrl || "#"} target="_blank" rel="noreferrer" className="block">
+                      <div className="mt-1.5 text-xs line-clamp-2 group-hover:text-primary">{p.description || p.title || "(无描述)"}</div>
+                      <div className="flex gap-2 mt-1 text-[10px] text-muted-foreground items-center flex-wrap">
+                        {p.viewCount > 0 && <span className="inline-flex items-center gap-0.5"><Eye className="h-3 w-3" />{formatCount(p.viewCount)}</span>}
+                        <span className="inline-flex items-center gap-0.5"><Heart className="h-3 w-3" />{formatCount(p.likeCount)}</span>
+                        <span className="inline-flex items-center gap-0.5"><MessageCircle className="h-3 w-3" />{formatCount(p.commentCount)}</span>
+                        {p.isViral && <Badge className="text-[9px] py-0 px-1 bg-red-500">爆款</Badge>}
+                        {isStarred && <Badge className="text-[9px] py-0 px-1 bg-amber-500">⭐ 精选</Badge>}
+                      </div>
+                    </a>
                   </div>
-                </a>
-              ))}
+                );
+              })}
             </div>
           )}
         </Card>
       )}
+
+      {/* 30 天运营策略弹窗 */}
+      <Dialog open={strategyOpen} onOpenChange={setStrategyOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Compass className="h-5 w-5 text-violet-600" />
+              30 天内容运营策略（{platformMeta.name}）
+            </DialogTitle>
+            <DialogDescription>
+              基于您长期沉淀的 ⭐ 精选 + 🔥 爆款样本，AI 给出未来一个月的运营节奏与执行清单。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex gap-2 items-center pt-2">
+            <Input
+              placeholder="行业关键词（如：宠物、烘焙、健身… 留空走通用）"
+              value={strategyNiche}
+              onChange={(e) => setStrategyNiche(e.target.value)}
+              className="flex-1"
+            />
+            <Button onClick={() => strategyQuery.refetch()} disabled={strategyQuery.isFetching}>
+              {strategyQuery.isFetching ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <RefreshCw className="h-4 w-4 mr-1.5" />}
+              重新生成
+            </Button>
+          </div>
+
+          {strategyQuery.isLoading || strategyQuery.isFetching ? (
+            <div className="flex items-center gap-2 py-12 justify-center text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              AI 正在基于精选同行素材规划 30 天运营策略…
+            </div>
+          ) : strategyQuery.error ? (
+            <div className="py-6 text-sm text-destructive">
+              {(strategyQuery.error as any)?.message || "生成失败"}
+              <div className="text-xs text-muted-foreground mt-1">提示：先在同行库添加 3-5 个对标账号并点 ↻ 抓取作品。</div>
+            </div>
+          ) : strategyQuery.data ? (() => {
+            const { strategy: s, meta } = strategyQuery.data;
+            return (
+              <div className="space-y-5 pt-2">
+                <div className="text-xs text-muted-foreground flex gap-3 flex-wrap">
+                  <span>📊 分析 {meta.competitorsAnalyzed} 个同行</span>
+                  <span>⭐ {meta.starredSamples} 条精选</span>
+                  <span>🔥 {meta.viralSamples} 条爆款</span>
+                  <span>共采纳 {meta.totalSamplesUsed} 条样本</span>
+                </div>
+
+                <div className="rounded-lg border bg-violet-50 dark:bg-violet-950/20 p-4">
+                  <div className="text-sm font-semibold text-violet-700 dark:text-violet-300 mb-1.5">总策略</div>
+                  <p className="text-sm leading-relaxed">{s.summary}</p>
+                </div>
+
+                {s.contentPillars?.length > 0 && (
+                  <div>
+                    <div className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4" /> 内容支柱
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-2">
+                      {s.contentPillars.map((p, i) => (
+                        <div key={i} className="rounded-lg border p-3 bg-background">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="font-medium text-sm">{p.name}</div>
+                            <Badge variant="secondary">{p.ratio}%</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">{p.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {s.weeklyCadence && (
+                  <div className="rounded-lg border p-3 bg-background">
+                    <div className="text-sm font-semibold mb-1 flex items-center gap-2">
+                      <Calendar className="h-4 w-4" /> 发布频率
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-2xl font-bold text-violet-600">{s.weeklyCadence.postsPerWeek}</span>
+                      <span className="text-muted-foreground"> 条 / 周</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">{s.weeklyCadence.rationale}</p>
+                  </div>
+                )}
+
+                {s.hookTemplates?.length > 0 && (
+                  <div>
+                    <div className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-amber-500" /> 钩子模板库
+                    </div>
+                    <div className="space-y-1.5">
+                      {s.hookTemplates.map((h, i) => (
+                        <div key={i} className="rounded border p-2.5 bg-background text-xs">
+                          <div className="font-medium">{h.template}</div>
+                          <div className="text-muted-foreground mt-0.5">证据：{h.evidence}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {s.hashtagStrategy && (
+                  <div className="rounded-lg border p-3 bg-background">
+                    <div className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <Hash className="h-4 w-4" /> 标签策略
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-1">核心标签（每条都用）</div>
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {s.hashtagStrategy.core?.map((t, i) => <Badge key={i} className="bg-violet-600 text-white">{t}</Badge>)}
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-1">轮换标签（按内容主题挑）</div>
+                    <div className="flex flex-wrap gap-1">
+                      {s.hashtagStrategy.rotation?.map((t, i) => <Badge key={i} variant="outline">{t}</Badge>)}
+                    </div>
+                  </div>
+                )}
+
+                {s.bestPostingWindows?.length > 0 && (
+                  <div className="rounded-lg border p-3 bg-background">
+                    <div className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <Clock className="h-4 w-4" /> 黄金发布时段
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {s.bestPostingWindows.map((w, i) => <Badge key={i} variant="secondary">{w}</Badge>)}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid md:grid-cols-2 gap-3">
+                  {s.doList?.length > 0 && (
+                    <div className="rounded-lg border p-3 bg-emerald-50 dark:bg-emerald-950/20">
+                      <div className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="h-4 w-4" /> 一定要做
+                      </div>
+                      <ul className="text-xs space-y-1">
+                        {s.doList.map((x, i) => <li key={i}>· {x}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {s.dontList?.length > 0 && (
+                    <div className="rounded-lg border p-3 bg-rose-50 dark:bg-rose-950/20">
+                      <div className="text-sm font-semibold mb-2 flex items-center gap-1.5 text-rose-700 dark:text-rose-300">
+                        <XCircle className="h-4 w-4" /> 一定要避免
+                      </div>
+                      <ul className="text-xs space-y-1">
+                        {s.dontList.map((x, i) => <li key={i}>· {x}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {s.next30DaysRoadmap?.length > 0 && (
+                  <div>
+                    <div className="text-sm font-semibold mb-2 flex items-center gap-2">
+                      <Calendar className="h-4 w-4" /> 30 天 Roadmap
+                    </div>
+                    <div className="space-y-2">
+                      {s.next30DaysRoadmap.map((w, i) => (
+                        <div key={i} className="rounded-lg border p-3 bg-background flex gap-3">
+                          <div className="flex-shrink-0 w-12 h-12 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold flex items-center justify-center text-xs">
+                            W{w.week}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium">{w.focus}</div>
+                            <div className="text-xs text-muted-foreground mt-0.5">{w.deliverables}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })() : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

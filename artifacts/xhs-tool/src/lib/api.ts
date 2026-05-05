@@ -294,6 +294,34 @@ export const api = {
       if (platform) q.set("platform", platform);
       return request<any[]>(`/competitors/trending?${q}`);
     },
+    starPost: (postId: number, starred: boolean) =>
+      request<any>(`/competitor-posts/${postId}/star`, { method: "PATCH", body: JSON.stringify({ starred }) }),
+    operationsStrategy: (platform: string, niche?: string, opts?: { signal?: AbortSignal }) => {
+      const q = new URLSearchParams({ platform });
+      if (niche) q.set("niche", niche);
+      return request<{
+        platform: string;
+        niche: string | null;
+        strategy: {
+          summary: string;
+          contentPillars: { name: string; ratio: number; description: string }[];
+          weeklyCadence: { postsPerWeek: number; rationale: string };
+          hookTemplates: { template: string; evidence: string }[];
+          hashtagStrategy: { core: string[]; rotation: string[] };
+          bestPostingWindows: string[];
+          doList: string[];
+          dontList: string[];
+          next30DaysRoadmap: { week: number; focus: string; deliverables: string }[];
+        };
+        meta: {
+          competitorsAnalyzed: number;
+          starredSamples: number;
+          viralSamples: number;
+          totalSamplesUsed: number;
+          generatedAt: string;
+        };
+      }>(`/competitors/strategy?${q}`, { signal: opts?.signal });
+    },
     insights: (platform?: string) => {
       const q = new URLSearchParams();
       if (platform) q.set("platform", platform);
