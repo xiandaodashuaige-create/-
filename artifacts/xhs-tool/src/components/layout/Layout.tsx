@@ -17,6 +17,7 @@ import {
   Shield,
   Coins,
   Globe,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ import { api } from "@/lib/api";
 const navItemsConfig = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true },
+  { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp },
   { path: "/accounts", labelKey: "nav.accounts", icon: Users },
   { path: "/content", labelKey: "nav.content", icon: FileText },
   { path: "/assets", labelKey: "nav.assets", icon: Image },

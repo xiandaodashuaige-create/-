@@ -9,3 +9,4 @@ export * from "./creditTransactions";
 export * from "./imageReferences";
 export * from "./userStyleProfiles";
 export * from "./userContentProfiles";
+export * from "./noteTracking";

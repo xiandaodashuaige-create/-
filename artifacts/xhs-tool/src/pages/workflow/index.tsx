@@ -1766,12 +1766,34 @@ export default function WorkflowWizard() {
               </div>
 
               {publishMutation.isSuccess && (
-                <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-center">
-                  <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-2" />
-                  <p className="font-medium text-green-800">恭喜！笔记发布流程已完成</p>
-                  <div className="flex gap-3 justify-center mt-4">
-                    <Button variant="outline" onClick={handleReset}>发布下一篇</Button>
-                    <Button onClick={() => setLocation("/content")}>查看所有内容</Button>
+                <div className="space-y-3">
+                  <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+                    <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-2" />
+                    <p className="font-medium text-green-800">恭喜！笔记发布流程已完成</p>
+                    <div className="flex gap-3 justify-center mt-4">
+                      <Button variant="outline" onClick={handleReset}>发布下一篇</Button>
+                      <Button onClick={() => setLocation("/content")}>查看所有内容</Button>
+                    </div>
+                  </div>
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-orange-50 to-rose-50 border border-orange-200">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-full bg-orange-500/15 flex items-center justify-center shrink-0">
+                        <TrendingUp className="h-5 w-5 text-orange-500" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-orange-800">追踪这条笔记的表现</p>
+                        <p className="text-sm text-orange-700/80 mt-1">
+                          复制小红书的笔记链接，加入追踪后，每天自动监控点赞/收藏曲线 + 关键词搜索排名
+                        </p>
+                        <Button
+                          className="mt-3 bg-orange-500 hover:bg-orange-600 text-white"
+                          size="sm"
+                          onClick={() => setLocation("/tracking")}
+                        >
+                          <TrendingUp className="h-4 w-4 mr-2" />前往追踪页面
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

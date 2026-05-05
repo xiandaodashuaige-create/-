@@ -40,6 +40,8 @@ The project is structured as a pnpm workspace monorepo using TypeScript.
     - An agentic AI assistant allows conversational interaction and direct execution of content modifications.
     - A learning system records user preferences (image references, style profiles) to personalize future content generation.
 - **Workflow Wizard:** A guided 3-step process (Inspiration Research → Content Creation → Publish) for content generation and publication, integrating AI for strategy analysis, content generation, sensitivity checks, and cover image creation.
+- **Note Tracking (P0 vertical loop):** After publishing, users paste their XHS note URL + target keywords. A daily cron (12h interval, single-instance) fetches public engagement metrics (likes/collects/comments) and SEO keyword search rank via TikHub/RapidAPI search APIs. Tables: `note_tracking`, `note_metrics_daily`, `keyword_rankings_daily`. Frontend: `/tracking` list + `/tracking/:id` detail with Recharts time-series. No XHS account auth required (public-data only).
+- **Hot Topics Calendar:** Per-niche/region daily-cached hashtag aggregation (`hot_topics_cache` table) computed from search results, surfaced as a sidebar card on the tracking page.
 - **Credit System:** All AI and content operations consume credits, with different plans and credit pack options. Admin users bypass credit costs.
 - **Admin Panel:** Provides user and credit management, transaction history, and system statistics for administrators.
 - **Region-Aware AI:** AI models adapt prompts and responses based on selected regions (SG/HK/MY), including language nuances for Hong Kong Cantonese.

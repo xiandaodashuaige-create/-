@@ -11,6 +11,7 @@ import storageRouter from "./storage";
 import adminRouter from "./admin";
 import xhsRouter from "./xhs";
 import { xhsPublicRouter } from "./xhs";
+import trackingRouter from "./tracking";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -30,5 +31,6 @@ router.use(schedulesRouter);
 router.use(dashboardRouter);
 router.use(sensitiveWordsRouter);
 router.use(xhsRouter);
+router.use(trackingRouter);
 
 export default router;

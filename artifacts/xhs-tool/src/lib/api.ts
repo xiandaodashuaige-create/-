@@ -189,4 +189,18 @@ export const api = {
     create: (data: any) => request<any>("/sensitive-words", { method: "POST", body: JSON.stringify(data) }),
     delete: (id: number) => request<void>(`/sensitive-words/${id}`, { method: "DELETE" }),
   },
+  tracking: {
+    list: () => request<any[]>("/tracking/notes"),
+    get: (id: number) => request<any>(`/tracking/notes/${id}`),
+    add: (data: { xhsUrl: string; title?: string; targetKeywords?: string[]; contentId?: number; accountId?: number; region?: string }) =>
+      request<any>("/tracking/notes", { method: "POST", body: JSON.stringify(data) }),
+    refresh: (id: number) => request<any>(`/tracking/notes/${id}/refresh`, { method: "POST" }),
+    remove: (id: number) => request<void>(`/tracking/notes/${id}`, { method: "DELETE" }),
+    hotTopics: (niche: string, region: string = "ALL") => {
+      const q = new URLSearchParams({ niche, region });
+      return request<{ topics: any[]; samplesAnalyzed: number; cached: boolean; date: string }>(
+        `/tracking/hot-topics?${q.toString()}`,
+      );
+    },
+  },
 };

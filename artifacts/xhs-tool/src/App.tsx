@@ -17,6 +17,8 @@ import SensitiveWords from "@/pages/sensitive-words";
 import Settings from "@/pages/settings";
 import LandingPage from "@/pages/landing";
 import WorkflowWizard from "@/pages/workflow/index";
+import TrackingPage from "@/pages/tracking/index";
+import TrackingDetail from "@/pages/tracking/detail";
 import AIGuide from "@/components/ai-guide/AIGuide";
 import AdminPage from "@/pages/admin";
 import OnboardingGuide from "@/components/onboarding/OnboardingGuide";
@@ -198,6 +200,8 @@ function ClerkProviderWithRoutes() {
             <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
             <Route path="/accounts">{() => <ProtectedRoute component={Accounts} />}</Route>
             <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} />}</Route>
+            <Route path="/tracking">{() => <ProtectedRoute component={TrackingPage} />}</Route>
+            <Route path="/tracking/:id">{() => <ProtectedRoute component={TrackingDetail} />}</Route>
             <Route path="/content">{() => <ProtectedRoute component={ContentList} />}</Route>
             <Route path="/content/new">{() => <ProtectedRoute component={ContentEditor} />}</Route>
             <Route path="/content/:id">{() => <ProtectedRoute component={ContentEditor} />}</Route>
