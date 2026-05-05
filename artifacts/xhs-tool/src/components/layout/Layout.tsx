@@ -92,7 +92,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         }`}
       >
         <div className="flex items-center gap-2 px-6 h-16 border-b border-border">
-          <BookOpen className="h-6 w-6 text-red-500" />
+          <BookOpen className="h-6 w-6" style={{ color: "hsl(var(--platform-accent))" }} />
           <div className="flex flex-col leading-tight">
             <span className="font-bold text-base">鹿联 Viral Suite</span>
             <span className="text-[10px] text-muted-foreground">全平台爆款矩阵</span>
@@ -165,11 +165,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <div
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
                       isActive
-                        ? "bg-primary text-primary-foreground"
+                        ? ""
                         : (item as any).highlight
-                        ? "text-red-600 bg-red-50 hover:bg-red-100"
+                        ? ""
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
+                    style={
+                      isActive
+                        ? {
+                            background: "hsl(var(--platform-primary))",
+                            color: "hsl(var(--platform-primary-fg))",
+                          }
+                        : (item as any).highlight
+                        ? {
+                            background: "hsl(var(--platform-soft-bg))",
+                            color: "hsl(var(--platform-soft-text))",
+                          }
+                        : undefined
+                    }
                   >
                     <item.icon className="h-4 w-4" />
                     {t(item.labelKey)}
@@ -199,7 +212,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 key={code}
                 variant={lang === code ? "default" : "ghost"}
                 size="sm"
-                className={`h-6 text-[10px] px-2 ${lang === code ? "bg-red-500 hover:bg-red-600 text-white" : "text-muted-foreground"}`}
+                className={`h-6 text-[10px] px-2 ${lang === code ? "text-white" : "text-muted-foreground"}`}
+                style={lang === code ? { background: "hsl(var(--platform-primary))", color: "hsl(var(--platform-primary-fg))" } : undefined}
                 onClick={() => setLang(code as Lang)}
               >
                 {label}
@@ -209,7 +223,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           {user && (
             <div className="flex items-center gap-3 px-2">
-              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 text-sm font-medium">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
+                style={{ background: "hsl(var(--platform-soft-bg))", color: "hsl(var(--platform-soft-text))" }}
+              >
                 {user.firstName?.[0] || user.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() || "U"}
               </div>
               <div className="flex-1 min-w-0">

@@ -69,6 +69,18 @@
 
 /* LIGHT MODE */
 :root {
+  /* 平台主题色板的兜底（默认 XHS），platform-context.tsx 切平台时会动态覆盖 */
+  --platform-primary: 350 90% 55%;
+  --platform-primary-fg: 0 0% 100%;
+  --platform-ring: 350 90% 55%;
+  --platform-from: 350 90% 55%;
+  --platform-via: 340 85% 60%;
+  --platform-to: 330 80% 65%;
+  --platform-soft-bg: 350 90% 97%;
+  --platform-soft-border: 350 80% 88%;
+  --platform-soft-text: 350 75% 40%;
+  --platform-accent: 350 90% 55%;
+
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
 

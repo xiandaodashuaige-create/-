@@ -90,7 +90,13 @@ export default function Dashboard() {
       </div>
 
       <button onClick={() => setLocation("/workflow")} className="w-full group">
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-red-500 via-pink-500 to-rose-400 p-6 text-white shadow-lg hover:shadow-xl transition-all">
+        <div
+          className="relative overflow-hidden rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all"
+          style={{
+            background:
+              "linear-gradient(to right, hsl(var(--platform-from)), hsl(var(--platform-via)), hsl(var(--platform-to)))",
+          }}
+        >
           <div className="absolute right-0 top-0 w-48 h-48 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/4" />
           <div className="absolute right-16 bottom-0 w-32 h-32 bg-white/5 rounded-full translate-y-1/2" />
           <div className="relative flex items-center gap-4">
