@@ -91,20 +91,9 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
     const objectPath = `/objects/${wildcardPath}`;
     const objectFile = await objectStorageService.getObjectEntityFile(objectPath);
 
-    // --- Protected route example (uncomment when using replit-auth) ---
-    // if (!req.isAuthenticated()) {
-    //   res.status(401).json({ error: "Unauthorized" });
-    //   return;
-    // }
-    // const canAccess = await objectStorageService.canAccessObjectEntity({
-    //   userId: req.user.id,
-    //   objectFile,
-    //   requestedPermission: ObjectPermission.READ,
-    // });
-    // if (!canAccess) {
-    //   res.status(403).json({ error: "Forbidden" });
-    //   return;
-    // }
+    // TODO(security): 当前对象层未做 ACL；需要为每个上传位置（assets/AI 图/编辑器直传/视频）
+    // 写入 owner metadata，再在此处校验 canAccessObjectEntity({userId, objectFile, READ})。
+    // 已通过 /api/assets 的 userId 隔离收紧元数据查询，但谁拿到 objectPath 仍可直读文件。
 
     const response = await objectStorageService.downloadObject(objectFile);
 

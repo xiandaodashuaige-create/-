@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
+import { AssetPicker } from "@/components/AssetPicker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1520,14 +1521,28 @@ export default function WorkflowWizard() {
                     </div>
 
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <Label>配图</Label>
-                        <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
-                          allowedFileTypes={["image/*"]}
-                          onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
-                          buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
-                          <Upload className="h-3 w-3 mr-1" />上传图片
-                        </ObjectUploader>
+                        <div className="flex items-center gap-2">
+                          <AssetPicker
+                            type="image"
+                            multiple
+                            onPick={(urls) => {
+                              setForm((p) => {
+                                const merged = [...p.imageUrls];
+                                for (const u of urls) if (!merged.includes(u) && merged.length < 9) merged.push(u);
+                                return { ...p, imageUrls: merged };
+                              });
+                              setContentSaved(false);
+                            }}
+                          />
+                          <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
+                            allowedFileTypes={["image/*"]}
+                            onGetUploadParameters={handleGetUploadParameters} onComplete={handleImageUploadComplete}
+                            buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                            <Upload className="h-3 w-3 mr-1" />上传图片
+                          </ObjectUploader>
+                        </div>
                       </div>
                       {form.imageUrls.length > 0 && (
                         <div className="grid grid-cols-3 gap-2">
@@ -1550,12 +1565,20 @@ export default function WorkflowWizard() {
                           <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">鹿联团队每周提供</span>
                         </Label>
                         {!form.videoUrl && (
-                          <ObjectUploader maxNumberOfFiles={1} maxFileSize={104857600}
-                            allowedFileTypes={["video/*"]}
-                            onGetUploadParameters={handleGetUploadParameters} onComplete={handleVideoUploadComplete}
-                            buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
-                            <Video className="h-3 w-3 mr-1" />上传视频
-                          </ObjectUploader>
+                          <div className="flex items-center gap-2">
+                            <AssetPicker
+                              type="video"
+                              multiple={false}
+                              triggerLabel="从素材库选视频"
+                              onPick={(urls) => { if (urls[0]) { setForm((p) => ({ ...p, videoUrl: urls[0] })); setContentSaved(false); } }}
+                            />
+                            <ObjectUploader maxNumberOfFiles={1} maxFileSize={104857600}
+                              allowedFileTypes={["video/*"]}
+                              onGetUploadParameters={handleGetUploadParameters} onComplete={handleVideoUploadComplete}
+                              buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground">
+                              <Video className="h-3 w-3 mr-1" />上传视频
+                            </ObjectUploader>
+                          </div>
                         )}
                       </div>
                       {form.videoUrl && (

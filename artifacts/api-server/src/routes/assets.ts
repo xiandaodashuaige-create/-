@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db, assetsTable } from "@workspace/db";
 import {
   CreateAssetBody,
@@ -7,14 +7,21 @@ import {
   ListAssetsResponse,
   DeleteAssetParams,
 } from "@workspace/api-zod";
-import { requireCredits, deductCredits } from "../middlewares/creditSystem";
+import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
 
 const router: IRouter = Router();
 
+// 列出当前用户的素材（按 userId 隔离）
 router.get("/assets", async (req, res): Promise<void> => {
   try {
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
     const query = ListAssetsQueryParams.safeParse(req.query);
-    const conditions = [];
+    const conditions = [eq(assetsTable.userId, u.id)];
 
     if (query.success) {
       if (query.data.accountId) {
@@ -25,16 +32,11 @@ router.get("/assets", async (req, res): Promise<void> => {
       }
     }
 
-    let assets;
-    if (conditions.length > 0) {
-      assets = await db
-        .select()
-        .from(assetsTable)
-        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-        .orderBy(assetsTable.createdAt);
-    } else {
-      assets = await db.select().from(assetsTable).orderBy(assetsTable.createdAt);
-    }
+    const assets = await db
+      .select()
+      .from(assetsTable)
+      .where(and(...conditions))
+      .orderBy(desc(assetsTable.createdAt));
 
     res.json(ListAssetsResponse.parse(assets));
   } catch (err) {
@@ -43,8 +45,15 @@ router.get("/assets", async (req, res): Promise<void> => {
   }
 });
 
+// 创建素材：自动绑定 userId
 router.post("/assets", requireCredits("asset-upload"), async (req, res): Promise<void> => {
   try {
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
     const parsed = CreateAssetBody.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: parsed.error.message });
@@ -54,6 +63,7 @@ router.post("/assets", requireCredits("asset-upload"), async (req, res): Promise
     const [asset] = await db
       .insert(assetsTable)
       .values({
+        userId: u.id,
         accountId: parsed.data.accountId,
         type: parsed.data.type,
         filename: parsed.data.filename,
@@ -71,8 +81,15 @@ router.post("/assets", requireCredits("asset-upload"), async (req, res): Promise
   }
 });
 
+// 删除素材：必须属于当前用户
 router.delete("/assets/:id", async (req, res): Promise<void> => {
   try {
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
     const params = DeleteAssetParams.safeParse(req.params);
     if (!params.success) {
       res.status(400).json({ error: params.error.message });
@@ -81,7 +98,7 @@ router.delete("/assets/:id", async (req, res): Promise<void> => {
 
     const [asset] = await db
       .delete(assetsTable)
-      .where(eq(assetsTable.id, params.data.id))
+      .where(and(eq(assetsTable.id, params.data.id), eq(assetsTable.userId, u.id)))
       .returning();
 
     if (!asset) {

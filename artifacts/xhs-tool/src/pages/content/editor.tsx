@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Save, Wand2, ShieldCheck, Hash, Type, Loader2, ArrowLeft, Sparkles, ImagePlus, Upload, X, Trash2, Send, Calendar, Clock } from "lucide-react";
 import { ObjectUploader } from "@workspace/object-storage-web";
+import { AssetPicker } from "@/components/AssetPicker";
 import { usePlatform } from "@/lib/platform-context";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PLATFORMS } from "@/lib/platform-meta";
@@ -443,18 +444,29 @@ export default function ContentEditor() {
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <Label>配图</Label>
-                  <ObjectUploader
-                    maxNumberOfFiles={9}
-                    maxFileSize={10485760}
-                    onGetUploadParameters={handleGetUploadParameters}
-                    onComplete={handleUploadComplete}
-                    buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <Upload className="h-3 w-3 mr-1" />
-                    上传图片
-                  </ObjectUploader>
+                  <div className="flex items-center gap-2">
+                    <AssetPicker
+                      type="image"
+                      multiple
+                      onPick={(urls) => setForm((prev) => {
+                        const merged = [...prev.imageUrls];
+                        for (const u of urls) if (!merged.includes(u) && merged.length < 9) merged.push(u);
+                        return { ...prev, imageUrls: merged };
+                      })}
+                    />
+                    <ObjectUploader
+                      maxNumberOfFiles={9}
+                      maxFileSize={10485760}
+                      onGetUploadParameters={handleGetUploadParameters}
+                      onComplete={handleUploadComplete}
+                      buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <Upload className="h-3 w-3 mr-1" />
+                      上传图片
+                    </ObjectUploader>
+                  </div>
                 </div>
 
                 {form.imageUrls.length > 0 && (
