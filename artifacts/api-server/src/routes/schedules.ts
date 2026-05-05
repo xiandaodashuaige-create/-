@@ -8,6 +8,22 @@ import {
 } from "@workspace/api-zod";
 import { ensureUser } from "../middlewares/creditSystem";
 
+// 校验某条 schedule 是否属于当前用户，返回 schedule（含 contentId / accountId）
+async function loadOwnedSchedule(scheduleId: number, userId: number) {
+  const [row] = await db
+    .select({
+      id: schedulesTable.id,
+      contentId: schedulesTable.contentId,
+      accountId: schedulesTable.accountId,
+      status: schedulesTable.status,
+      scheduledAt: schedulesTable.scheduledAt,
+    })
+    .from(schedulesTable)
+    .innerJoin(accountsTable, eq(schedulesTable.accountId, accountsTable.id))
+    .where(and(eq(schedulesTable.id, scheduleId), eq(accountsTable.ownerUserId, userId)));
+  return row;
+}
+
 const router: IRouter = Router();
 
 type PlanItemBody = {
@@ -335,6 +351,192 @@ router.post("/schedules/duplicate-weeks", async (req, res): Promise<void> => {
     res.status(201).json({ created: totalCreated, weeks: weeksClamped });
   } catch (err) {
     req.log.error(err, "Failed to duplicate schedule weeks");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====== 月度概览 ======
+router.get("/schedules/summary", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const month = (req.query.month as string) || new Date().toISOString().slice(0, 7); // YYYY-MM
+    const m = /^(\d{4})-(\d{2})$/.exec(month);
+    if (!m) { res.status(400).json({ error: "month 格式应为 YYYY-MM" }); return; }
+    const year = parseInt(m[1], 10);
+    const mon = parseInt(m[2], 10) - 1;
+    const start = new Date(Date.UTC(year, mon, 1));
+    const end = new Date(Date.UTC(year, mon + 1, 1));
+
+    const rows = await db.execute(sql`
+      SELECT s.status, s.scheduled_at, a.platform
+      FROM schedules s
+      INNER JOIN accounts a ON s.account_id = a.id
+      WHERE a.owner_user_id = ${u.id}
+        AND s.scheduled_at >= ${start}
+        AND s.scheduled_at < ${end}
+    `);
+
+    const counts = { total: 0, pending: 0, paused: 0, published: 0, failed: 0 };
+    const byDayMap = new Map<string, number>();
+    const byPlatform = new Map<string, number>();
+    for (const r of rows.rows as any[]) {
+      counts.total++;
+      const st = r.status || "pending";
+      if (st === "pending") counts.pending++;
+      else if (st === "paused") counts.paused++;
+      else if (st === "published" || st === "completed") counts.published++;
+      else if (st === "failed") counts.failed++;
+      const day = new Date(r.scheduled_at).toISOString().slice(0, 10);
+      byDayMap.set(day, (byDayMap.get(day) || 0) + 1);
+      const pf = r.platform || "xhs";
+      byPlatform.set(pf, (byPlatform.get(pf) || 0) + 1);
+    }
+    const byDay = Array.from(byDayMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([date, count]) => ({ date, count }));
+    const platforms = Array.from(byPlatform.entries()).map(([platform, count]) => ({ platform, count }));
+
+    res.json({ month, ...counts, byDay, platforms });
+  } catch (err) {
+    req.log.error(err, "Failed to get schedule summary");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====== 单条修改：时间 / 内容（不影响其他条目） ======
+router.patch("/schedules/:id", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: "invalid id" }); return; }
+
+    const { scheduledAt, title, body, tags, imageUrls, status } = req.body as {
+      scheduledAt?: string;
+      title?: string;
+      body?: string;
+      tags?: string[];
+      imageUrls?: string[];
+      status?: "pending" | "paused";
+    };
+
+    const owned = await loadOwnedSchedule(id, u.id);
+    if (!owned) { res.status(404).json({ error: "Schedule not found" }); return; }
+    if (owned.status === "published" || owned.status === "completed") {
+      res.status(400).json({ error: "已发布的计划无法修改" }); return;
+    }
+
+    // 更新 schedule（时间 / 状态）
+    const sUpdate: Record<string, unknown> = {};
+    if (scheduledAt) {
+      const dt = new Date(scheduledAt);
+      if (Number.isNaN(dt.getTime())) { res.status(400).json({ error: "scheduledAt 非法" }); return; }
+      sUpdate.scheduledAt = dt;
+    }
+    if (status === "pending" || status === "paused") {
+      sUpdate.status = status;
+    }
+    if (Object.keys(sUpdate).length > 0) {
+      await db.update(schedulesTable).set(sUpdate).where(eq(schedulesTable.id, id));
+    }
+
+    // 更新 content（仅修改本条对应的 content，原本是 bulk-create 时一对一的克隆，所以不会影响其它条目）
+    const cUpdate: Record<string, unknown> = {};
+    if (typeof title === "string") cUpdate.title = title.slice(0, 200);
+    if (typeof body === "string") cUpdate.body = body;
+    if (Array.isArray(tags)) cUpdate.tags = tags.slice(0, 10);
+    if (Array.isArray(imageUrls)) cUpdate.imageUrls = imageUrls.slice(0, 9);
+    if (sUpdate.scheduledAt) cUpdate.scheduledAt = sUpdate.scheduledAt;
+    if (Object.keys(cUpdate).length > 0) {
+      await db.update(contentTable).set(cUpdate).where(eq(contentTable.id, owned.contentId));
+    }
+
+    res.json({ ok: true, id });
+  } catch (err) {
+    req.log.error(err, "Failed to patch schedule");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====== 暂停 / 恢复（语义封装，便于前端按钮） ======
+router.post("/schedules/:id/pause", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const id = Number(req.params.id);
+    const owned = await loadOwnedSchedule(id, u.id);
+    if (!owned) { res.status(404).json({ error: "Schedule not found" }); return; }
+    if (owned.status !== "pending") { res.status(400).json({ error: `当前状态 ${owned.status} 不可暂停` }); return; }
+    await db.update(schedulesTable).set({ status: "paused" }).where(eq(schedulesTable.id, id));
+    res.json({ ok: true, id, status: "paused" });
+  } catch (err) {
+    req.log.error(err, "Failed to pause schedule");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/schedules/:id/resume", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const id = Number(req.params.id);
+    const owned = await loadOwnedSchedule(id, u.id);
+    if (!owned) { res.status(404).json({ error: "Schedule not found" }); return; }
+    if (owned.status !== "paused") { res.status(400).json({ error: `当前状态 ${owned.status} 不可恢复` }); return; }
+    await db.update(schedulesTable).set({ status: "pending" }).where(eq(schedulesTable.id, id));
+    res.json({ ok: true, id, status: "pending" });
+  } catch (err) {
+    req.log.error(err, "Failed to resume schedule");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ====== 批量动作 ======
+router.post("/schedules/bulk-action", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const { ids, action } = req.body as { ids?: number[]; action?: "pause" | "resume" | "delete" };
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > 200) {
+      res.status(400).json({ error: "ids 必填，1~200 条" }); return;
+    }
+    if (!["pause", "resume", "delete"].includes(action || "")) {
+      res.status(400).json({ error: "action 必须是 pause / resume / delete" }); return;
+    }
+    // 限定到当前用户的 schedule
+    const owned = await db
+      .select({ id: schedulesTable.id, contentId: schedulesTable.contentId, status: schedulesTable.status })
+      .from(schedulesTable)
+      .innerJoin(accountsTable, eq(schedulesTable.accountId, accountsTable.id))
+      .where(and(inArray(schedulesTable.id, ids), eq(accountsTable.ownerUserId, u.id)));
+    const ownedIds = owned.map((o) => o.id);
+    if (ownedIds.length === 0) { res.json({ ok: true, affected: 0 }); return; }
+
+    let affected = 0;
+    if (action === "delete") {
+      await db.delete(schedulesTable).where(inArray(schedulesTable.id, ownedIds));
+      const cIds = owned.map((o) => o.contentId);
+      if (cIds.length > 0) {
+        await db.update(contentTable).set({ status: "draft", scheduledAt: null }).where(inArray(contentTable.id, cIds));
+      }
+      affected = ownedIds.length;
+    } else if (action === "pause") {
+      const targets = owned.filter((o) => o.status === "pending").map((o) => o.id);
+      if (targets.length > 0) {
+        await db.update(schedulesTable).set({ status: "paused" }).where(inArray(schedulesTable.id, targets));
+      }
+      affected = targets.length;
+    } else if (action === "resume") {
+      const targets = owned.filter((o) => o.status === "paused").map((o) => o.id);
+      if (targets.length > 0) {
+        await db.update(schedulesTable).set({ status: "pending" }).where(inArray(schedulesTable.id, targets));
+      }
+      affected = targets.length;
+    }
+    res.json({ ok: true, affected });
+  } catch (err) {
+    req.log.error(err, "Failed bulk-action");
     res.status(500).json({ error: "Internal server error" });
   }
 });

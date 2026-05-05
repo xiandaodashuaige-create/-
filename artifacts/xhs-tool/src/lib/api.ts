@@ -96,6 +96,8 @@ export const api = {
   },
   ai: {
     rewrite: (data: any) => request<any>("/ai/rewrite", { method: "POST", body: JSON.stringify(data) }),
+    refineScheduleItem: (data: { current: { title?: string; body?: string; tags?: string[] }; instruction: string; niche?: string; platform?: string }) =>
+      request<{ title: string; body: string; tags: string[] }>("/ai/refine-schedule-item", { method: "POST", body: JSON.stringify(data) }),
     checkSensitivity: (data: any) => request<any>("/ai/check-sensitivity", { method: "POST", body: JSON.stringify(data) }),
     generateTitle: (data: any) => request<any>("/ai/generate-title", { method: "POST", body: JSON.stringify(data) }),
     generateHashtags: (data: any) => request<any>("/ai/generate-hashtags", { method: "POST", body: JSON.stringify(data) }),
@@ -219,6 +221,22 @@ export const api = {
       return request<any[]>(`/schedules?${q.toString()}`);
     },
     delete: (id: number) => request<void>(`/schedules/${id}`, { method: "DELETE" }),
+    summary: (month?: string) => {
+      const q = month ? `?month=${encodeURIComponent(month)}` : "";
+      return request<{
+        month: string; total: number; pending: number; paused: number; published: number; failed: number;
+        byDay: { date: string; count: number }[];
+        platforms: { platform: string; count: number }[];
+      }>(`/schedules/summary${q}`);
+    },
+    update: (id: number, data: { scheduledAt?: string; title?: string; body?: string; tags?: string[]; imageUrls?: string[]; status?: "pending" | "paused" }) =>
+      request<{ ok: true; id: number }>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+    pause: (id: number) =>
+      request<{ ok: true; id: number; status: string }>(`/schedules/${id}/pause`, { method: "POST" }),
+    resume: (id: number) =>
+      request<{ ok: true; id: number; status: string }>(`/schedules/${id}/resume`, { method: "POST" }),
+    bulkAction: (ids: number[], action: "pause" | "resume" | "delete") =>
+      request<{ ok: true; affected: number }>(`/schedules/bulk-action`, { method: "POST", body: JSON.stringify({ ids, action }) }),
     bulkCreate: (data: {
       accountId: number;
       startDate: string;

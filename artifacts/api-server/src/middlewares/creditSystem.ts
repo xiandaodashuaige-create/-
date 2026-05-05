@@ -21,6 +21,7 @@ export const CREDIT_COSTS: Record<string, number> = {
 
 const ROUTE_TO_OPERATION: Record<string, string> = {
   "POST:/ai/rewrite": "ai-rewrite",
+  "POST:/ai/refine-schedule-item": "ai-rewrite",
   "POST:/ai/competitor-research": "ai-competitor-research",
   "POST:/ai/generate-title": "ai-generate-title",
   "POST:/ai/generate-hashtags": "ai-generate-hashtags",

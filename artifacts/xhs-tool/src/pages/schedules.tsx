@@ -7,13 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Calendar, Trash2, Clock, Sparkles, Loader2, Wand2, CalendarDays, Copy, Check,
+  Calendar, Trash2, Clock, Sparkles, Loader2, Wand2, CalendarDays, Copy, Check, Pencil, Pause, Play,
+  CheckCircle2, AlertTriangle, X,
 } from "lucide-react";
 import { usePlatform } from "@/lib/platform-context";
 import { PLATFORMS } from "@/lib/platform-meta";
@@ -23,6 +25,14 @@ type PlanItem = { dayOffset: number; time: string; title: string; body: string; 
 function startOfDay(d: Date) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function endOfDay(d: Date) { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function toLocalDateTimeInputValue(iso: string) {
+  const d = new Date(iso);
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 16);
+}
+function fromLocalDateTimeInputValue(v: string): string {
+  return new Date(v).toISOString();
+}
 
 export default function Schedules() {
   const qc = useQueryClient();
@@ -43,13 +53,44 @@ export default function Schedules() {
   });
   const accounts = accountsQ.data ?? [];
 
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const summaryQ = useQuery({
+    queryKey: ["schedules-summary", currentMonth],
+    queryFn: () => api.schedules.summary(currentMonth),
+  });
+
+  const refreshAll = () => {
+    qc.invalidateQueries({ queryKey: ["schedules"] });
+    qc.invalidateQueries({ queryKey: ["schedules-summary"] });
+    qc.invalidateQueries({ queryKey: ["content"] });
+  };
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.schedules.delete(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["schedules"] });
-      qc.invalidateQueries({ queryKey: ["content"] });
-      toast({ title: "计划已取消" });
+    onSuccess: () => { refreshAll(); toast({ title: "计划已取消" }); },
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: (id: number) => api.schedules.pause(id),
+    onSuccess: () => { refreshAll(); toast({ title: "已暂停", description: "到点不会自动发布，可随时恢复" }); },
+    onError: (e: Error) => toast({ title: "暂停失败", description: e.message, variant: "destructive" }),
+  });
+  const resumeMutation = useMutation({
+    mutationFn: (id: number) => api.schedules.resume(id),
+    onSuccess: () => { refreshAll(); toast({ title: "已恢复", description: "到点将自动发布" }); },
+    onError: (e: Error) => toast({ title: "恢复失败", description: e.message, variant: "destructive" }),
+  });
+
+  const bulkActionMutation = useMutation({
+    mutationFn: ({ ids, action }: { ids: number[]; action: "pause" | "resume" | "delete" }) =>
+      api.schedules.bulkAction(ids, action),
+    onSuccess: (res, vars) => {
+      refreshAll();
+      setSelectedIds(new Set());
+      const label = vars.action === "pause" ? "暂停" : vars.action === "resume" ? "恢复" : "删除";
+      toast({ title: `批量${label}成功`, description: `共影响 ${res.affected} 条` });
     },
+    onError: (e: Error) => toast({ title: "批量操作失败", description: e.message, variant: "destructive" }),
   });
 
   // ----- AI 周计划生成 -----
@@ -92,8 +133,7 @@ export default function Schedules() {
       items: planItems,
     }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["schedules"] });
-      qc.invalidateQueries({ queryKey: ["content"] });
+      refreshAll();
       toast({ title: `已采用 ${res.created} 条计划`, description: "可在下方查看 / 进一步「复制到整月」" });
       setAiOpen(false);
       setPlanItems([]);
@@ -101,7 +141,7 @@ export default function Schedules() {
     onError: (e: Error) => toast({ title: "采用失败", description: e.message, variant: "destructive" }),
   });
 
-  // ----- 复制到整月：按 accountId 分组识别"首周"，与后端复制条件一致 -----
+  // ----- 复制到整月 -----
   const recentWeekRange = useMemo(() => {
     if (schedules.length === 0) return null;
     const future = [...schedules]
@@ -124,15 +164,73 @@ export default function Schedules() {
       accountId: recentWeekRange!.accountId,
       startDate: recentWeekRange!.startD.toISOString(),
       endDate: recentWeekRange!.endD.toISOString(),
-      weeks: 3, // 已有第 1 周 + 复制 3 周 = 整月
+      weeks: 3,
     }),
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["schedules"] });
-      qc.invalidateQueries({ queryKey: ["content"] });
+      refreshAll();
       toast({ title: `已复制 ${res.created} 条`, description: "整月计划完成" });
     },
     onError: (e: Error) => toast({ title: "复制失败", description: e.message, variant: "destructive" }),
   });
+
+  // ----- 单条修改 / AI 微调 -----
+  const [editing, setEditing] = useState<any | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editTags, setEditTags] = useState("");
+  const [editAt, setEditAt] = useState("");
+  const [aiInstruction, setAiInstruction] = useState("");
+
+  function openEdit(s: any) {
+    setEditing(s);
+    setEditTitle(s.content?.title || "");
+    setEditBody(s.content?.body || "");
+    setEditTags((s.content?.tags || []).join(", "));
+    setEditAt(toLocalDateTimeInputValue(s.scheduledAt));
+    setAiInstruction("");
+  }
+
+  const refineMutation = useMutation({
+    mutationFn: () => api.ai.refineScheduleItem({
+      current: { title: editTitle, body: editBody, tags: editTags.split(",").map((t) => t.trim()).filter(Boolean) },
+      instruction: aiInstruction.trim(),
+      niche: planNiche || undefined,
+      platform: activePlatform,
+    }),
+    onSuccess: (res) => {
+      setEditTitle(res.title);
+      setEditBody(res.body);
+      setEditTags(res.tags.join(", "));
+      setAiInstruction("");
+      toast({ title: "AI 已按你的指令调整", description: "你可以再继续微调，或直接保存" });
+    },
+    onError: (e: Error) => toast({ title: "AI 微调失败", description: e.message, variant: "destructive" }),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () => api.schedules.update(editing!.id, {
+      title: editTitle.trim(),
+      body: editBody,
+      tags: editTags.split(",").map((t) => t.trim()).filter(Boolean),
+      scheduledAt: editAt ? fromLocalDateTimeInputValue(editAt) : undefined,
+    }),
+    onSuccess: () => {
+      refreshAll();
+      setEditing(null);
+      toast({ title: "已保存", description: "仅修改了这一条，其它计划不受影响" });
+    },
+    onError: (e: Error) => toast({ title: "保存失败", description: e.message, variant: "destructive" }),
+  });
+
+  // ----- 多选 -----
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   // ----- 已有计划按日分组 -----
   const grouped = schedules.reduce((acc: Record<string, any[]>, s: any) => {
@@ -149,9 +247,11 @@ export default function Schedules() {
     setPlanItems((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  const summary = summaryQ.data;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-lg ${platformMeta.bgClass} ${platformMeta.borderClass} border flex items-center justify-center`}>
             <PlatformIcon className={`h-5 w-5 ${platformMeta.textClass}`} />
@@ -309,8 +409,33 @@ export default function Schedules() {
         </Dialog>
       </div>
 
-      {recentWeekRange && recentWeekRange.count > 0 && (
+      {/* 月度概览：本月你设置了哪些定时发布 */}
+      {summary && summary.total > 0 && (
         <Card className="border-2" style={{ borderColor: "hsl(var(--platform-border))", background: "hsl(var(--platform-soft-bg))" }}>
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-start gap-3 flex-wrap">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: "hsl(var(--platform-primary))", color: "hsl(var(--platform-primary-fg))" }}>
+                <CalendarDays className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">本月（{summary.month}）共 {summary.total} 条定时发布</p>
+                <div className="flex flex-wrap gap-2 mt-2 text-xs">
+                  <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100"><Clock className="h-3 w-3 mr-1" />待发布 {summary.pending}</Badge>
+                  {summary.paused > 0 && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Pause className="h-3 w-3 mr-1" />已暂停 {summary.paused}</Badge>}
+                  {summary.published > 0 && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="h-3 w-3 mr-1" />已完成 {summary.published}</Badge>}
+                  {summary.failed > 0 && <Badge className="bg-red-100 text-red-800 hover:bg-red-100"><AlertTriangle className="h-3 w-3 mr-1" />失败 {summary.failed}</Badge>}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  鼠标悬停每条计划可单独修改 / 暂停 / 删除 — 改这一条不会影响其他计划。
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {recentWeekRange && recentWeekRange.count > 0 && (
+        <Card className="border-2" style={{ borderColor: "hsl(var(--platform-border))" }}>
           <CardContent className="pt-4 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: "hsl(var(--platform-primary))", color: "hsl(var(--platform-primary-fg))" }}>
@@ -332,6 +457,29 @@ export default function Schedules() {
               {dupMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Copy className="h-4 w-4 mr-2" />}
               复制到整月
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 多选批量操作条 */}
+      {selectedIds.size > 0 && (
+        <Card className="bg-slate-50 border-slate-300 sticky top-2 z-10">
+          <CardContent className="py-3 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-sm">
+              <Badge variant="secondary">已选 {selectedIds.size} 条</Badge>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}><X className="h-3.5 w-3.5 mr-1" />清空</Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => bulkActionMutation.mutate({ ids: Array.from(selectedIds), action: "pause" })} disabled={bulkActionMutation.isPending}>
+                <Pause className="h-3.5 w-3.5 mr-1" />批量暂停
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => bulkActionMutation.mutate({ ids: Array.from(selectedIds), action: "resume" })} disabled={bulkActionMutation.isPending}>
+                <Play className="h-3.5 w-3.5 mr-1" />批量恢复
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => { if (confirm(`确定批量删除 ${selectedIds.size} 条？`)) bulkActionMutation.mutate({ ids: Array.from(selectedIds), action: "delete" }); }} disabled={bulkActionMutation.isPending}>
+                <Trash2 className="h-3.5 w-3.5 mr-1" />批量删除
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -360,43 +508,143 @@ export default function Schedules() {
                 <Badge variant="outline" className="text-[10px]">{items.length} 条</Badge>
               </h3>
               <div className="space-y-2">
-                {items.map((schedule: any) => (
-                  <Card key={schedule.id}>
-                    <CardContent className="pt-4 pb-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Clock className="h-3.5 w-3.5" />
-                            {new Date(schedule.scheduledAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm">{schedule.content?.title || "无标题"}</p>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <span className="text-xs text-muted-foreground">{schedule.account?.nickname}</span>
-                              <Badge variant="outline" className="text-[10px]">{schedule.account?.region}</Badge>
-                              <Badge variant={schedule.status === "completed" ? "default" : "secondary"} className="text-[10px]">
-                                {schedule.status === "pending" ? "待发布" : schedule.status === "completed" ? "已完成" : schedule.status}
-                              </Badge>
+                {items.map((schedule: any) => {
+                  const isPaused = schedule.status === "paused";
+                  const isPending = schedule.status === "pending";
+                  const isDone = schedule.status === "published" || schedule.status === "completed";
+                  const canEdit = !isDone;
+                  return (
+                    <Card key={schedule.id} className={isPaused ? "bg-amber-50/50 border-amber-200" : ""}>
+                      <CardContent className="pt-4 pb-4">
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {canEdit && (
+                              <Checkbox
+                                checked={selectedIds.has(schedule.id)}
+                                onCheckedChange={() => toggleSelect(schedule.id)}
+                              />
+                            )}
+                            <div className="flex items-center gap-1 text-sm text-muted-foreground shrink-0">
+                              <Clock className="h-3.5 w-3.5" />
+                              {new Date(schedule.scheduledAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-sm truncate">{schedule.content?.title || "无标题"}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="text-xs text-muted-foreground">{schedule.account?.nickname}</span>
+                                <Badge variant="outline" className="text-[10px]">{schedule.account?.region}</Badge>
+                                {isPending && <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 text-[10px]">待发布</Badge>}
+                                {isPaused && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 text-[10px]"><Pause className="h-2.5 w-2.5 mr-0.5" />已暂停</Badge>}
+                                {isDone && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 text-[10px]"><CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />已完成</Badge>}
+                                {schedule.status === "failed" && <Badge className="bg-red-100 text-red-800 hover:bg-red-100 text-[10px]">失败</Badge>}
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {canEdit && (
+                              <Button variant="ghost" size="sm" className="h-8" onClick={() => openEdit(schedule)}>
+                                <Pencil className="h-3.5 w-3.5 mr-1" />修改
+                              </Button>
+                            )}
+                            {isPending && (
+                              <Button variant="ghost" size="sm" className="h-8 text-amber-700 hover:text-amber-800" onClick={() => pauseMutation.mutate(schedule.id)} disabled={pauseMutation.isPending}>
+                                <Pause className="h-3.5 w-3.5 mr-1" />暂停
+                              </Button>
+                            )}
+                            {isPaused && (
+                              <Button variant="ghost" size="sm" className="h-8 text-emerald-700 hover:text-emerald-800" onClick={() => resumeMutation.mutate(schedule.id)} disabled={resumeMutation.isPending}>
+                                <Play className="h-3.5 w-3.5 mr-1" />恢复
+                              </Button>
+                            )}
+                            {canEdit && (
+                              <Button
+                                variant="ghost" size="icon" className="h-8 w-8 text-destructive"
+                                onClick={() => { if (confirm("确定取消该计划？")) deleteMutation.mutate(schedule.id); }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        {schedule.status === "pending" && (
-                          <Button
-                            variant="ghost" size="icon" className="h-8 w-8 text-destructive"
-                            onClick={() => { if (confirm("确定取消该计划？")) deleteMutation.mutate(schedule.id); }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* 单条修改弹窗 */}
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5" /> 修改这一条
+            </DialogTitle>
+            <DialogDescription>
+              只改这一条计划的内容和时间，<b>不会影响其他</b>已排程的计划。
+            </DialogDescription>
+          </DialogHeader>
+
+          {editing && (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-1.5">
+                <Label>标题</Label>
+                <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} maxLength={200} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>正文</Label>
+                <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} rows={8} className="text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>标签（逗号分隔，去 # 号）</Label>
+                <Input value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="例如：穿搭, 通勤, 平价" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>发布时间</Label>
+                <Input type="datetime-local" value={editAt} onChange={(e) => setEditAt(e.target.value)} />
+              </div>
+
+              <Card className="bg-violet-50 border-violet-200">
+                <CardContent className="pt-4 pb-4 space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium text-violet-900">
+                    <Wand2 className="h-4 w-4" /> AI 帮我改这一条
+                  </div>
+                  <p className="text-[11px] text-violet-800/80">
+                    告诉 AI 你想怎么改 — 比如「再口语一点」「加个数字钩子」「正文砍一半」「换成给宝妈的角度」。AI 只改这条，不动其他。
+                  </p>
+                  <Textarea
+                    value={aiInstruction}
+                    onChange={(e) => setAiInstruction(e.target.value)}
+                    rows={2}
+                    placeholder="例如：标题改成更口语的疑问句；正文砍掉硬广，加 1 个亲身使用的小细节"
+                    className="text-sm bg-white"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={() => refineMutation.mutate()}
+                    disabled={!aiInstruction.trim() || refineMutation.isPending}
+                    className="bg-violet-600 hover:bg-violet-700 text-white"
+                  >
+                    {refineMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1" />}
+                    AI 微调（消耗 3 积分）
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="ghost" onClick={() => setEditing(null)}>取消</Button>
+            <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending || !editTitle.trim()}>
+              {updateMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+              保存修改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
