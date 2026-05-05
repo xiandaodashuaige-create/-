@@ -22,6 +22,7 @@ import { loadStyleProfileForPrompt, recomputeUserStyleProfile } from "../service
 import { loadUserContentProfile, renderContentProfileForPrompt } from "../services/contentProfile.js";
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
 import { generateWeeklyPlan, type GenerateWeeklyPlanInput } from "../services/planGenerator.js";
+import { loadViralContext } from "../services/viralContext.js";
 import { tryFetchXhsData } from "./xhs";
 import { getPlatformPromptContext, buildRegionContext } from "../lib/platformPrompts.js";
 
@@ -49,6 +50,19 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
     const regionContext = buildRegionContext(region, ctx);
     const styleContext = style ? `Writing style: ${style}.` : "Writing style: casual and engaging.";
 
+    // 注入用户已收集的爆款上下文（失败不阻断主流程）
+    let viralBlock = "";
+    try {
+      const u = await ensureUser(req);
+      const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
+      if (u) {
+        const viral = await loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 8 });
+        viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
+      }
+    } catch (e: any) {
+      req.log?.warn({ err: e?.message }, "loadViralContext failed in /ai/rewrite, continuing without it");
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 4096,
@@ -66,7 +80,7 @@ Respond in JSON format:
   "rewrittenTitle": "catchy title / hook here",
   "rewrittenBody": "rewritten content / script here",
   "suggestedTags": ["tag1", "tag2", "tag3"]
-}`,
+}${viralBlock}`,
         },
         {
           role: "user",
@@ -200,6 +214,23 @@ router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (re
     const ctx = getPlatformPromptContext(platform);
     const styleHint = style ? `Style: ${style}.` : "Style: engaging and eye-catching.";
 
+    let titlesHint = "";
+    let viralBlock = "";
+    try {
+      const u = await ensureUser(req);
+      const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
+      const region = typeof (req.body as any)?.region === "string" ? (req.body as any).region : undefined;
+      if (u) {
+        const viral = await loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 8 });
+        if (viral.topTitles.length > 0) {
+          titlesHint = `\n\n📚 已收集爆款标题样本（必须借鉴其钩子结构、句式节奏，但主题改写到当前内容）：\n${viral.topTitles.slice(0, 6).map((t, i) => `${i + 1}. "${t.slice(0, 60)}"`).join("\n")}`;
+        }
+        viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
+      }
+    } catch (e: any) {
+      req.log?.warn({ err: e?.message }, "loadViralContext failed in /ai/generate-title");
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 4096,
@@ -213,7 +244,7 @@ ${ctx.titleRules}
 Respond in JSON format:
 {
   "titles": ["title1", "title2", ...]
-}`,
+}${titlesHint}${viralBlock}`,
         },
         {
           role: "user",
@@ -255,6 +286,23 @@ router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), asy
     const tagCount = count || 10;
     const ctx = getPlatformPromptContext(platform);
 
+    let hashtagSeed = "";
+    let viralBlock = "";
+    try {
+      const u = await ensureUser(req);
+      const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
+      const region = typeof (req.body as any)?.region === "string" ? (req.body as any).region : undefined;
+      if (u) {
+        const viral = await loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 10 });
+        if (viral.topHashtags.length > 0) {
+          hashtagSeed = `\n\n🔥 已收集高频/热门 hashtags（**必须从下面挑至少 ${Math.ceil(tagCount * 0.5)} 个，再补充长尾词；不要凭空生造**）：\n${viral.topHashtags.map((h) => `#${h}`).join(" ")}`;
+        }
+        viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
+      }
+    } catch (e: any) {
+      req.log?.warn({ err: e?.message }, "loadViralContext failed in /ai/generate-hashtags");
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       max_tokens: 4096,
@@ -269,7 +317,7 @@ ${ctx.hashtagRules}
 Respond in JSON format:
 {
   "hashtags": ["hashtag1", "hashtag2", ...]
-}`,
+}${hashtagSeed}${viralBlock}`,
         },
         {
           role: "user",
@@ -1462,6 +1510,15 @@ router.post("/ai/generate-weekly-plan", requireCredits("ai-guide"), async (req, 
     }
     const freq = body.frequency && (ALLOWED_FREQ as readonly string[]).includes(body.frequency) ? body.frequency : "daily";
 
+    // 必须先拉用户已收集的爆款数据作为上下文
+    const viral = await loadViralContext({
+      userId: u.id,
+      platform: body.platform,
+      niche: body.niche.trim(),
+      region: body.region,
+      maxPosts: 10,
+    });
+
     const items = await generateWeeklyPlan({
       platform: body.platform,
       niche: body.niche.trim(),
@@ -1470,10 +1527,20 @@ router.post("/ai/generate-weekly-plan", requireCredits("ai-guide"), async (req, 
       audience: body.audience,
       styleHints: body.styleHints,
       language: body.language === "en" ? "en" : "zh",
+      viralPromptBlock: viral.promptBlock,
+      viralHashtags: viral.topHashtags,
     });
 
     await deductCredits(req, "ai-guide");
-    res.json({ items });
+    res.json({
+      items,
+      viralMeta: {
+        sampleCount: viral.sampleCount,
+        hasViralData: viral.hasViralData,
+        warning: viral.warning,
+        topHashtags: viral.topHashtags.slice(0, 8),
+      },
+    });
   } catch (err: any) {
     req.log.error(err, "Failed to generate weekly plan");
     res.status(500).json({ error: err?.message || "AI 周计划生成失败" });

@@ -19,6 +19,9 @@ export type GenerateWeeklyPlanInput = {
   audience?: string;
   styleHints?: string;
   language?: "zh" | "en";
+  // 已收集爆款数据上下文（必须传入，由路由层 loadViralContext() 注入）
+  viralPromptBlock?: string;
+  viralHashtags?: string[];
 };
 
 const FREQ_DESC: Record<NonNullable<GenerateWeeklyPlanInput["frequency"]>, string> = {
@@ -62,6 +65,11 @@ export async function generateWeeklyPlan(input: GenerateWeeklyPlanInput): Promis
   const lang = input.language ?? "zh";
   const peakTimes = PEAK_TIMES[input.platform].join(" / ");
 
+  const viralBlock = input.viralPromptBlock ?? "";
+  const hashtagHint = input.viralHashtags && input.viralHashtags.length > 0
+    ? `\n7) tags 必须从这批已收集的高频/热门 hashtags 里至少挑 50%：${input.viralHashtags.slice(0, 12).map((t) => `#${t}`).join(" ")}，再补充 1-2 个长尾词；不要凭空生造。`
+    : "";
+
   const systemPrompt = `你是${input.platform.toUpperCase()}内容运营策略师。生成一份覆盖未来 7 天的发布计划。
 平台规范：${PLATFORM_GUIDE[input.platform]}
 发布频率：${FREQ_DESC[freq]}
@@ -70,14 +78,14 @@ export async function generateWeeklyPlan(input: GenerateWeeklyPlanInput): Promis
 1) 7 天内话题不要重复；要有"金钱关心 / 痛点 / 干货 / 场景化 / 故事感"的混合配比
 2) dayOffset 从 0 开始（=startDate 当天），最大 6
 3) time 用 24h "HH:mm"，挑建议时段里的合适点
-4) 每条 body 必须是完整可发布的草稿，不是大纲
+4) 每条 body 必须是完整可发布的草稿，不是大纲；钩子/句式/节奏必须借鉴下方"爆款样本"
 5) tags 不带 #
-6) imagePrompt 用一句简短英文/中文描述配图视觉
-输出格式（严格 JSON）：{ "items": [ { "dayOffset": 0, "time": "20:00", "topic": "...", "title": "...", "body": "...", "tags": ["...","..."], "imagePrompt": "..." } ] }`;
+6) imagePrompt 用一句简短英文/中文描述配图视觉，视觉风格也要参考样本${hashtagHint}
+输出格式（严格 JSON）：{ "items": [ { "dayOffset": 0, "time": "20:00", "topic": "...", "title": "...", "body": "...", "tags": ["...","..."], "imagePrompt": "..." } ] }${viralBlock}`;
 
   const userPrompt = `行业 / 业务：${input.niche}
 ${input.region ? `目标地区：${input.region}\n` : ""}${input.audience ? `目标受众：${input.audience}\n` : ""}${input.styleHints ? `风格偏好：${input.styleHints}\n` : ""}语言：${lang === "zh" ? "中文" : "English"}
-请直接输出 JSON。`;
+请直接输出 JSON。务必让 7 条内容看起来"明显是从爆款规律里学出来的"，不是套模板。`;
 
   try {
     const completion = await openai.chat.completions.create({

@@ -61,6 +61,7 @@ export default function Schedules() {
   const [planAccountId, setPlanAccountId] = useState<number | null>(null);
   const [planStartDate, setPlanStartDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [planItems, setPlanItems] = useState<PlanItem[]>([]);
+  const [viralMeta, setViralMeta] = useState<{ sampleCount: number; hasViralData: boolean; warning: string | null; topHashtags: string[] } | null>(null);
 
   const generateMutation = useMutation({
     mutationFn: () => api.ai.generateWeeklyPlan({
@@ -73,7 +74,13 @@ export default function Schedules() {
     }),
     onSuccess: (res) => {
       setPlanItems(res.items);
-      toast({ title: `AI 已生成 ${res.items.length} 条计划草案`, description: "可以微调后采用" });
+      setViralMeta(res.viralMeta);
+      toast({
+        title: `AI 已生成 ${res.items.length} 条计划草案`,
+        description: res.viralMeta?.hasViralData
+          ? `已基于 ${res.viralMeta.sampleCount} 条已收集爆款样本训练`
+          : "未找到爆款样本，建议先在「同行库」抓取",
+      });
     },
     onError: (e: Error) => toast({ title: "生成失败", description: e.message, variant: "destructive" }),
   });
@@ -232,6 +239,21 @@ export default function Schedules() {
               {planItems.length > 0 ? "重新生成草案" : "生成 7 天草案"}
             </Button>
 
+            {viralMeta && (
+              <div className={`text-xs rounded-md border p-3 ${viralMeta.hasViralData ? "bg-emerald-50 border-emerald-200 text-emerald-900" : "bg-amber-50 border-amber-200 text-amber-900"}`}>
+                {viralMeta.hasViralData ? (
+                  <>
+                    <div className="font-medium">✅ 已基于你收集的 {viralMeta.sampleCount} 条爆款样本生成</div>
+                    {viralMeta.topHashtags.length > 0 && (
+                      <div className="mt-1 opacity-80">参考的高频标签：{viralMeta.topHashtags.map((t) => `#${t}`).join(" ")}</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="font-medium">⚠️ {viralMeta.warning || "暂无爆款数据，AI 仅基于通用规律生成"}</div>
+                )}
+              </div>
+            )}
+
             {planItems.length > 0 && (
               <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                 <p className="text-xs text-muted-foreground sticky top-0 bg-background py-1">
@@ -274,7 +296,7 @@ export default function Schedules() {
             )}
 
             <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button variant="ghost" onClick={() => { setAiOpen(false); setPlanItems([]); }}>取消</Button>
+              <Button variant="ghost" onClick={() => { setAiOpen(false); setPlanItems([]); setViralMeta(null); }}>取消</Button>
               <Button
                 disabled={!planAccountId || planItems.length === 0 || bulkCreateMutation.isPending}
                 onClick={() => bulkCreateMutation.mutate()}

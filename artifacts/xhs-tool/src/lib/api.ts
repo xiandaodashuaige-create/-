@@ -176,7 +176,10 @@ export const api = {
       styleHints?: string;
       language?: "zh" | "en";
     }) =>
-      request<{ items: Array<{ dayOffset: number; time: string; title: string; body: string; tags: string[]; imagePrompt?: string; topic?: string }> }>(
+      request<{
+        items: Array<{ dayOffset: number; time: string; title: string; body: string; tags: string[]; imagePrompt?: string; topic?: string }>;
+        viralMeta: { sampleCount: number; hasViralData: boolean; warning: string | null; topHashtags: string[] };
+      }>(
         "/ai/generate-weekly-plan",
         { method: "POST", body: JSON.stringify(data) },
       ),
