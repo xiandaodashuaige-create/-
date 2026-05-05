@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, type SQL } from "drizzle-orm";
 import { db, accountsTable } from "@workspace/db";
 import { ensureUser } from "../middlewares/creditSystem";
 import {
@@ -17,12 +17,42 @@ import { logActivity } from "../lib/activity";
 
 const router: IRouter = Router();
 
+// 把 DB 行映射成 API Account（剥离 oauth token 等敏感字段）
+function toAccountResponse(a: typeof accountsTable.$inferSelect) {
+  return {
+    id: a.id,
+    platform: a.platform,
+    nickname: a.nickname,
+    region: a.region,
+    avatarUrl: a.avatarUrl,
+    status: a.status,
+    notes: a.notes,
+    xhsId: a.xhsId,
+    platformAccountId: a.platformAccountId,
+    authStatus: a.authStatus,
+    ayrshareProfileKey: a.ayrshareProfileKey,
+    contentCount: a.contentCount,
+    lastActiveAt: a.lastActiveAt,
+    createdAt: a.createdAt,
+    updatedAt: a.updatedAt,
+  };
+}
+
 router.get("/accounts", async (req, res): Promise<void> => {
   try {
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
     const query = ListAccountsQueryParams.safeParse(req.query);
-    const conditions = [];
+    const conditions: SQL[] = [eq(accountsTable.ownerUserId, u.id)];
 
     if (query.success) {
+      if (query.data.platform && query.data.platform !== "ALL") {
+        conditions.push(eq(accountsTable.platform, query.data.platform));
+      }
       if (query.data.region && query.data.region !== "ALL") {
         conditions.push(eq(accountsTable.region, query.data.region));
       }
@@ -31,18 +61,13 @@ router.get("/accounts", async (req, res): Promise<void> => {
       }
     }
 
-    let accounts;
-    if (conditions.length > 0) {
-      accounts = await db
-        .select()
-        .from(accountsTable)
-        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
-        .orderBy(accountsTable.createdAt);
-    } else {
-      accounts = await db.select().from(accountsTable).orderBy(accountsTable.createdAt);
-    }
+    const accounts = await db
+      .select()
+      .from(accountsTable)
+      .where(and(...conditions))
+      .orderBy(accountsTable.createdAt);
 
-    res.json(ListAccountsResponse.parse(accounts));
+    res.json(ListAccountsResponse.parse(accounts.map(toAccountResponse)));
   } catch (err) {
     req.log.error(err, "Failed to list accounts");
     res.status(500).json({ error: "Internal server error" });
@@ -58,12 +83,22 @@ router.post("/accounts", async (req, res): Promise<void> => {
     }
 
     const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    const platform = parsed.data.platform || "xhs";
     const [account] = await db
       .insert(accountsTable)
-      .values({ ...parsed.data, ownerUserId: u?.id ?? null })
+      .values({
+        ...parsed.data,
+        platform,
+        ownerUserId: u.id,
+      })
       .returning();
-    await logActivity("account_added", `Added account: ${account.nickname} (${account.region})`, undefined, account.id);
-    res.status(201).json(GetAccountResponse.parse(account));
+    await logActivity("account_added", `Added ${platform} account: ${account.nickname} (${account.region})`, undefined, account.id);
+    res.status(201).json(GetAccountResponse.parse(toAccountResponse(account)));
   } catch (err) {
     req.log.error(err, "Failed to create account");
     res.status(500).json({ error: "Internal server error" });
@@ -77,18 +112,23 @@ router.get("/accounts/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: params.error.message });
       return;
     }
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
 
     const [account] = await db
       .select()
       .from(accountsTable)
-      .where(eq(accountsTable.id, params.data.id));
+      .where(and(eq(accountsTable.id, params.data.id), eq(accountsTable.ownerUserId, u.id)));
 
     if (!account) {
       res.status(404).json({ error: "Account not found" });
       return;
     }
 
-    res.json(GetAccountResponse.parse(account));
+    res.json(GetAccountResponse.parse(toAccountResponse(account)));
   } catch (err) {
     req.log.error(err, "Failed to get account");
     res.status(500).json({ error: "Internal server error" });
@@ -108,11 +148,16 @@ router.patch("/accounts/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: parsed.error.message });
       return;
     }
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
 
     const [account] = await db
       .update(accountsTable)
       .set(parsed.data)
-      .where(eq(accountsTable.id, params.data.id))
+      .where(and(eq(accountsTable.id, params.data.id), eq(accountsTable.ownerUserId, u.id)))
       .returning();
 
     if (!account) {
@@ -120,7 +165,7 @@ router.patch("/accounts/:id", async (req, res): Promise<void> => {
       return;
     }
 
-    res.json(UpdateAccountResponse.parse(account));
+    res.json(UpdateAccountResponse.parse(toAccountResponse(account)));
   } catch (err) {
     req.log.error(err, "Failed to update account");
     res.status(500).json({ error: "Internal server error" });
@@ -134,10 +179,15 @@ router.delete("/accounts/:id", async (req, res): Promise<void> => {
       res.status(400).json({ error: params.error.message });
       return;
     }
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
 
     const [account] = await db
       .delete(accountsTable)
-      .where(eq(accountsTable.id, params.data.id))
+      .where(and(eq(accountsTable.id, params.data.id), eq(accountsTable.ownerUserId, u.id)))
       .returning();
 
     if (!account) {

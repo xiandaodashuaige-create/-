@@ -23,6 +23,7 @@ import AIGuide from "@/components/ai-guide/AIGuide";
 import AdminPage from "@/pages/admin";
 import OnboardingGuide from "@/components/onboarding/OnboardingGuide";
 import { I18nProvider } from "@/lib/i18n";
+import { PlatformProvider } from "@/lib/platform-context";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -190,6 +191,7 @@ function ClerkProviderWithRoutes() {
       routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
     >
       <QueryClientProvider client={queryClient}>
+        <PlatformProvider>
         <TooltipProvider>
           <ClerkTokenProvider />
           <ClerkQueryClientCacheInvalidator />
@@ -214,6 +216,7 @@ function ClerkProviderWithRoutes() {
           </Switch>
           <Toaster />
         </TooltipProvider>
+        </PlatformProvider>
       </QueryClientProvider>
     </ClerkProvider>
     </I18nProvider>

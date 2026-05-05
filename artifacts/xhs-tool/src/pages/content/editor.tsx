@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Save, Wand2, ShieldCheck, Hash, Type, Loader2, ArrowLeft, Sparkles, ImagePlus, Upload, X, Trash2 } from "lucide-react";
 import { ObjectUploader } from "@workspace/object-storage-web";
+import { usePlatform } from "@/lib/platform-context";
 
 export default function ContentEditor() {
   const params = useParams<{ id: string }>();
@@ -19,6 +20,7 @@ export default function ContentEditor() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const isNew = !params.id || params.id === "new";
+  const { activePlatform } = usePlatform();
 
   const [form, setForm] = useState({
     accountId: 0,
@@ -36,8 +38,8 @@ export default function ContentEditor() {
   const [imageSize, setImageSize] = useState("1024x1024");
 
   const { data: accounts = [] } = useQuery({
-    queryKey: ["accounts"],
-    queryFn: () => api.accounts.list(),
+    queryKey: ["accounts", activePlatform],
+    queryFn: () => api.accounts.list({ platform: activePlatform }),
   });
 
   const { data: existing } = useQuery({

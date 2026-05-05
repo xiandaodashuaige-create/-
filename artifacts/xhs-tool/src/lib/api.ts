@@ -38,8 +38,9 @@ export const api = {
     contentByStatus: () => request<any[]>("/dashboard/content-by-status"),
   },
   accounts: {
-    list: (params?: { region?: string; status?: string }) => {
+    list: (params?: { platform?: string; region?: string; status?: string }) => {
       const q = new URLSearchParams();
+      if (params?.platform) q.set("platform", params.platform);
       if (params?.region) q.set("region", params.region);
       if (params?.status) q.set("status", params.status);
       return request<any[]>(`/accounts?${q.toString()}`);
@@ -50,9 +51,10 @@ export const api = {
     delete: (id: number) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
   },
   content: {
-    list: (params?: { accountId?: number; status?: string; region?: string }) => {
+    list: (params?: { accountId?: number; platform?: string; status?: string; region?: string }) => {
       const q = new URLSearchParams();
       if (params?.accountId) q.set("accountId", String(params.accountId));
+      if (params?.platform) q.set("platform", params.platform);
       if (params?.status) q.set("status", params.status);
       if (params?.region) q.set("region", params.region);
       return request<any[]>(`/content?${q.toString()}`);

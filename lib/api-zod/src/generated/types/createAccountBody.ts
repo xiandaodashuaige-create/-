@@ -5,14 +5,14 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
-import type { CreateAccountBodyAuthStatus } from "./createAccountBodyAuthStatus";
-import type { CreateAccountBodyRegion } from "./createAccountBodyRegion";
+import type { CreateAccountBodyPlatform } from "./createAccountBodyPlatform";
 
 export interface CreateAccountBody {
+  platform?: CreateAccountBodyPlatform;
   nickname: string;
-  region: CreateAccountBodyRegion;
+  region: string;
   avatarUrl?: string;
   notes?: string;
   xhsId?: string;
-  authStatus?: CreateAccountBodyAuthStatus;
+  platformAccountId?: string;
 }

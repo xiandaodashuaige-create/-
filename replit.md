@@ -2,7 +2,9 @@
 
 ## Overview
 
-This project, **鹿联小红书AI爆款创作间 (LuLian XHS Viral Creator)**, is an AI-powered content creation monorepo designed to help users generate and publish viral content on Xiaohongshu (XHS). It analyzes industry content strategies, offers AI-driven rewriting and image generation, and includes features like sensitive word detection, multi-region support (SG/HK/MY), and AI-recommended posting times. The platform aims to streamline content creation for clients, from strategy analysis to final publication, leveraging advanced AI models to produce original and engaging content.
+This project, **鹿联 Viral Suite (LuLian Viral Suite)** — formerly 鹿联小红书AI爆款创作间 — is an AI-powered content creation + multi-platform publishing monorepo that merges three predecessor Replit projects: the original xhs-tool (XHS strategy/AI), tiktok-ai (Gemini/TTS/Whisper/AdForge), and socialAuto (Meta + TikTok OAuth/Ayrshare publishing). It uses a single product, creation-centric UX with **platform as a dimension** (XHS / TikTok / Instagram / Facebook), enforced via a `PlatformProvider` React context with localStorage persistence. The platform analyzes industry content strategies, offers AI-driven rewriting and image/video generation, includes sensitive word detection, multi-region support (SG/HK/MY for XHS, GLOBAL for others), and AI-recommended posting times. Publishing strategy: Meta direct OAuth + TikTok via Ayrshare.
+
+**Tenant isolation:** All accounts/content/schedules/dashboard endpoints enforce per-user scoping via `ensureUser` + `owner_user_id` filter. Content/schedules/dashboard tables without a direct owner column are isolated by joining through `accounts.owner_user_id`. Dashboard endpoints additionally accept an optional `platform` query param.
 
 ## User Preferences
 

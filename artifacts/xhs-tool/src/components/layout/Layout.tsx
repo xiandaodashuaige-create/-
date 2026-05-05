@@ -26,6 +26,8 @@ import { Badge } from "@/components/ui/badge";
 import { useI18n, type Lang } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { PLATFORM_LIST } from "@/lib/platform-meta";
+import { usePlatform } from "@/lib/platform-context";
+import { useToast } from "@/hooks/use-toast";
 
 const navItemsConfig = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
@@ -45,6 +47,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
   const { signOut } = useClerk();
   const { t, lang, setLang } = useI18n();
+  const { activePlatform, setActivePlatform } = usePlatform();
+  const { toast } = useToast();
 
   const { data: dbUser } = useQuery({
     queryKey: ["user-me"],
@@ -97,17 +101,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="grid grid-cols-2 gap-1.5">
             {PLATFORM_LIST.map((p) => {
               const Icon = p.icon;
-              const active = p.id === "xhs";
+              const active = p.id === activePlatform;
               return (
                 <button
                   key={p.id}
                   type="button"
-                  disabled={!p.enabled}
-                  title={p.enabled ? p.name : `${p.name} 即将开放`}
+                  title={p.enabled ? `切换到 ${p.name}` : `${p.name} 授权流程即将开放`}
+                  onClick={() => {
+                    setActivePlatform(p.id);
+                    if (!p.enabled) {
+                      toast({
+                        title: `已切换到 ${p.name}`,
+                        description: "该平台的发布授权流程即将开放，目前可浏览界面。",
+                      });
+                    }
+                  }}
                   className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium border transition-colors ${
                     active
-                      ? `${p.bgClass} ${p.textClass} ${p.borderClass}`
-                      : "border-dashed border-muted-foreground/20 text-muted-foreground/50 cursor-not-allowed bg-muted/20"
+                      ? `${p.bgClass} ${p.textClass} ${p.borderClass} font-semibold`
+                      : p.enabled
+                      ? "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                      : "border-dashed border-muted-foreground/20 text-muted-foreground/50 hover:bg-muted/40"
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />

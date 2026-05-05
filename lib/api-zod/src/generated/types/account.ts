@@ -5,14 +5,14 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
-import type { AccountAuthStatus } from "./accountAuthStatus";
-import type { AccountRegion } from "./accountRegion";
+import type { AccountPlatform } from "./accountPlatform";
 import type { AccountStatus } from "./accountStatus";
 
 export interface Account {
   id: number;
+  platform: AccountPlatform;
   nickname: string;
-  region: AccountRegion;
+  region: string;
   /** @nullable */
   avatarUrl?: string | null;
   status: AccountStatus;
@@ -20,7 +20,11 @@ export interface Account {
   notes?: string | null;
   /** @nullable */
   xhsId?: string | null;
-  authStatus?: AccountAuthStatus;
+  /** @nullable */
+  platformAccountId?: string | null;
+  authStatus: string;
+  /** @nullable */
+  ayrshareProfileKey?: string | null;
   contentCount: number;
   /** @nullable */
   lastActiveAt?: Date | null;

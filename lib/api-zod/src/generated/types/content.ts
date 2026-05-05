@@ -6,12 +6,18 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AccountSummary } from "./accountSummary";
+import type { ContentMediaType } from "./contentMediaType";
+import type { ContentPlatform } from "./contentPlatform";
 import type { ContentStatus } from "./contentStatus";
 
 export interface Content {
   id: number;
   /** @nullable */
   accountId?: number | null;
+  platform: ContentPlatform;
+  mediaType: ContentMediaType;
+  /** @nullable */
+  parentContentId?: number | null;
   title: string;
   body: string;
   /** @nullable */
@@ -20,6 +26,8 @@ export interface Content {
   imageUrls: string[];
   /** @nullable */
   videoUrl?: string | null;
+  /** @nullable */
+  ttsAudioUrl?: string | null;
   status: ContentStatus;
   /** @nullable */
   sensitivityScore?: number | null;
@@ -28,6 +36,10 @@ export interface Content {
   scheduledAt?: Date | null;
   /** @nullable */
   publishedAt?: Date | null;
+  /** @nullable */
+  remotePostId?: string | null;
+  /** @nullable */
+  remotePostUrl?: string | null;
   createdAt: Date;
   updatedAt: Date;
   account?: AccountSummary | null;

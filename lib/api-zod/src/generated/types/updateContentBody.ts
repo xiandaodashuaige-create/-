@@ -5,12 +5,17 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateContentBodyMediaType } from "./updateContentBodyMediaType";
+import type { UpdateContentBodyPlatform } from "./updateContentBodyPlatform";
 
 export interface UpdateContentBody {
+  platform?: UpdateContentBodyPlatform;
+  mediaType?: UpdateContentBodyMediaType;
   title?: string;
   body?: string;
   originalReference?: string;
   tags?: string[];
   imageUrls?: string[];
   videoUrl?: string;
+  ttsAudioUrl?: string;
 }

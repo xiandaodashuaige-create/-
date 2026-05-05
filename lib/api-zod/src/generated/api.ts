@@ -18,19 +18,25 @@ export const HealthCheckResponse = zod.object({
  * @summary List all accounts
  */
 export const ListAccountsQueryParams = zod.object({
-  region: zod.enum(["SG", "HK", "MY", "ALL"]).optional(),
+  platform: zod
+    .enum(["xhs", "tiktok", "instagram", "facebook", "ALL"])
+    .optional(),
+  region: zod.coerce.string().optional(),
   status: zod.enum(["active", "inactive", "banned", "all"]).optional(),
 });
 
 export const ListAccountsResponseItem = zod.object({
   id: zod.number(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
   nickname: zod.string(),
-  region: zod.enum(["SG", "HK", "MY"]),
+  region: zod.string(),
   avatarUrl: zod.string().nullish(),
   status: zod.enum(["active", "inactive", "banned"]),
   notes: zod.string().nullish(),
   xhsId: zod.string().nullish(),
-  authStatus: zod.enum(["pending", "authorized"]).optional(),
+  platformAccountId: zod.string().nullish(),
+  authStatus: zod.string(),
+  ayrshareProfileKey: zod.string().nullish(),
   contentCount: zod.number(),
   lastActiveAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
@@ -42,12 +48,13 @@ export const ListAccountsResponse = zod.array(ListAccountsResponseItem);
  * @summary Create a new account
  */
 export const CreateAccountBody = zod.object({
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
   nickname: zod.string(),
-  region: zod.enum(["SG", "HK", "MY"]),
+  region: zod.string(),
   avatarUrl: zod.string().optional(),
   notes: zod.string().optional(),
   xhsId: zod.string().optional(),
-  authStatus: zod.enum(["pending", "authorized"]).optional(),
+  platformAccountId: zod.string().optional(),
 });
 
 /**
@@ -59,13 +66,16 @@ export const GetAccountParams = zod.object({
 
 export const GetAccountResponse = zod.object({
   id: zod.number(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
   nickname: zod.string(),
-  region: zod.enum(["SG", "HK", "MY"]),
+  region: zod.string(),
   avatarUrl: zod.string().nullish(),
   status: zod.enum(["active", "inactive", "banned"]),
   notes: zod.string().nullish(),
   xhsId: zod.string().nullish(),
-  authStatus: zod.enum(["pending", "authorized"]).optional(),
+  platformAccountId: zod.string().nullish(),
+  authStatus: zod.string(),
+  ayrshareProfileKey: zod.string().nullish(),
   contentCount: zod.number(),
   lastActiveAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
@@ -80,22 +90,27 @@ export const UpdateAccountParams = zod.object({
 });
 
 export const UpdateAccountBody = zod.object({
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
   nickname: zod.string().optional(),
-  region: zod.enum(["SG", "HK", "MY"]).optional(),
+  region: zod.string().optional(),
   avatarUrl: zod.string().optional(),
   status: zod.enum(["active", "inactive", "banned"]).optional(),
   notes: zod.string().optional(),
+  platformAccountId: zod.string().optional(),
 });
 
 export const UpdateAccountResponse = zod.object({
   id: zod.number(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
   nickname: zod.string(),
-  region: zod.enum(["SG", "HK", "MY"]),
+  region: zod.string(),
   avatarUrl: zod.string().nullish(),
   status: zod.enum(["active", "inactive", "banned"]),
   notes: zod.string().nullish(),
   xhsId: zod.string().nullish(),
-  authStatus: zod.enum(["pending", "authorized"]).optional(),
+  platformAccountId: zod.string().nullish(),
+  authStatus: zod.string(),
+  ayrshareProfileKey: zod.string().nullish(),
   contentCount: zod.number(),
   lastActiveAt: zod.coerce.date().nullish(),
   createdAt: zod.coerce.date(),
@@ -114,32 +129,42 @@ export const DeleteAccountParams = zod.object({
  */
 export const ListContentQueryParams = zod.object({
   accountId: zod.coerce.number().optional(),
+  platform: zod
+    .enum(["xhs", "tiktok", "instagram", "facebook", "ALL"])
+    .optional(),
   status: zod
     .enum(["draft", "scheduled", "published", "failed", "all"])
     .optional(),
-  region: zod.enum(["SG", "HK", "MY", "ALL"]).optional(),
+  region: zod.coerce.string().optional(),
 });
 
 export const ListContentResponseItem = zod.object({
   id: zod.number(),
   accountId: zod.number().nullish(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
+  mediaType: zod.enum(["image", "video", "mixed"]),
+  parentContentId: zod.number().nullish(),
   title: zod.string(),
   body: zod.string(),
   originalReference: zod.string().nullish(),
   tags: zod.array(zod.string()),
   imageUrls: zod.array(zod.string()),
   videoUrl: zod.string().nullish(),
+  ttsAudioUrl: zod.string().nullish(),
   status: zod.enum(["draft", "scheduled", "published", "failed"]),
   sensitivityScore: zod.number().nullish(),
   sensitivityIssues: zod.array(zod.string()),
   scheduledAt: zod.coerce.date().nullish(),
   publishedAt: zod.coerce.date().nullish(),
+  remotePostId: zod.string().nullish(),
+  remotePostUrl: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   account: zod
     .union([
       zod.object({
         id: zod.number(),
+        platform: zod.string(),
         nickname: zod.string(),
         region: zod.string(),
       }),
@@ -154,12 +179,16 @@ export const ListContentResponse = zod.array(ListContentResponseItem);
  */
 export const CreateContentBody = zod.object({
   accountId: zod.number().nullish(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
+  mediaType: zod.enum(["image", "video", "mixed"]).optional(),
+  parentContentId: zod.number().optional(),
   title: zod.string(),
   body: zod.string(),
   originalReference: zod.string().optional(),
   tags: zod.array(zod.string()).optional(),
   imageUrls: zod.array(zod.string()).optional(),
   videoUrl: zod.string().optional(),
+  ttsAudioUrl: zod.string().optional(),
 });
 
 /**
@@ -172,23 +201,30 @@ export const GetContentParams = zod.object({
 export const GetContentResponse = zod.object({
   id: zod.number(),
   accountId: zod.number().nullish(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
+  mediaType: zod.enum(["image", "video", "mixed"]),
+  parentContentId: zod.number().nullish(),
   title: zod.string(),
   body: zod.string(),
   originalReference: zod.string().nullish(),
   tags: zod.array(zod.string()),
   imageUrls: zod.array(zod.string()),
   videoUrl: zod.string().nullish(),
+  ttsAudioUrl: zod.string().nullish(),
   status: zod.enum(["draft", "scheduled", "published", "failed"]),
   sensitivityScore: zod.number().nullish(),
   sensitivityIssues: zod.array(zod.string()),
   scheduledAt: zod.coerce.date().nullish(),
   publishedAt: zod.coerce.date().nullish(),
+  remotePostId: zod.string().nullish(),
+  remotePostUrl: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   account: zod
     .union([
       zod.object({
         id: zod.number(),
+        platform: zod.string(),
         nickname: zod.string(),
         region: zod.string(),
       }),
@@ -205,34 +241,44 @@ export const UpdateContentParams = zod.object({
 });
 
 export const UpdateContentBody = zod.object({
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
+  mediaType: zod.enum(["image", "video", "mixed"]).optional(),
   title: zod.string().optional(),
   body: zod.string().optional(),
   originalReference: zod.string().optional(),
   tags: zod.array(zod.string()).optional(),
   imageUrls: zod.array(zod.string()).optional(),
   videoUrl: zod.string().optional(),
+  ttsAudioUrl: zod.string().optional(),
 });
 
 export const UpdateContentResponse = zod.object({
   id: zod.number(),
   accountId: zod.number().nullish(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
+  mediaType: zod.enum(["image", "video", "mixed"]),
+  parentContentId: zod.number().nullish(),
   title: zod.string(),
   body: zod.string(),
   originalReference: zod.string().nullish(),
   tags: zod.array(zod.string()),
   imageUrls: zod.array(zod.string()),
   videoUrl: zod.string().nullish(),
+  ttsAudioUrl: zod.string().nullish(),
   status: zod.enum(["draft", "scheduled", "published", "failed"]),
   sensitivityScore: zod.number().nullish(),
   sensitivityIssues: zod.array(zod.string()),
   scheduledAt: zod.coerce.date().nullish(),
   publishedAt: zod.coerce.date().nullish(),
+  remotePostId: zod.string().nullish(),
+  remotePostUrl: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   account: zod
     .union([
       zod.object({
         id: zod.number(),
+        platform: zod.string(),
         nickname: zod.string(),
         region: zod.string(),
       }),
@@ -262,23 +308,30 @@ export const ScheduleContentBody = zod.object({
 export const ScheduleContentResponse = zod.object({
   id: zod.number(),
   accountId: zod.number().nullish(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
+  mediaType: zod.enum(["image", "video", "mixed"]),
+  parentContentId: zod.number().nullish(),
   title: zod.string(),
   body: zod.string(),
   originalReference: zod.string().nullish(),
   tags: zod.array(zod.string()),
   imageUrls: zod.array(zod.string()),
   videoUrl: zod.string().nullish(),
+  ttsAudioUrl: zod.string().nullish(),
   status: zod.enum(["draft", "scheduled", "published", "failed"]),
   sensitivityScore: zod.number().nullish(),
   sensitivityIssues: zod.array(zod.string()),
   scheduledAt: zod.coerce.date().nullish(),
   publishedAt: zod.coerce.date().nullish(),
+  remotePostId: zod.string().nullish(),
+  remotePostUrl: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   account: zod
     .union([
       zod.object({
         id: zod.number(),
+        platform: zod.string(),
         nickname: zod.string(),
         region: zod.string(),
       }),
@@ -297,23 +350,30 @@ export const MarkContentPublishedParams = zod.object({
 export const MarkContentPublishedResponse = zod.object({
   id: zod.number(),
   accountId: zod.number().nullish(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]),
+  mediaType: zod.enum(["image", "video", "mixed"]),
+  parentContentId: zod.number().nullish(),
   title: zod.string(),
   body: zod.string(),
   originalReference: zod.string().nullish(),
   tags: zod.array(zod.string()),
   imageUrls: zod.array(zod.string()),
   videoUrl: zod.string().nullish(),
+  ttsAudioUrl: zod.string().nullish(),
   status: zod.enum(["draft", "scheduled", "published", "failed"]),
   sensitivityScore: zod.number().nullish(),
   sensitivityIssues: zod.array(zod.string()),
   scheduledAt: zod.coerce.date().nullish(),
   publishedAt: zod.coerce.date().nullish(),
+  remotePostId: zod.string().nullish(),
+  remotePostUrl: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   updatedAt: zod.coerce.date(),
   account: zod
     .union([
       zod.object({
         id: zod.number(),
+        platform: zod.string(),
         nickname: zod.string(),
         region: zod.string(),
       }),
@@ -454,6 +514,7 @@ export const ListSchedulesResponseItem = zod.object({
   account: zod
     .object({
       id: zod.number(),
+      platform: zod.string(),
       nickname: zod.string(),
       region: zod.string(),
     })

@@ -5,10 +5,11 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
-import type { ListAccountsRegion } from "./listAccountsRegion";
+import type { ListAccountsPlatform } from "./listAccountsPlatform";
 import type { ListAccountsStatus } from "./listAccountsStatus";
 
 export type ListAccountsParams = {
-  region?: ListAccountsRegion;
+  platform?: ListAccountsPlatform;
+  region?: string;
   status?: ListAccountsStatus;
 };

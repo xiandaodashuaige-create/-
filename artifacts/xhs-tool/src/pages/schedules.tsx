@@ -5,15 +5,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Calendar, Trash2, Clock } from "lucide-react";
+import { usePlatform } from "@/lib/platform-context";
+import { PLATFORMS } from "@/lib/platform-meta";
 
 export default function Schedules() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { activePlatform } = usePlatform();
+  const platformMeta = PLATFORMS[activePlatform];
 
-  const { data: schedules = [], isLoading } = useQuery({
+  const { data: allSchedules = [], isLoading } = useQuery({
     queryKey: ["schedules"],
     queryFn: () => api.schedules.list(),
   });
+  const schedules = allSchedules.filter((s: any) => (s.account?.platform || "xhs") === activePlatform);
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.schedules.delete(id),
@@ -33,9 +38,12 @@ export default function Schedules() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">发布计划</h1>
-        <p className="text-muted-foreground">管理内容发布时间表</p>
+      <div className="flex items-center gap-3">
+        <span className="text-2xl">{platformMeta.icon}</span>
+        <div>
+          <h1 className="text-2xl font-bold">{platformMeta.label} · 发布计划</h1>
+          <p className="text-muted-foreground">管理内容发布时间表</p>
+        </div>
       </div>
 
       {isLoading ? (

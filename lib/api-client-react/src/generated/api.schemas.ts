@@ -9,12 +9,14 @@ export interface HealthStatus {
   status: string;
 }
 
-export type AccountRegion = (typeof AccountRegion)[keyof typeof AccountRegion];
+export type AccountPlatform =
+  (typeof AccountPlatform)[keyof typeof AccountPlatform];
 
-export const AccountRegion = {
-  SG: "SG",
-  HK: "HK",
-  MY: "MY",
+export const AccountPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
 } as const;
 
 export type AccountStatus = (typeof AccountStatus)[keyof typeof AccountStatus];
@@ -25,18 +27,11 @@ export const AccountStatus = {
   banned: "banned",
 } as const;
 
-export type AccountAuthStatus =
-  (typeof AccountAuthStatus)[keyof typeof AccountAuthStatus];
-
-export const AccountAuthStatus = {
-  pending: "pending",
-  authorized: "authorized",
-} as const;
-
 export interface Account {
   id: number;
+  platform: AccountPlatform;
   nickname: string;
-  region: AccountRegion;
+  region: string;
   /** @nullable */
   avatarUrl?: string | null;
   status: AccountStatus;
@@ -44,7 +39,11 @@ export interface Account {
   notes?: string | null;
   /** @nullable */
   xhsId?: string | null;
-  authStatus?: AccountAuthStatus;
+  /** @nullable */
+  platformAccountId?: string | null;
+  authStatus: string;
+  /** @nullable */
+  ayrshareProfileKey?: string | null;
   contentCount: number;
   /** @nullable */
   lastActiveAt?: string | null;
@@ -52,39 +51,34 @@ export interface Account {
   updatedAt: string;
 }
 
-export type CreateAccountBodyRegion =
-  (typeof CreateAccountBodyRegion)[keyof typeof CreateAccountBodyRegion];
+export type CreateAccountBodyPlatform =
+  (typeof CreateAccountBodyPlatform)[keyof typeof CreateAccountBodyPlatform];
 
-export const CreateAccountBodyRegion = {
-  SG: "SG",
-  HK: "HK",
-  MY: "MY",
-} as const;
-
-export type CreateAccountBodyAuthStatus =
-  (typeof CreateAccountBodyAuthStatus)[keyof typeof CreateAccountBodyAuthStatus];
-
-export const CreateAccountBodyAuthStatus = {
-  pending: "pending",
-  authorized: "authorized",
+export const CreateAccountBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
 } as const;
 
 export interface CreateAccountBody {
+  platform?: CreateAccountBodyPlatform;
   nickname: string;
-  region: CreateAccountBodyRegion;
+  region: string;
   avatarUrl?: string;
   notes?: string;
   xhsId?: string;
-  authStatus?: CreateAccountBodyAuthStatus;
+  platformAccountId?: string;
 }
 
-export type UpdateAccountBodyRegion =
-  (typeof UpdateAccountBodyRegion)[keyof typeof UpdateAccountBodyRegion];
+export type UpdateAccountBodyPlatform =
+  (typeof UpdateAccountBodyPlatform)[keyof typeof UpdateAccountBodyPlatform];
 
-export const UpdateAccountBodyRegion = {
-  SG: "SG",
-  HK: "HK",
-  MY: "MY",
+export const UpdateAccountBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
 } as const;
 
 export type UpdateAccountBodyStatus =
@@ -97,12 +91,33 @@ export const UpdateAccountBodyStatus = {
 } as const;
 
 export interface UpdateAccountBody {
+  platform?: UpdateAccountBodyPlatform;
   nickname?: string;
-  region?: UpdateAccountBodyRegion;
+  region?: string;
   avatarUrl?: string;
   status?: UpdateAccountBodyStatus;
   notes?: string;
+  platformAccountId?: string;
 }
+
+export type ContentPlatform =
+  (typeof ContentPlatform)[keyof typeof ContentPlatform];
+
+export const ContentPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;
+
+export type ContentMediaType =
+  (typeof ContentMediaType)[keyof typeof ContentMediaType];
+
+export const ContentMediaType = {
+  image: "image",
+  video: "video",
+  mixed: "mixed",
+} as const;
 
 export type ContentStatus = (typeof ContentStatus)[keyof typeof ContentStatus];
 
@@ -115,6 +130,7 @@ export const ContentStatus = {
 
 export interface AccountSummary {
   id: number;
+  platform: string;
   nickname: string;
   region: string;
 }
@@ -123,6 +139,10 @@ export interface Content {
   id: number;
   /** @nullable */
   accountId?: number | null;
+  platform: ContentPlatform;
+  mediaType: ContentMediaType;
+  /** @nullable */
+  parentContentId?: number | null;
   title: string;
   body: string;
   /** @nullable */
@@ -131,6 +151,8 @@ export interface Content {
   imageUrls: string[];
   /** @nullable */
   videoUrl?: string | null;
+  /** @nullable */
+  ttsAudioUrl?: string | null;
   status: ContentStatus;
   /** @nullable */
   sensitivityScore?: number | null;
@@ -139,29 +161,78 @@ export interface Content {
   scheduledAt?: string | null;
   /** @nullable */
   publishedAt?: string | null;
+  /** @nullable */
+  remotePostId?: string | null;
+  /** @nullable */
+  remotePostUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   account?: AccountSummary | null;
 }
 
+export type CreateContentBodyPlatform =
+  (typeof CreateContentBodyPlatform)[keyof typeof CreateContentBodyPlatform];
+
+export const CreateContentBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;
+
+export type CreateContentBodyMediaType =
+  (typeof CreateContentBodyMediaType)[keyof typeof CreateContentBodyMediaType];
+
+export const CreateContentBodyMediaType = {
+  image: "image",
+  video: "video",
+  mixed: "mixed",
+} as const;
+
 export interface CreateContentBody {
   /** @nullable */
   accountId?: number | null;
+  platform?: CreateContentBodyPlatform;
+  mediaType?: CreateContentBodyMediaType;
+  parentContentId?: number;
   title: string;
   body: string;
   originalReference?: string;
   tags?: string[];
   imageUrls?: string[];
   videoUrl?: string;
+  ttsAudioUrl?: string;
 }
 
+export type UpdateContentBodyPlatform =
+  (typeof UpdateContentBodyPlatform)[keyof typeof UpdateContentBodyPlatform];
+
+export const UpdateContentBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;
+
+export type UpdateContentBodyMediaType =
+  (typeof UpdateContentBodyMediaType)[keyof typeof UpdateContentBodyMediaType];
+
+export const UpdateContentBodyMediaType = {
+  image: "image",
+  video: "video",
+  mixed: "mixed",
+} as const;
+
 export interface UpdateContentBody {
+  platform?: UpdateContentBodyPlatform;
+  mediaType?: UpdateContentBodyMediaType;
   title?: string;
   body?: string;
   originalReference?: string;
   tags?: string[];
   imageUrls?: string[];
   videoUrl?: string;
+  ttsAudioUrl?: string;
 }
 
 export interface ScheduleContentBody {
@@ -407,17 +478,19 @@ export interface RequestUploadUrlResponse {
 }
 
 export type ListAccountsParams = {
-  region?: ListAccountsRegion;
+  platform?: ListAccountsPlatform;
+  region?: string;
   status?: ListAccountsStatus;
 };
 
-export type ListAccountsRegion =
-  (typeof ListAccountsRegion)[keyof typeof ListAccountsRegion];
+export type ListAccountsPlatform =
+  (typeof ListAccountsPlatform)[keyof typeof ListAccountsPlatform];
 
-export const ListAccountsRegion = {
-  SG: "SG",
-  HK: "HK",
-  MY: "MY",
+export const ListAccountsPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
   ALL: "ALL",
 } as const;
 
@@ -433,9 +506,21 @@ export const ListAccountsStatus = {
 
 export type ListContentParams = {
   accountId?: number;
+  platform?: ListContentPlatform;
   status?: ListContentStatus;
-  region?: ListContentRegion;
+  region?: string;
 };
+
+export type ListContentPlatform =
+  (typeof ListContentPlatform)[keyof typeof ListContentPlatform];
+
+export const ListContentPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+  ALL: "ALL",
+} as const;
 
 export type ListContentStatus =
   (typeof ListContentStatus)[keyof typeof ListContentStatus];
@@ -446,16 +531,6 @@ export const ListContentStatus = {
   published: "published",
   failed: "failed",
   all: "all",
-} as const;
-
-export type ListContentRegion =
-  (typeof ListContentRegion)[keyof typeof ListContentRegion];
-
-export const ListContentRegion = {
-  SG: "SG",
-  HK: "HK",
-  MY: "MY",
-  ALL: "ALL",
 } as const;
 
 export type ListAssetsParams = {

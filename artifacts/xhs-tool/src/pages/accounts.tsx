@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -10,34 +10,63 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Users, MapPin } from "lucide-react";
+import { Plus, Trash2, Edit, Users } from "lucide-react";
+import { usePlatform } from "@/lib/platform-context";
+import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
 
-const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚" };
+const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚", GLOBAL: "🌐 全球" };
 const statusLabels: Record<string, string> = { active: "活跃", inactive: "未激活", banned: "已封禁" };
 
 const nicknamePlaceholderByRegion: Record<string, string> = {
   SG: "如：Sarah的新加坡日记",
   HK: "如：Hong Kong Living｜阿May",
   MY: "如：吉隆坡探店女孩",
+  GLOBAL: "如：Lulian Creator",
 };
 
 const notesPlaceholderByRegion: Record<string, string> = {
   SG: "业务方向，如：新加坡留学咨询、本地美食探店、亲子育儿",
   HK: "業務方向，如：香港美容護膚分享、銅鑼灣探店、移居香港攻略",
   MY: "业务方向，如：马来西亚旅游攻略、新山美食、华人社区生活",
+  GLOBAL: "Niche / target audience / content style",
 };
+
+// 不同平台默认地区候选（小红书=华语区；TikTok/IG/FB=GLOBAL）
+function getRegionOptions(platform: PlatformId): { val: string; label: string }[] {
+  if (platform === "xhs") {
+    return [
+      { val: "SG", label: "🇸🇬 新加坡" },
+      { val: "HK", label: "🇭🇰 香港" },
+      { val: "MY", label: "🇲🇾 马来西亚" },
+    ];
+  }
+  return [{ val: "GLOBAL", label: "🌐 全球" }];
+}
 
 export default function Accounts() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const [filter, setFilter] = useState("ALL");
+  const { activePlatform } = usePlatform();
+  const platformMeta = PLATFORMS[activePlatform];
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editAccount, setEditAccount] = useState<any>(null);
-  const [form, setForm] = useState({ nickname: "", region: "SG", notes: "" });
+  const defaultRegion = useMemo(
+    () => getRegionOptions(activePlatform)[0]?.val ?? "GLOBAL",
+    [activePlatform]
+  );
+  const [form, setForm] = useState<{ nickname: string; region: string; notes: string; platform: PlatformId }>(
+    { nickname: "", region: defaultRegion, notes: "", platform: activePlatform }
+  );
+
+  // 平台切换时，重置表单的 platform / region 默认值
+  useEffect(() => {
+    setForm((f) => ({ ...f, platform: activePlatform, region: getRegionOptions(activePlatform)[0]?.val ?? "GLOBAL" }));
+  }, [activePlatform]);
 
   const { data: accounts = [], isLoading } = useQuery({
-    queryKey: ["accounts", filter],
-    queryFn: () => api.accounts.list({ region: filter }),
+    queryKey: ["accounts", activePlatform],
+    queryFn: () => api.accounts.list({ platform: activePlatform }),
   });
 
   const createMutation = useMutation({
@@ -72,12 +101,17 @@ export default function Accounts() {
   function closeDialog() {
     setDialogOpen(false);
     setEditAccount(null);
-    setForm({ nickname: "", region: "SG", notes: "" });
+    setForm({ nickname: "", region: getRegionOptions(activePlatform)[0]?.val ?? "GLOBAL", notes: "", platform: activePlatform });
   }
 
   function openEdit(account: any) {
     setEditAccount(account);
-    setForm({ nickname: account.nickname, region: account.region, notes: account.notes || "" });
+    setForm({
+      nickname: account.nickname,
+      region: account.region,
+      notes: account.notes || "",
+      platform: (account.platform as PlatformId) || activePlatform,
+    });
     setDialogOpen(true);
   }
 
@@ -93,30 +127,28 @@ export default function Accounts() {
     }
   }
 
+  const PlatformIcon = platformMeta.icon;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">账号管理</h1>
-          <p className="text-muted-foreground">管理多地区小红书账号</p>
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg ${platformMeta.bgClass} ${platformMeta.borderClass} border flex items-center justify-center`}>
+            <PlatformIcon className={`h-5 w-5 ${platformMeta.textClass}`} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">{platformMeta.name} · 账号管理</h1>
+            <p className="text-muted-foreground text-sm">
+              {platformMeta.enabled
+                ? `管理你的${platformMeta.name}账号`
+                : `${platformMeta.name} 授权流程即将开放，可先建立草稿账号占位`}
+            </p>
+          </div>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button onClick={() => setDialogOpen(true)} disabled={!platformMeta.enabled && activePlatform !== "xhs"}>
           <Plus className="h-4 w-4 mr-2" />
           添加账号
         </Button>
-      </div>
-
-      <div className="flex gap-2">
-        {[{ val: "ALL", label: "全部" }, { val: "SG", label: "🇸🇬 新加坡" }, { val: "HK", label: "🇭🇰 香港" }, { val: "MY", label: "🇲🇾 马来西亚" }].map((r) => (
-          <Button
-            key={r.val}
-            variant={filter === r.val ? "default" : "outline"}
-            size="sm"
-            onClick={() => setFilter(r.val)}
-          >
-            {r.label}
-          </Button>
-        ))}
       </div>
 
       {isLoading ? (
@@ -131,79 +163,119 @@ export default function Accounts() {
         <Card>
           <CardContent className="pt-6 text-center text-muted-foreground py-12">
             <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>暂无账号，点击上方按钮添加</p>
+            <p>当前 {platformMeta.name} 下暂无账号，点击上方按钮添加</p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {accounts.map((account: any) => (
-            <Card key={account.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                      {account.nickname.charAt(0)}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">{account.nickname}</h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant="outline" className="text-xs">
-                          {regionLabels[account.region]}
-                        </Badge>
-                        <Badge
-                          variant={account.status === "active" ? "default" : "secondary"}
-                          className="text-xs"
-                        >
-                          {statusLabels[account.status]}
-                        </Badge>
+          {accounts.map((account: any) => {
+            const accPlatform = (account.platform as PlatformId) || "xhs";
+            const meta = PLATFORMS[accPlatform] ?? platformMeta;
+            const AccIcon = meta.icon;
+            return (
+              <Card key={account.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="pt-6">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                        {account.nickname.charAt(0)}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold">{account.nickname}</h3>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <Badge
+                            variant="outline"
+                            className={`text-xs gap-1 ${meta.bgClass} ${meta.textClass} ${meta.borderClass}`}
+                          >
+                            <AccIcon className="h-3 w-3" />
+                            {meta.shortName}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {regionLabels[account.region] || account.region}
+                          </Badge>
+                          <Badge
+                            variant={account.status === "active" ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {statusLabels[account.status]}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(account)}>
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={() => {
+                          if (confirm("确定删除该账号？")) deleteMutation.mutate(account.id);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(account)}>
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => {
-                        if (confirm("确定删除该账号？")) deleteMutation.mutate(account.id);
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                  {account.notes && (
+                    <p className="text-sm text-muted-foreground mt-3">{account.notes}</p>
+                  )}
+                  <div className="flex items-center justify-between mt-4 text-xs text-muted-foreground">
+                    <span>{account.contentCount} 篇内容</span>
+                    <span>
+                      {account.lastActiveAt
+                        ? `最后活跃: ${new Date(account.lastActiveAt).toLocaleDateString("zh-CN")}`
+                        : "尚未活跃"}
+                    </span>
                   </div>
-                </div>
-                {account.notes && (
-                  <p className="text-sm text-muted-foreground mt-3">{account.notes}</p>
-                )}
-                <div className="flex items-center justify-between mt-4 text-xs text-muted-foreground">
-                  <span>{account.contentCount} 篇内容</span>
-                  <span>
-                    {account.lastActiveAt
-                      ? `最后活跃: ${new Date(account.lastActiveAt).toLocaleDateString("zh-CN")}`
-                      : "尚未活跃"}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => !open && closeDialog()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editAccount ? "编辑账号" : "添加账号"}</DialogTitle>
+            <DialogTitle>{editAccount ? "编辑账号" : `添加 ${PLATFORMS[form.platform].name} 账号`}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>平台</Label>
+              <Select
+                value={form.platform}
+                onValueChange={(v) => {
+                  const p = v as PlatformId;
+                  setForm((f) => ({ ...f, platform: p, region: getRegionOptions(p)[0]?.val ?? "GLOBAL" }));
+                }}
+                disabled={!!editAccount}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.values(PLATFORMS).map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                      {!p.enabled && <span className="ml-2 text-[10px] text-muted-foreground">(即将开放)</span>}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!PLATFORMS[form.platform].enabled && (
+                <p className="text-xs text-amber-600">
+                  注：{PLATFORMS[form.platform].name} 的发布授权流程尚未开放，添加的账号目前仅作占位/规划用途。
+                </p>
+              )}
+            </div>
             <div className="space-y-2">
               <Label>昵称</Label>
               <Input
                 value={form.nickname}
                 onChange={(e) => setForm({ ...form, nickname: e.target.value })}
-                placeholder={nicknamePlaceholderByRegion[form.region] || "请输入小红书账号昵称"}
+                placeholder={nicknamePlaceholderByRegion[form.region] || "请输入账号昵称"}
               />
             </div>
             <div className="space-y-2">
@@ -213,9 +285,9 @@ export default function Accounts() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="SG">🇸🇬 新加坡</SelectItem>
-                  <SelectItem value="HK">🇭🇰 香港</SelectItem>
-                  <SelectItem value="MY">🇲🇾 马来西亚</SelectItem>
+                  {getRegionOptions(form.platform).map((r) => (
+                    <SelectItem key={r.val} value={r.val}>{r.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

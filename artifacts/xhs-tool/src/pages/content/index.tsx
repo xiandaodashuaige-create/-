@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Plus, FileText, Trash2, Edit, Send, Calendar, Eye, Heart, Search, TrendingUp } from "lucide-react";
 import { useLocation } from "wouter";
+import { usePlatform } from "@/lib/platform-context";
+import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   draft: { label: "草稿", variant: "secondary" },
@@ -21,12 +23,13 @@ export default function ContentList() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { activePlatform } = usePlatform();
+  const platformMeta = PLATFORMS[activePlatform];
   const [statusFilter, setStatusFilter] = useState("all");
-  const [regionFilter, setRegionFilter] = useState("ALL");
 
   const { data: content = [], isLoading } = useQuery({
-    queryKey: ["content", statusFilter, regionFilter],
-    queryFn: () => api.content.list({ status: statusFilter, region: regionFilter }),
+    queryKey: ["content", activePlatform, statusFilter],
+    queryFn: () => api.content.list({ platform: activePlatform, status: statusFilter }),
   });
 
   const { data: trackings = [] } = useQuery<any[]>({
@@ -58,9 +61,14 @@ export default function ContentList() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">内容管理</h1>
-          <p className="text-muted-foreground">创建和管理小红书内容</p>
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg ${platformMeta.bgClass} ${platformMeta.borderClass} border flex items-center justify-center`}>
+            <platformMeta.icon className={`h-5 w-5 ${platformMeta.textClass}`} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold">{platformMeta.name} · 内容管理</h1>
+            <p className="text-muted-foreground text-sm">创建和管理 {platformMeta.name} 内容</p>
+          </div>
         </div>
         <Link href="/content/new">
           <Button>
@@ -80,17 +88,6 @@ export default function ContentList() {
             <SelectItem value="draft">草稿</SelectItem>
             <SelectItem value="published">已发布</SelectItem>
             <SelectItem value="scheduled">待发布</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={regionFilter} onValueChange={setRegionFilter}>
-          <SelectTrigger className="w-32">
-            <SelectValue placeholder="地区" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">全部地区</SelectItem>
-            <SelectItem value="SG">新加坡</SelectItem>
-            <SelectItem value="HK">香港</SelectItem>
-            <SelectItem value="MY">马来西亚</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -125,6 +122,20 @@ export default function ContentList() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold truncate">{item.title}</h3>
+                        {(() => {
+                          const pid = (item.platform as PlatformId) || "xhs";
+                          const meta = PLATFORMS[pid] ?? platformMeta;
+                          const PIcon = meta.icon;
+                          return (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] gap-1 ${meta.bgClass} ${meta.textClass} ${meta.borderClass}`}
+                            >
+                              <PIcon className="h-2.5 w-2.5" />
+                              {meta.shortName}
+                            </Badge>
+                          );
+                        })()}
                         <Badge variant={sc.variant}>{sc.label}</Badge>
                         {tracking && (
                           <button

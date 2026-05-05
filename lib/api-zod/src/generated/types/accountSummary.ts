@@ -8,6 +8,7 @@
 
 export interface AccountSummary {
   id: number;
+  platform: string;
   nickname: string;
   region: string;
 }

@@ -44,11 +44,15 @@ paths:
       tags: [accounts]
       summary: List all accounts
       parameters:
+        - name: platform
+          in: query
+          schema:
+            type: string
+            enum: [xhs, tiktok, instagram, facebook, ALL]
         - name: region
           in: query
           schema:
             type: string
-            enum: [SG, HK, MY, ALL]
         - name: status
           in: query
           schema:
@@ -148,6 +152,11 @@ paths:
           in: query
           schema:
             type: integer
+        - name: platform
+          in: query
+          schema:
+            type: string
+            enum: [xhs, tiktok, instagram, facebook, ALL]
         - name: status
           in: query
           schema:
@@ -157,7 +166,6 @@ paths:
           in: query
           schema:
             type: string
-            enum: [SG, HK, MY, ALL]
       responses:
         "200":
           description: List of content
@@ -607,11 +615,13 @@ components:
       properties:
         id:
           type: integer
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
         nickname:
           type: string
         region:
           type: string
-          enum: [SG, HK, MY]
         avatarUrl:
           type: ["string", "null"]
         status:
@@ -621,9 +631,12 @@ components:
           type: ["string", "null"]
         xhsId:
           type: ["string", "null"]
+        platformAccountId:
+          type: ["string", "null"]
         authStatus:
           type: string
-          enum: [pending, authorized]
+        ayrshareProfileKey:
+          type: ["string", "null"]
         contentCount:
           type: integer
         lastActiveAt:
@@ -637,9 +650,11 @@ components:
           format: date-time
       required:
         - id
+        - platform
         - nickname
         - region
         - status
+        - authStatus
         - contentCount
         - createdAt
         - updatedAt
@@ -647,20 +662,21 @@ components:
     CreateAccountBody:
       type: object
       properties:
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
         nickname:
           type: string
         region:
           type: string
-          enum: [SG, HK, MY]
         avatarUrl:
           type: string
         notes:
           type: string
         xhsId:
           type: string
-        authStatus:
+        platformAccountId:
           type: string
-          enum: [pending, authorized]
       required:
         - nickname
         - region
@@ -668,17 +684,21 @@ components:
     UpdateAccountBody:
       type: object
       properties:
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
         nickname:
           type: string
         region:
           type: string
-          enum: [SG, HK, MY]
         avatarUrl:
           type: string
         status:
           type: string
           enum: [active, inactive, banned]
         notes:
+          type: string
+        platformAccountId:
           type: string
 
     Content:
@@ -687,6 +707,14 @@ components:
         id:
           type: integer
         accountId:
+          type: ["integer", "null"]
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
+        mediaType:
+          type: string
+          enum: [image, video, mixed]
+        parentContentId:
           type: ["integer", "null"]
         title:
           type: string
@@ -703,6 +731,8 @@ components:
           items:
             type: string
         videoUrl:
+          type: ["string", "null"]
+        ttsAudioUrl:
           type: ["string", "null"]
         status:
           type: string
@@ -719,6 +749,10 @@ components:
         publishedAt:
           type: ["string", "null"]
           format: date-time
+        remotePostId:
+          type: ["string", "null"]
+        remotePostUrl:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -731,6 +765,8 @@ components:
             - type: "null"
       required:
         - id
+        - platform
+        - mediaType
         - title
         - body
         - tags
@@ -745,12 +781,15 @@ components:
       properties:
         id:
           type: integer
+        platform:
+          type: string
         nickname:
           type: string
         region:
           type: string
       required:
         - id
+        - platform
         - nickname
         - region
 
@@ -759,6 +798,14 @@ components:
       properties:
         accountId:
           type: ["integer", "null"]
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
+        mediaType:
+          type: string
+          enum: [image, video, mixed]
+        parentContentId:
+          type: integer
         title:
           type: string
         body:
@@ -774,6 +821,8 @@ components:
           items:
             type: string
         videoUrl:
+          type: string
+        ttsAudioUrl:
           type: string
       required:
         - title
@@ -782,6 +831,12 @@ components:
     UpdateContentBody:
       type: object
       properties:
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
+        mediaType:
+          type: string
+          enum: [image, video, mixed]
         title:
           type: string
         body:
@@ -797,6 +852,8 @@ components:
           items:
             type: string
         videoUrl:
+          type: string
+        ttsAudioUrl:
           type: string
 
     ScheduleContentBody:
