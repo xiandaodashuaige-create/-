@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
   Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
-  AlertCircle, Search, RefreshCw, Zap, Rocket,
+  AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
 } from "lucide-react";
 
 type Step = "setup" | "running" | "review" | "approved";
@@ -33,6 +33,8 @@ export default function AutopilotPage() {
   const [region, setRegion] = useState("");
   const [extras, setExtras] = useState("");
   const [autoDiscover, setAutoDiscover] = useState(true);
+  const [customMode, setCustomMode] = useState(false);
+  const customModeRef = useRef(false);
   const [strategyResult, setStrategyResult] = useState<any | null>(null);
   const [contentId, setContentId] = useState<number | null>(null);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -136,7 +138,26 @@ export default function AutopilotPage() {
       if (strat.meta?.warning) pushLog(`⚠ ${strat.meta.warning}`, "warn");
 
       setStrategyResult(strat);
-      setStep("review");
+
+      // 一键模式：跳过审核，自动批准 → 直接进草稿
+      if (!customModeRef.current) {
+        pushLog(`✓ 自动批准（已为你简化流程，如需手动审核请打开"自定义"）`, "success");
+        pushLog(`📝 生成草稿中…`, "running");
+        try {
+          const approved = await api.strategy.approve(strat.id);
+          if (isStale()) return;
+          setContentId(approved.contentId);
+          setStep("approved");
+          qc.invalidateQueries({ queryKey: ["content"] });
+          toast({ title: "草稿已就绪", description: `#${approved.contentId} 可直接编辑或定时发布` });
+        } catch (e: any) {
+          if (sig.aborted || isStale()) return;
+          pushLog(`⚠ 自动批准失败：${e?.message ?? "请手动审核"}`, "warn");
+          setStep("review");
+        }
+      } else {
+        setStep("review");
+      }
     } catch (err: any) {
       if (sig.aborted || isStale()) return;
       pushLog(`❌ 失败：${err?.message ?? "未知错误"}`, "error");
@@ -171,6 +192,7 @@ export default function AutopilotPage() {
       toast({ title: "请输入行业关键词", variant: "destructive" });
       return;
     }
+    customModeRef.current = customMode;
     runPipeline();
   }
 
@@ -253,28 +275,57 @@ export default function AutopilotPage() {
             <div className="text-xs text-muted-foreground mt-1">越具体越好，AI 会用此关键词搜索同行 + 过滤无关数据</div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium mb-1 block">地区（可选）</label>
-              <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="如：马来西亚 / 上海" />
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1 block">额外要求（可选）</label>
-              <Input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="如：突出价格优势、目标客单 ¥99" />
-            </div>
-          </div>
-
-          {existingCompetitors.length === 0 && platform === "tiktok" && (
-            <label className="flex items-start gap-2 text-sm cursor-pointer p-3 rounded-md border bg-muted/30">
-              <Checkbox checked={autoDiscover} onCheckedChange={(v) => setAutoDiscover(!!v)} className="mt-0.5" />
-              <div>
-                <div className="font-medium flex items-center gap-1.5">
-                  <Search className="h-3.5 w-3.5" />
-                  自动发现 3 位 TikTok 同行 KOL
-                </div>
-                <div className="text-xs text-muted-foreground mt-0.5">基于行业关键词搜索 → 自动入库 → 抓取最近爆款 → 喂给 AI</div>
+          {/* 一键模式说明 */}
+          {!customMode && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-start gap-2">
+              <Sparkles className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+              <div className="flex-1 text-foreground/80">
+                <strong className="text-primary">一键模式：</strong>AI 会自动 [发现同行 → 抓爆款 → 生成策略 → <strong>自动批准</strong> → 草稿入库]，全程无需你点确认，完成后直接打开编辑器。
               </div>
-            </label>
+            </div>
+          )}
+
+          {/* 自定义高级配置 */}
+          <button
+            type="button"
+            onClick={() => setCustomMode((v) => !v)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            {customMode ? "收起自定义" : "自定义（地区 / 额外要求 / 手动审核策略）"}
+            <ChevronDown className={`h-3 w-3 transition-transform ${customMode ? "rotate-180" : ""}`} />
+          </button>
+
+          {customMode && (
+            <div className="space-y-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">地区（可选）</label>
+                  <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="如：马来西亚 / 上海" />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">额外要求（可选）</label>
+                  <Input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="如：突出价格优势、目标客单 ¥99" />
+                </div>
+              </div>
+
+              {existingCompetitors.length === 0 && platform === "tiktok" && (
+                <label className="flex items-start gap-2 text-sm cursor-pointer p-3 rounded-md border bg-background">
+                  <Checkbox checked={autoDiscover} onCheckedChange={(v) => setAutoDiscover(!!v)} className="mt-0.5" />
+                  <div>
+                    <div className="font-medium flex items-center gap-1.5">
+                      <Search className="h-3.5 w-3.5" />
+                      自动发现 3 位 TikTok 同行 KOL
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">基于行业关键词搜索 → 自动入库 → 抓取最近爆款 → 喂给 AI</div>
+                  </div>
+                </label>
+              )}
+
+              <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                ⚠ 自定义模式下，策略生成后会停在审核步骤，需你手动点击"批准"才会生成草稿。
+              </div>
+            </div>
           )}
 
           <Button
@@ -284,7 +335,7 @@ export default function AutopilotPage() {
             disabled={!niche.trim() || !hasAccounts}
           >
             <Rocket className="h-5 w-5 mr-2" />
-            启动 AI 自动驾驶
+            {customMode ? "启动 AI 自动驾驶（手动审核）" : "一键启动 AI 自动驾驶"}
           </Button>
         </Card>
       )}
@@ -454,6 +505,27 @@ export default function AutopilotPage() {
               下一步：在编辑器配图 / 微调文案，然后立即发布或定时发布
             </div>
           </div>
+
+          {/* 一键模式下的策略简报 */}
+          {strategyResult && (
+            <div className="text-left bg-muted/30 rounded-lg p-4 space-y-2 text-sm border">
+              <div className="font-semibold text-primary flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5" /> AI 已为你定制本期内容
+              </div>
+              <div><strong>主题：</strong>{strategyResult.strategy.theme}</div>
+              <div className="text-muted-foreground text-xs">
+                <strong className="text-foreground">钩子：</strong>{strategyResult.strategy.hookFormula}
+              </div>
+              <div className="flex flex-wrap gap-1 pt-1">
+                {strategyResult.strategy.hashtags?.slice(0, 6).map((h: string, i: number) => (
+                  <Badge key={i} variant="secondary" className="text-xs">{h}</Badge>
+                ))}
+              </div>
+              <div className="text-xs text-muted-foreground pt-1">
+                参考 {strategyResult.meta.competitorsAnalyzed} 位同行 · {strategyResult.meta.postsAnalyzed} 条样本
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 justify-center flex-wrap">
             <Link href={`/content/${contentId}`}>
               <Button size="lg"><FileEdit className="h-4 w-4 mr-2" />打开编辑器</Button>
