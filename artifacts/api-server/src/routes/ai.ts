@@ -21,6 +21,7 @@ import { analyzeCompetitorImage, generateImagePrompt, buildSeedreamPrompt, PLATF
 import { loadStyleProfileForPrompt, recomputeUserStyleProfile } from "../services/styleProfile.js";
 import { loadUserContentProfile, renderContentProfileForPrompt } from "../services/contentProfile.js";
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
+import { generateWeeklyPlan, type GenerateWeeklyPlanInput } from "../services/planGenerator.js";
 import { tryFetchXhsData } from "./xhs";
 import { getPlatformPromptContext, buildRegionContext } from "../lib/platformPrompts.js";
 
@@ -1439,6 +1440,43 @@ ${currentPage === "/accounts" ? "用户在管理账号。提供多账号矩阵�
   } catch (err) {
     req.log.error(err, "Failed to get AI guide response");
     res.status(500).json({ error: "AI向导暂时不可用" });
+  }
+});
+
+// AI 周计划生成（不入库，仅返回草案供用户预览）
+router.post("/ai/generate-weekly-plan", requireCredits("ai-guide"), async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const body = req.body as Partial<GenerateWeeklyPlanInput>;
+    const ALLOWED_PLATFORMS: GenerateWeeklyPlanInput["platform"][] = ["xhs", "tiktok", "instagram", "facebook"];
+    const ALLOWED_FREQ = ["daily", "twice-daily", "every-other-day", "weekly-3"] as const;
+    if (!body?.platform || !ALLOWED_PLATFORMS.includes(body.platform)) {
+      res.status(400).json({ error: "platform 非法" });
+      return;
+    }
+    if (!body?.niche || typeof body.niche !== "string" || body.niche.trim().length < 2) {
+      res.status(400).json({ error: "niche 必填（至少 2 个字符）" });
+      return;
+    }
+    const freq = body.frequency && (ALLOWED_FREQ as readonly string[]).includes(body.frequency) ? body.frequency : "daily";
+
+    const items = await generateWeeklyPlan({
+      platform: body.platform,
+      niche: body.niche.trim(),
+      region: body.region,
+      frequency: freq,
+      audience: body.audience,
+      styleHints: body.styleHints,
+      language: body.language === "en" ? "en" : "zh",
+    });
+
+    await deductCredits(req, "ai-guide");
+    res.json({ items });
+  } catch (err: any) {
+    req.log.error(err, "Failed to generate weekly plan");
+    res.status(500).json({ error: err?.message || "AI 周计划生成失败" });
   }
 });
 

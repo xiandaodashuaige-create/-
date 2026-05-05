@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, sql, type SQL } from "drizzle-orm";
+import { eq, and, sql, gte, lte, inArray, type SQL } from "drizzle-orm";
 import { db, schedulesTable, contentTable, accountsTable } from "@workspace/db";
 import {
   ListSchedulesQueryParams,
@@ -9,6 +9,32 @@ import {
 import { ensureUser } from "../middlewares/creditSystem";
 
 const router: IRouter = Router();
+
+type PlanItemBody = {
+  dayOffset: number;
+  time: string;        // "HH:mm"
+  title: string;
+  body: string;
+  tags?: string[];
+  imagePrompt?: string;
+};
+
+function combineDateTime(startDateIso: string, dayOffset: number, time: string): Date {
+  const base = new Date(startDateIso);
+  if (Number.isNaN(base.getTime())) throw new Error("invalid startDate");
+  const m = /^(\d{1,2}):(\d{2})$/.exec(time);
+  if (!m) throw new Error("invalid time");
+  const hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) throw new Error("invalid time range");
+  const off = Math.max(0, Math.min(6, Math.floor(dayOffset)));
+  const d = new Date(base);
+  d.setDate(d.getDate() + off);
+  d.setHours(hh, mm, 0, 0);
+  return d;
+}
+
+const MAX_BULK_ITEMS = 20;
 
 router.get("/schedules", async (req, res): Promise<void> => {
   try {
@@ -102,6 +128,213 @@ router.delete("/schedules/:id", async (req, res): Promise<void> => {
     res.sendStatus(204);
   } catch (err) {
     req.log.error(err, "Failed to delete schedule");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 批量从 AI 计划草案创建 content + schedule
+router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const { accountId, startDate, items } = req.body as {
+      accountId?: number;
+      startDate?: string;
+      items?: PlanItemBody[];
+    };
+
+    if (!accountId || !startDate || !Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: "accountId, startDate, items 必填" });
+      return;
+    }
+    if (items.length > MAX_BULK_ITEMS) {
+      res.status(400).json({ error: `单次最多 ${MAX_BULK_ITEMS} 条` });
+      return;
+    }
+
+    // 预校验所有 items 时间合法
+    const prepared: Array<{ item: PlanItemBody; scheduledAt: Date }> = [];
+    for (const item of items) {
+      try {
+        const scheduledAt = combineDateTime(startDate, item.dayOffset, item.time);
+        prepared.push({ item, scheduledAt });
+      } catch {
+        res.status(400).json({ error: `item 时间非法：dayOffset=${item.dayOffset} time=${item.time}` });
+        return;
+      }
+    }
+
+    // 验证账号归属
+    const [account] = await db
+      .select()
+      .from(accountsTable)
+      .where(and(eq(accountsTable.id, accountId), eq(accountsTable.ownerUserId, u.id)));
+    if (!account) {
+      res.status(404).json({ error: "Account not found" });
+      return;
+    }
+
+    // 事务：失败整体回滚
+    const created = await db.transaction(async (tx) => {
+      const out: Array<{ contentId: number; scheduleId: number; scheduledAt: Date }> = [];
+      for (const { item, scheduledAt } of prepared) {
+        const [content] = await tx
+          .insert(contentTable)
+          .values({
+            accountId: account.id,
+            platform: account.platform,
+            title: (item.title || "未命名").slice(0, 200),
+            body: item.body || "",
+            tags: Array.isArray(item.tags) ? item.tags.slice(0, 10) : [],
+            imageUrls: [],
+            status: "scheduled",
+            scheduledAt,
+          })
+          .returning();
+        const [schedule] = await tx
+          .insert(schedulesTable)
+          .values({
+            contentId: content.id,
+            accountId: account.id,
+            platform: account.platform,
+            scheduledAt,
+          })
+          .returning();
+        out.push({ contentId: content.id, scheduleId: schedule.id, scheduledAt });
+      }
+      return out;
+    });
+
+    res.status(201).json({ created: created.length, items: created });
+  } catch (err) {
+    req.log.error(err, "Failed to bulk-create schedules");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 把已有的一周计划复制到接下来 N 周（同样的星期/时间偏移，clone content）
+router.post("/schedules/duplicate-weeks", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+    const { accountId, startDate, endDate, weeks } = req.body as {
+      accountId?: number;
+      startDate?: string;
+      endDate?: string;
+      weeks?: number;
+    };
+
+    if (!accountId || !startDate || !endDate || !weeks || weeks < 1) {
+      res.status(400).json({ error: "accountId, startDate, endDate, weeks(>=1) 必填" });
+      return;
+    }
+    const startD = new Date(startDate);
+    const endD = new Date(endDate);
+    if (Number.isNaN(startD.getTime()) || Number.isNaN(endD.getTime())) {
+      res.status(400).json({ error: "startDate / endDate 格式非法" });
+      return;
+    }
+    if (endD.getTime() <= startD.getTime()) {
+      res.status(400).json({ error: "endDate 必须晚于 startDate" });
+      return;
+    }
+    if (endD.getTime() - startD.getTime() > 8 * 24 * 60 * 60 * 1000) {
+      res.status(400).json({ error: "源时间窗最大 8 天（应为单周）" });
+      return;
+    }
+    const weeksClamped = Math.min(Math.max(1, Math.floor(weeks)), 5);
+
+    const [account] = await db
+      .select()
+      .from(accountsTable)
+      .where(and(eq(accountsTable.id, accountId), eq(accountsTable.ownerUserId, u.id)));
+    if (!account) {
+      res.status(404).json({ error: "Account not found" });
+      return;
+    }
+
+    // 只取 pending 状态的源 schedule（已完成/失败不复制）
+    const srcSchedules = await db
+      .select()
+      .from(schedulesTable)
+      .where(and(
+        eq(schedulesTable.accountId, account.id),
+        eq(schedulesTable.status, "pending"),
+        gte(schedulesTable.scheduledAt, startD),
+        lte(schedulesTable.scheduledAt, endD),
+      ))
+      .orderBy(schedulesTable.scheduledAt);
+
+    if (srcSchedules.length === 0) {
+      res.status(400).json({ error: "源周区间内没有待发布计划可复制" });
+      return;
+    }
+
+    // 拿对应 content
+    const contentIds = Array.from(new Set(srcSchedules.map((s) => s.contentId)));
+    const srcContents = await db
+      .select()
+      .from(contentTable)
+      .where(inArray(contentTable.id, contentIds));
+    const contentMap = new Map(srcContents.map((c) => [c.id, c]));
+
+    // 幂等：拿目标整段时间窗内已有 schedule（包含 parentContentId 的克隆来源）
+    const targetEnd = new Date(srcSchedules[srcSchedules.length - 1].scheduledAt.getTime() + weeksClamped * 7 * 24 * 60 * 60 * 1000 + 60_000);
+    const existingTargets = await db
+      .select({ scheduledAt: schedulesTable.scheduledAt })
+      .from(schedulesTable)
+      .where(and(
+        eq(schedulesTable.accountId, account.id),
+        gte(schedulesTable.scheduledAt, new Date(startD.getTime() + 7 * 24 * 60 * 60 * 1000)),
+        lte(schedulesTable.scheduledAt, targetEnd),
+      ));
+    const existingTimes = new Set(existingTargets.map((s) => s.scheduledAt.getTime()));
+
+    const totalCreated = await db.transaction(async (tx) => {
+      let n = 0;
+      for (let w = 1; w <= weeksClamped; w++) {
+        const offsetMs = w * 7 * 24 * 60 * 60 * 1000;
+        for (const sch of srcSchedules) {
+          const src = contentMap.get(sch.contentId);
+          if (!src) continue;
+          const newScheduledAt = new Date(sch.scheduledAt.getTime() + offsetMs);
+          if (existingTimes.has(newScheduledAt.getTime())) continue; // 幂等去重
+
+          const [newContent] = await tx
+            .insert(contentTable)
+            .values({
+              accountId: src.accountId,
+              platform: src.platform,
+              parentContentId: src.id,
+              mediaType: src.mediaType,
+              title: src.title,
+              body: src.body,
+              originalReference: src.originalReference,
+              tags: src.tags,
+              imageUrls: src.imageUrls,
+              videoUrl: src.videoUrl,
+              status: "scheduled",
+              scheduledAt: newScheduledAt,
+            })
+            .returning();
+          await tx.insert(schedulesTable).values({
+            contentId: newContent.id,
+            accountId: sch.accountId,
+            platform: sch.platform,
+            scheduledAt: newScheduledAt,
+          });
+          existingTimes.add(newScheduledAt.getTime());
+          n++;
+        }
+      }
+      return n;
+    });
+
+    res.status(201).json({ created: totalCreated, weeks: weeksClamped });
+  } catch (err) {
+    req.log.error(err, "Failed to duplicate schedule weeks");
     res.status(500).json({ error: "Internal server error" });
   }
 });

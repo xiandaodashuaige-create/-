@@ -167,6 +167,19 @@ export const api = {
       }>("/ai/assistant-chat", { method: "POST", body: JSON.stringify(data) }),
     competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>
       request<any>("/ai/competitor-research", { method: "POST", body: JSON.stringify(data) }),
+    generateWeeklyPlan: (data: {
+      platform: "xhs" | "tiktok" | "instagram" | "facebook";
+      niche: string;
+      region?: string;
+      frequency?: "daily" | "twice-daily" | "every-other-day" | "weekly-3";
+      audience?: string;
+      styleHints?: string;
+      language?: "zh" | "en";
+    }) =>
+      request<{ items: Array<{ dayOffset: number; time: string; title: string; body: string; tags: string[]; imagePrompt?: string; topic?: string }> }>(
+        "/ai/generate-weekly-plan",
+        { method: "POST", body: JSON.stringify(data) },
+      ),
     myContentProfile: () =>
       request<{
         sampleSize: number;
@@ -203,6 +216,19 @@ export const api = {
       return request<any[]>(`/schedules?${q.toString()}`);
     },
     delete: (id: number) => request<void>(`/schedules/${id}`, { method: "DELETE" }),
+    bulkCreate: (data: {
+      accountId: number;
+      startDate: string;
+      items: Array<{ dayOffset: number; time: string; title: string; body: string; tags?: string[]; imagePrompt?: string }>;
+    }) => request<{ created: number; items: Array<{ contentId: number; scheduleId: number; scheduledAt: string }> }>(
+      "/schedules/bulk-create",
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+    duplicateWeeks: (data: { accountId: number; startDate: string; endDate: string; weeks: number }) =>
+      request<{ created: number; weeks: number }>(
+        "/schedules/duplicate-weeks",
+        { method: "POST", body: JSON.stringify(data) },
+      ),
   },
   sensitiveWords: {
     list: () => request<any[]>("/sensitive-words"),
