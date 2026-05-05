@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,73 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
     },
     onError: (e: Error) => toast({ title: "同步失败", description: e.message, variant: "destructive" }),
   });
+
+  // Ayrshare 弹窗自动轮询：用户在 Ayrshare 后台授权完 TikTok/FB/IG 后无需手动点同步
+  const popupRef = useRef<Window | null>(null);
+  const pollRef = useRef<number | null>(null);
+  const [ayrsharePolling, setAyrsharePolling] = useState(false);
+  const beforeCountRef = useRef(0);
+
+  function stopAyrsharePoll() {
+    if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
+    setAyrsharePolling(false);
+  }
+
+  function openAyrshareAuth() {
+    if (!cfg?.ayrshareDashboardUrl) return;
+    beforeCountRef.current = (status?.connected?.[platform] ?? []).length;
+    const popup = window.open(
+      cfg.ayrshareDashboardUrl,
+      "ayrshare-auth",
+      "width=960,height=760,menubar=no,toolbar=no,location=no",
+    );
+    popupRef.current = popup;
+    if (!popup) {
+      toast({ title: "弹窗被浏览器拦截", description: "请允许弹出窗口后重试", variant: "destructive" });
+      return;
+    }
+    setAyrsharePolling(true);
+    let elapsed = 0;
+    const intervalMs = 4000;
+    const maxMs = 5 * 60 * 1000;
+
+    pollRef.current = window.setInterval(async () => {
+      elapsed += intervalMs;
+      const closed = popup.closed;
+
+      try {
+        const synced = await api.oauth.ayrshareSync();
+        await refetch();
+        qc.invalidateQueries({ queryKey: ["accounts"] });
+        const fresh = await api.oauth.status();
+        const nowCount = fresh.connected?.[platform]?.length ?? 0;
+        if (nowCount > beforeCountRef.current) {
+          toast({
+            title: `检测到新账号 ✓`,
+            description: `${meta.name}：${synced.accounts.join(", ") || "已绑定"}`,
+          });
+          stopAyrsharePoll();
+          if (!closed) popup.close();
+          return;
+        }
+      } catch {
+        // 静默重试
+      }
+
+      if (closed) {
+        // 弹窗已关，再做一次最终同步
+        try { await ayrshareSync.mutateAsync(); } catch {}
+        stopAyrsharePoll();
+        return;
+      }
+      if (elapsed >= maxMs) {
+        toast({ title: "授权检测超时", description: "请回到 Ayrshare 后台完成授权后点「同步账号」" });
+        stopAyrsharePoll();
+      }
+    }, intervalMs);
+  }
+
+  useEffect(() => () => stopAyrsharePoll(), []);
 
   if (platform === "xhs") return null;
 
@@ -130,20 +197,19 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => {
-                    window.open(
-                      cfg.ayrshareDashboardUrl,
-                      "ayrshare-auth",
-                      "width=960,height=760,menubar=no,toolbar=no,location=no",
-                    );
-                  }}
+                  disabled={ayrsharePolling}
+                  onClick={openAyrshareAuth}
                 >
-                  授权登录 <ExternalLink className="h-3 w-3 ml-1" />
+                  {ayrsharePolling ? (
+                    <><RefreshCw className="h-3 w-3 mr-1 animate-spin" />等待授权…</>
+                  ) : (
+                    <>授权登录 <ExternalLink className="h-3 w-3 ml-1" /></>
+                  )}
                 </Button>
               )}
-              <Button size="sm" disabled={!cfg?.ayrshare || ayrshareSync.isPending} onClick={() => ayrshareSync.mutate()}>
+              <Button size="sm" variant="ghost" disabled={!cfg?.ayrshare || ayrshareSync.isPending} onClick={() => ayrshareSync.mutate()}>
                 <RefreshCw className={`h-3 w-3 mr-1 ${ayrshareSync.isPending ? "animate-spin" : ""}`} />
-                同步账号
+                手动同步
               </Button>
             </div>
           </div>
