@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform-context";
 import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
@@ -9,25 +9,35 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send, AlertCircle,
+  Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
+  AlertCircle, Search, RefreshCw, Zap, Rocket,
 } from "lucide-react";
 
-type Step = "setup" | "generating" | "review" | "approved";
+type Step = "setup" | "running" | "review" | "approved";
+type LogLine = { ts: number; text: string; status: "info" | "success" | "warn" | "error" | "running" };
+
+function nowTs() { return Date.now(); }
 
 export default function AutopilotPage() {
   const { activePlatform } = usePlatform();
   const platform = activePlatform as PlatformId;
   const platformMeta = PLATFORMS[platform];
   const { toast } = useToast();
+  const qc = useQueryClient();
 
   const [step, setStep] = useState<Step>("setup");
   const [niche, setNiche] = useState("");
   const [region, setRegion] = useState("");
   const [extras, setExtras] = useState("");
+  const [autoDiscover, setAutoDiscover] = useState(true);
   const [strategyResult, setStrategyResult] = useState<any | null>(null);
   const [contentId, setContentId] = useState<number | null>(null);
+  const [logs, setLogs] = useState<LogLine[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
 
   const competitorsQ = useQuery({
     queryKey: ["autopilot-competitors", platform],
@@ -38,23 +48,105 @@ export default function AutopilotPage() {
     queryFn: () => api.accounts.list({ platform }),
   });
 
-  const genMut = useMutation({
-    mutationFn: () => api.strategy.generate({
-      platform, region: region || undefined, niche: niche || undefined,
-      customRequirements: extras || undefined,
-    }),
-    onSuccess: (data) => {
-      setStrategyResult(data);
-      setStep("review");
-      if (data.meta?.warning) {
-        toast({ title: "数据提醒", description: data.meta.warning });
+  const hasAccounts = (accountsQ.data?.length ?? 0) > 0;
+  const existingCompetitors = competitorsQ.data ?? [];
+
+  const logEl = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    logEl.current?.scrollTo({ top: logEl.current.scrollHeight, behavior: "smooth" });
+  }, [logs]);
+
+  function pushLog(text: string, status: LogLine["status"] = "info") {
+    setLogs((prev) => [...prev, { ts: nowTs(), text, status }]);
+  }
+
+  async function runPipeline() {
+    // Abort any prior run + bump runId to invalidate stale callbacks
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const myRunId = ++runIdRef.current;
+    const isStale = () => myRunId !== runIdRef.current || ctrl.signal.aborted;
+    const sig = ctrl.signal;
+
+    setLogs([]);
+    setStep("running");
+    setStrategyResult(null);
+    setContentId(null);
+
+    try {
+      pushLog(`🚀 启动 ${platformMeta.name} AI 自动驾驶`, "info");
+      pushLog(`目标行业：${niche}${region ? ` · 地区：${region}` : ""}`, "info");
+
+      // ── Stage 2: 同行库 ──
+      let competitorPool = [...existingCompetitors];
+      if (competitorPool.length > 0) {
+        pushLog(`✓ 已有 ${competitorPool.length} 位同行可用，跳过自动发现`, "success");
+      } else if (autoDiscover && platform === "tiktok") {
+        pushLog(`🔍 调用 TikHub 搜索 ${platformMeta.name} 行业 KOL…`, "running");
+        try {
+          const dis = await api.competitors.discover(platform, niche, 6, { signal: sig });
+          if (isStale()) return;
+          if (dis.creators?.length > 0) {
+            pushLog(`✓ 发现 ${dis.creators.length} 位候选：${dis.creators.slice(0, 3).map((c: any) => "@" + (c.handle || c.uniqueId || c.username)).join("、")}…`, "success");
+
+            const top = dis.creators.slice(0, 3);
+            for (const c of top) {
+              if (isStale()) return;
+              const handle = c.handle || c.uniqueId || c.username;
+              if (!handle) continue;
+              try {
+                pushLog(`  ↳ 添加并同步 @${handle}…`, "running");
+                const added = await api.competitors.add({ platform, handle, region: region || undefined }, { signal: sig });
+                if (isStale()) return;
+                competitorPool.push(added);
+                pushLog(`  ✓ @${handle} 已入库（${added.postCount ?? 0} 条样本）`, "success");
+              } catch (e: any) {
+                if (sig.aborted) return;
+                pushLog(`  ⚠ @${handle} 添加失败：${e?.message ?? "skip"}`, "warn");
+              }
+            }
+            if (isStale()) return;
+            qc.invalidateQueries({ queryKey: ["autopilot-competitors", platform] });
+            qc.invalidateQueries({ queryKey: ["competitors", platform] });
+          } else {
+            pushLog(`⚠ 未找到 ${platformMeta.name} 上的相关 KOL，将基于行业知识生成策略`, "warn");
+          }
+        } catch (e: any) {
+          if (sig.aborted) return;
+          pushLog(`⚠ 发现失败：${e?.message ?? "skip"}（继续）`, "warn");
+        }
+      } else if (platform !== "tiktok") {
+        pushLog(`ℹ ${platformMeta.name} 暂未接入自动发现，将基于行业知识 + 你已添加的同行生成`, "info");
       }
-    },
-    onError: (err: any) => {
-      toast({ title: "生成失败", description: err?.message ?? "未知错误", variant: "destructive" });
+
+      if (isStale()) return;
+
+      // ── Stage 3: AI 综合 ──
+      pushLog(`🧠 调用 GPT-5-mini 综合 ${competitorPool.length} 位同行 + 你的 ${accountsQ.data?.length ?? 0} 个账号画像…`, "running");
+      const strat = await api.strategy.generate({
+        platform,
+        region: region || undefined,
+        niche: niche || undefined,
+        customRequirements: extras || undefined,
+      }, { signal: sig });
+      if (isStale()) return;
+      pushLog(`✓ 策略生成完成：${strat.strategy.theme}`, "success");
+      pushLog(`  · 数据模式：${strat.meta.dataMode} · 样本：${strat.meta.postsAnalyzed}`, "info");
+      if (strat.meta?.warning) pushLog(`⚠ ${strat.meta.warning}`, "warn");
+
+      setStrategyResult(strat);
+      setStep("review");
+    } catch (err: any) {
+      if (sig.aborted || isStale()) return;
+      pushLog(`❌ 失败：${err?.message ?? "未知错误"}`, "error");
+      toast({ title: "自动驾驶中断", description: err?.message ?? "未知错误", variant: "destructive" });
       setStep("setup");
-    },
-  });
+    }
+  }
+
+  // Cleanup: abort on unmount
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   const approveMut = useMutation({
     mutationFn: () => api.strategy.approve(strategyResult.id),
@@ -66,27 +158,33 @@ export default function AutopilotPage() {
     onError: (err: any) => toast({ title: "批准失败", description: err?.message, variant: "destructive" }),
   });
 
-  function handleGenerate() {
-    if (competitorsQ.data?.length === 0) {
+  function handleStart() {
+    if (!hasAccounts) {
       toast({
-        title: "请先添加同行",
-        description: "AI 自动驾驶需要参考真实同行数据，请先在「同行库」添加至少 1 个对标账号",
+        title: `请先添加 ${platformMeta.name} 账号`,
+        description: "AI 需要你的账号画像（地区 / 备注 / 受众）来定制策略",
         variant: "destructive",
       });
       return;
     }
-    setStep("generating");
-    genMut.mutate();
+    if (!niche.trim()) {
+      toast({ title: "请输入行业关键词", variant: "destructive" });
+      return;
+    }
+    runPipeline();
   }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Header */}
       <div className="flex items-center gap-3">
-        <Sparkles className="h-7 w-7 text-primary" />
+        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center">
+          <Rocket className="h-6 w-6 text-white" />
+        </div>
         <div>
-          <h1 className="text-2xl font-bold">AI 自动驾驶</h1>
+          <h1 className="text-2xl font-bold">AI 自动驾驶 · {platformMeta.name}</h1>
           <p className="text-sm text-muted-foreground">
-            一句话告诉我你的行业，AI 自动整合同行数据 + 账号画像 → 生成发布就绪的内容
+            一句话告诉我你的行业，AI 自动 [发现同行 → 抓取爆款 → 生成策略 → 草稿入库]
           </p>
         </div>
       </div>
@@ -96,11 +194,11 @@ export default function AutopilotPage() {
         <div className="flex items-center justify-between gap-2">
           {[
             { key: "setup", label: "需求", icon: FileEdit },
-            { key: "generating", label: "AI 综合", icon: Brain },
-            { key: "review", label: "查看策略", icon: Sparkles },
+            { key: "running", label: "AI 流水线", icon: Brain },
+            { key: "review", label: "审策略", icon: Sparkles },
             { key: "approved", label: "草稿就绪", icon: CheckCircle2 },
           ].map((s, i, arr) => {
-            const order = ["setup", "generating", "review", "approved"];
+            const order = ["setup", "running", "review", "approved"];
             const currentIdx = order.indexOf(step);
             const myIdx = order.indexOf(s.key);
             const done = myIdx < currentIdx;
@@ -110,7 +208,7 @@ export default function AutopilotPage() {
               <div key={s.key} className="flex items-center flex-1">
                 <div className={`flex flex-col items-center gap-1 ${active ? "text-primary" : done ? "text-emerald-600" : "text-muted-foreground/50"}`}>
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition ${active ? "border-primary bg-primary/10" : done ? "border-emerald-500 bg-emerald-50" : "border-muted-foreground/20"}`}>
-                    {step === "generating" && active ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+                    {step === "running" && active ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
                   </div>
                   <span className="text-xs font-medium">{s.label}</span>
                 </div>
@@ -123,53 +221,121 @@ export default function AutopilotPage() {
 
       {/* Step 1: 配置 */}
       {step === "setup" && (
-        <Card className="p-6 space-y-4">
-          <div>
-            <label className="text-sm font-medium mb-1 block">行业 / 业务定位</label>
-            <Input value={niche} onChange={(e) => setNiche(e.target.value)} placeholder="如：美容培训、本地餐饮、AI 工具评测" />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1 block">地区（可选）</label>
-            <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="如：马来西亚 / 上海" />
-          </div>
-          <div>
-            <label className="text-sm font-medium mb-1 block">额外要求（可选）</label>
-            <Textarea value={extras} onChange={(e) => setExtras(e.target.value)} rows={3} placeholder="如：突出价格优势、目标客单 ¥99、主打周末" />
-          </div>
-
-          <div className="bg-muted/40 rounded-lg p-3 text-xs space-y-1">
-            <div className="flex items-center gap-2">
-              <Users2 className="h-3.5 w-3.5" />
-              已添加 <strong className="text-foreground">{competitorsQ.data?.length ?? 0}</strong> 个 {platformMeta.name} 同行
-              {competitorsQ.data && competitorsQ.data.length === 0 && (
-                <Link href="/competitors" className="text-primary underline ml-2">去添加 →</Link>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              已绑定 <strong className="text-foreground">{accountsQ.data?.length ?? 0}</strong> 个 {platformMeta.name} 账号
+        <Card className="p-6 space-y-5">
+          {/* 前置检查 */}
+          <div className={`rounded-lg border p-3 text-sm ${hasAccounts ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+            <div className="flex items-start gap-2">
+              {hasAccounts ? <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" /> : <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />}
+              <div className="flex-1">
+                {hasAccounts ? (
+                  <>已绑定 <strong>{accountsQ.data?.length}</strong> 个 {platformMeta.name} 账号 · 已添加 <strong>{existingCompetitors.length}</strong> 位同行</>
+                ) : (
+                  <>
+                    还没有 {platformMeta.name} 账号。
+                    <Link href="/accounts" className="underline ml-1 font-medium">去添加 / 授权 →</Link>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
-          <Button size="lg" className="w-full" onClick={handleGenerate} disabled={!niche.trim()}>
-            <Sparkles className="h-4 w-4 mr-2" />
-            一键生成策略
+          <div>
+            <label className="text-sm font-medium mb-1 block">
+              <Zap className="h-3.5 w-3.5 inline mr-1" />
+              行业 / 业务定位 <span className="text-red-500">*</span>
+            </label>
+            <Input
+              value={niche}
+              onChange={(e) => setNiche(e.target.value)}
+              placeholder="如：美容培训、本地餐饮、AI 工具评测、母婴用品"
+              className="text-base"
+            />
+            <div className="text-xs text-muted-foreground mt-1">越具体越好，AI 会用此关键词搜索同行 + 过滤无关数据</div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium mb-1 block">地区（可选）</label>
+              <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="如：马来西亚 / 上海" />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">额外要求（可选）</label>
+              <Input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="如：突出价格优势、目标客单 ¥99" />
+            </div>
+          </div>
+
+          {existingCompetitors.length === 0 && platform === "tiktok" && (
+            <label className="flex items-start gap-2 text-sm cursor-pointer p-3 rounded-md border bg-muted/30">
+              <Checkbox checked={autoDiscover} onCheckedChange={(v) => setAutoDiscover(!!v)} className="mt-0.5" />
+              <div>
+                <div className="font-medium flex items-center gap-1.5">
+                  <Search className="h-3.5 w-3.5" />
+                  自动发现 3 位 TikTok 同行 KOL
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">基于行业关键词搜索 → 自动入库 → 抓取最近爆款 → 喂给 AI</div>
+              </div>
+            </label>
+          )}
+
+          <Button
+            size="lg"
+            className="w-full bg-gradient-to-r from-primary to-purple-500 hover:opacity-90 text-base h-12"
+            onClick={handleStart}
+            disabled={!niche.trim() || !hasAccounts}
+          >
+            <Rocket className="h-5 w-5 mr-2" />
+            启动 AI 自动驾驶
           </Button>
         </Card>
       )}
 
-      {/* Step 2: AI 综合 */}
-      {step === "generating" && (
-        <Card className="p-12 text-center space-y-3">
-          <div className="relative inline-block">
-            <Brain className="h-16 w-16 text-primary animate-pulse" />
-            <Loader2 className="h-6 w-6 text-primary animate-spin absolute -bottom-1 -right-1" />
+      {/* Step 2: 流水线运行中 */}
+      {step === "running" && (
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <Brain className="h-10 w-10 text-primary animate-pulse" />
+              <Loader2 className="h-4 w-4 text-primary animate-spin absolute -bottom-0.5 -right-0.5" />
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold">流水线运行中…</div>
+              <div className="text-xs text-muted-foreground">大约需要 20–60 秒，请勿离开页面</div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                abortRef.current?.abort();
+                runIdRef.current++;
+                pushLog("⏹ 用户取消（已中断后端请求）", "warn");
+                setStep("setup");
+              }}
+            >
+              取消
+            </Button>
           </div>
-          <div className="font-semibold text-lg">AI 正在综合分析...</div>
-          <div className="text-sm text-muted-foreground space-y-1">
-            <div>· 解析 {competitorsQ.data?.length ?? 0} 位 {platformMeta.name} 同行的爆款数据</div>
-            <div>· 结合你的行业与地区定位</div>
-            <div>· 生成钩子、剧本、BGM、标签建议</div>
+
+          {/* 实时日志 */}
+          <div
+            ref={logEl}
+            className="bg-zinc-950 text-zinc-100 rounded-lg p-4 font-mono text-xs space-y-1 max-h-80 overflow-y-auto"
+          >
+            {logs.map((l, i) => (
+              <div
+                key={i}
+                className={
+                  l.status === "success" ? "text-emerald-400" :
+                  l.status === "warn" ? "text-amber-400" :
+                  l.status === "error" ? "text-red-400" :
+                  l.status === "running" ? "text-blue-300" :
+                  "text-zinc-300"
+                }
+              >
+                <span className="text-zinc-500 mr-2">{new Date(l.ts).toLocaleTimeString("zh-CN", { hour12: false })}</span>
+                {l.text}
+              </div>
+            ))}
+            <div className="text-zinc-500 animate-pulse">▊</div>
           </div>
         </Card>
       )}
@@ -177,6 +343,17 @@ export default function AutopilotPage() {
       {/* Step 3: 策略卡 */}
       {step === "review" && strategyResult && (
         <div className="space-y-4">
+          {/* 折叠后的成功日志 */}
+          <Card className="p-3 bg-emerald-50/50 border-emerald-200">
+            <div className="flex items-center gap-2 text-sm text-emerald-800">
+              <CheckCircle2 className="h-4 w-4" />
+              <span className="font-medium">流水线完成</span>
+              <span className="text-xs text-emerald-600/80">
+                · 同行 {strategyResult.meta.competitorsAnalyzed} · 样本 {strategyResult.meta.postsAnalyzed} · 模式 {strategyResult.meta.dataMode}
+              </span>
+            </div>
+          </Card>
+
           {strategyResult.meta?.warning && (
             <Card className="p-3 border-amber-300 bg-amber-50">
               <div className="flex gap-2 text-sm text-amber-800">
@@ -207,7 +384,7 @@ export default function AutopilotPage() {
             <div>
               <div className="text-sm font-semibold mb-2">剧本 / 场景</div>
               <ol className="space-y-2">
-                {strategyResult.strategy.scriptOutline.map((s: any) => (
+                {strategyResult.strategy.scriptOutline?.map((s: any) => (
                   <li key={s.order} className="flex gap-3 text-sm border-l-2 border-primary/30 pl-3">
                     <span className="font-bold text-primary">{s.order}</span>
                     <div className="flex-1">
@@ -222,14 +399,19 @@ export default function AutopilotPage() {
             {strategyResult.strategy.voiceoverScript && (
               <div>
                 <div className="text-sm font-semibold mb-1">完整旁白 / 正文</div>
-                <div className="text-sm bg-muted/40 rounded p-3 whitespace-pre-wrap">{strategyResult.strategy.voiceoverScript}</div>
+                <Textarea
+                  value={strategyResult.strategy.voiceoverScript}
+                  readOnly
+                  rows={6}
+                  className="text-sm bg-muted/30"
+                />
               </div>
             )}
 
             <div>
               <div className="text-sm font-semibold mb-2">推荐标签</div>
               <div className="flex flex-wrap gap-1.5">
-                {strategyResult.strategy.hashtags.map((h: string, i: number) => (
+                {strategyResult.strategy.hashtags?.map((h: string, i: number) => (
                   <Badge key={i} variant="secondary">{h}</Badge>
                 ))}
               </div>
@@ -246,15 +428,16 @@ export default function AutopilotPage() {
               </div>
             )}
 
-            <div className="text-xs text-muted-foreground border-t pt-3">
-              基于 <strong>{strategyResult.meta.competitorsAnalyzed}</strong> 个同行 · <strong>{strategyResult.meta.postsAnalyzed}</strong> 条样本 · {strategyResult.meta.dataMode}
-            </div>
-
-            <div className="flex gap-2 pt-2 border-t">
-              <Button variant="outline" onClick={() => setStep("setup")}>重新生成</Button>
-              <Button className="flex-1" onClick={() => approveMut.mutate()} disabled={approveMut.isPending}>
+            <div className="flex gap-2 pt-3 border-t">
+              <Button variant="outline" onClick={() => { setStep("setup"); setStrategyResult(null); }}>
+                <RefreshCw className="h-4 w-4 mr-1.5" /> 重来
+              </Button>
+              <Button variant="outline" onClick={() => runPipeline()}>
+                <Sparkles className="h-4 w-4 mr-1.5" /> 重生成策略
+              </Button>
+              <Button className="flex-1 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90" onClick={() => approveMut.mutate()} disabled={approveMut.isPending}>
                 {approveMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                批准 → 生成草稿
+                批准 → 进编辑器
               </Button>
             </div>
           </Card>
@@ -267,20 +450,30 @@ export default function AutopilotPage() {
           <CheckCircle2 className="h-16 w-16 text-emerald-500 mx-auto" />
           <div>
             <div className="text-xl font-bold">草稿已生成 ✨</div>
-            <div className="text-sm text-muted-foreground mt-1">前往内容编辑器，配图 / 微调文案 / 发布或定时</div>
+            <div className="text-sm text-muted-foreground mt-1">
+              下一步：在编辑器配图 / 微调文案，然后立即发布或定时发布
+            </div>
           </div>
-          <div className="flex gap-2 justify-center">
+          <div className="flex gap-2 justify-center flex-wrap">
             <Link href={`/content/${contentId}`}>
               <Button size="lg"><FileEdit className="h-4 w-4 mr-2" />打开编辑器</Button>
             </Link>
             <Link href="/schedules">
               <Button size="lg" variant="outline"><Send className="h-4 w-4 mr-2" />定时发布</Button>
             </Link>
-            <Button variant="ghost" onClick={() => { setStep("setup"); setStrategyResult(null); setContentId(null); }}>
+            <Button variant="ghost" onClick={() => { setStep("setup"); setStrategyResult(null); setContentId(null); setLogs([]); }}>
               再来一条
             </Button>
           </div>
         </Card>
+      )}
+
+      {/* 底部辅助：去同行库手动管理 */}
+      {step === "setup" && existingCompetitors.length > 0 && (
+        <div className="text-xs text-center text-muted-foreground">
+          已有 {existingCompetitors.length} 位同行 ·
+          <Link href="/competitors" className="underline ml-1">去同行库管理 →</Link>
+        </div>
       )}
     </div>
   );

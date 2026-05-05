@@ -229,15 +229,17 @@ export const api = {
       if (platform) q.set("platform", platform);
       return request<any[]>(`/competitors${q.toString() ? `?${q}` : ""}`);
     },
-    add: (data: { platform: string; handle: string; region?: string }) =>
-      request<any>(`/competitors`, { method: "POST", body: JSON.stringify(data) }),
+    add: (data: { platform: string; handle: string; region?: string }, opts?: { signal?: AbortSignal }) =>
+      request<any>(`/competitors`, { method: "POST", body: JSON.stringify(data), signal: opts?.signal }),
     remove: (id: number) => request<void>(`/competitors/${id}`, { method: "DELETE" }),
     posts: (id: number) => request<any[]>(`/competitors/${id}/posts`),
-    sync: (id: number) => request<any>(`/competitors/${id}/sync`, { method: "POST" }),
-    discover: (platform: string, keyword: string, limit = 10) => {
+    sync: (id: number, opts?: { signal?: AbortSignal }) =>
+      request<any>(`/competitors/${id}/sync`, { method: "POST", signal: opts?.signal }),
+    discover: (platform: string, keyword: string, limit = 10, opts?: { signal?: AbortSignal }) => {
       const q = new URLSearchParams({ platform, keyword, limit: String(limit) });
       return request<{ platform: string; keyword: string; creators: any[]; note?: string }>(
         `/competitors/discover?${q}`,
+        { signal: opts?.signal },
       );
     },
     trending: (platform?: string, limit = 10) => {
@@ -260,8 +262,8 @@ export const api = {
       competitorPostIds?: number[];
       accountIds?: number[];
       customRequirements?: string;
-    }) => request<{ id: number; status: string; platform: string; strategy: any; meta: any }>(
-      `/strategy/generate`, { method: "POST", body: JSON.stringify(data) },
+    }, opts?: { signal?: AbortSignal }) => request<{ id: number; status: string; platform: string; strategy: any; meta: any }>(
+      `/strategy/generate`, { method: "POST", body: JSON.stringify(data), signal: opts?.signal },
     ),
     approve: (id: number) =>
       request<{ id: number; status: string; contentId: number }>(
