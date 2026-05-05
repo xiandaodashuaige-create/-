@@ -1,10 +1,13 @@
 import { logger } from "../lib/logger.js";
 import { runDailyTrackingJob } from "./noteTracking.js";
+import { runPublishDispatcher } from "./publishDispatcher.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const TRACKING_INTERVAL_MS = 12 * HOUR_MS;
+const PUBLISH_INTERVAL_MS = 60 * 1000;
 
 let trackingTimer: NodeJS.Timeout | null = null;
+let publishTimer: NodeJS.Timeout | null = null;
 let isRunning = false;
 
 /**
@@ -35,12 +38,17 @@ export function startCronJobs(): void {
   setTimeout(() => safeRun("initial"), 30_000);
   trackingTimer = setInterval(() => safeRun("scheduled"), TRACKING_INTERVAL_MS);
 
-  logger.info({ intervalHours: TRACKING_INTERVAL_MS / HOUR_MS }, "Cron jobs started (single-instance)");
+  // 每分钟扫描一次到期的多平台 schedule，分流到 ayrshare / meta / tiktok
+  setTimeout(() => runPublishDispatcher(), 15_000);
+  publishTimer = setInterval(() => runPublishDispatcher(), PUBLISH_INTERVAL_MS);
+
+  logger.info(
+    { trackingHours: TRACKING_INTERVAL_MS / HOUR_MS, publishSeconds: PUBLISH_INTERVAL_MS / 1000 },
+    "Cron jobs started (single-instance)",
+  );
 }
 
 export function stopCronJobs(): void {
-  if (trackingTimer) {
-    clearInterval(trackingTimer);
-    trackingTimer = null;
-  }
+  if (trackingTimer) { clearInterval(trackingTimer); trackingTimer = null; }
+  if (publishTimer) { clearInterval(publishTimer); publishTimer = null; }
 }

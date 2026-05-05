@@ -12,6 +12,7 @@ import adminRouter from "./admin";
 import xhsRouter from "./xhs";
 import { xhsPublicRouter } from "./xhs";
 import trackingRouter from "./tracking";
+import oauthRouter, { oauthPublicRouter } from "./oauth";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -19,8 +20,12 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(storageRouter);
 router.use(xhsPublicRouter);
+// 仅 OAuth 回调路由公开（浏览器跳转回来时无 Clerk session 头）
+router.use(oauthPublicRouter);
 
 router.use(requireAuth);
+
+router.use(oauthRouter);
 
 router.use(adminRouter);
 router.use(accountsRouter);

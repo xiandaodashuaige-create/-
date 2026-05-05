@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Edit, Users } from "lucide-react";
 import { usePlatform } from "@/lib/platform-context";
 import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
+import { OAuthConnectPanel } from "@/components/OAuthConnectPanel";
 
 const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚", GLOBAL: "🌐 全球" };
 const statusLabels: Record<string, string> = { active: "活跃", inactive: "未激活", banned: "已封禁" };
@@ -145,11 +146,14 @@ export default function Accounts() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setDialogOpen(true)} disabled={!platformMeta.enabled && activePlatform !== "xhs"}>
+        <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
-          添加账号
+          手动添加
         </Button>
       </div>
+
+      {/* OAuth 授权入口（非小红书平台） */}
+      <OAuthConnectPanel platform={activePlatform} />
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
