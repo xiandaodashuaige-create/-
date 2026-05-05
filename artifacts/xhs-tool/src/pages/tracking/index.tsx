@@ -77,41 +77,30 @@ export default function TrackingPage() {
     },
   });
 
-  if (activePlatform !== "xhs") {
-    const meta = PLATFORMS[activePlatform];
-    const PlatformIcon = meta.icon;
-    return (
-      <div className="max-w-3xl mx-auto py-12">
-        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center space-y-4">
-          <div className={`w-14 h-14 mx-auto rounded-2xl ${meta.bgClass} ${meta.borderClass} border flex items-center justify-center`}>
-            <PlatformIcon className={`h-7 w-7 ${meta.textClass}`} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold">{meta.name} 表现追踪即将开放</h2>
-            <p className="text-muted-foreground text-sm mt-1">
-              当前的笔记互动 / 关键词排名追踪基于小红书公开数据。<br />
-              {meta.name} 将通过{meta.publishVia === "ayrshare" ? " Ayrshare 反向回拉 " : " Meta Insights API "}
-              获取互动数据，OAuth 接入完成后开放。
-            </p>
-          </div>
-          <Button onClick={() => setActivePlatform("xhs")} className="bg-red-500 hover:bg-red-600">
-            切换到小红书
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const isXhs = activePlatform === "xhs";
+  const platformMeta = PLATFORMS[activePlatform];
 
   return (
     <div className="space-y-6">
+      {!isXhs && (
+        <div className={`rounded-xl border ${platformMeta.borderClass} ${platformMeta.bgClass} px-4 py-3 text-sm`}>
+          <p className={`font-medium ${platformMeta.textClass}`}>{platformMeta.name} · 表现追踪</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            互动数据将通过 {platformMeta.publishVia === "ayrshare" ? "Ayrshare 反向回拉" : "Meta Graph Insights API"} 抓取，正在接入中。
+            目前可在<button onClick={() => setActivePlatform("xhs")} className="underline mx-1">小红书</button>下使用完整追踪能力。
+          </p>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <TrendingUp className="h-6 w-6 text-red-500" />
-            笔记表现追踪
+            {isXhs ? "笔记表现追踪" : `${platformMeta.name} 表现追踪`}
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            追踪自家笔记发布后的点赞/收藏/评论曲线 + 关键词搜索排名 · 全程公开数据，无需账号授权
+            {isXhs
+              ? "追踪自家笔记发布后的点赞/收藏/评论曲线 + 关键词搜索排名 · 全程公开数据，无需账号授权"
+              : `${platformMeta.name} 互动数据接入中，先以列表占位`}
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>

@@ -53,7 +53,15 @@ export default function WorkflowWizard() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { activePlatform, setActivePlatform } = usePlatform();
-  const [step, setStep] = useState(1);
+  // 非小红书平台直接从 step 2（AI 生成）开始，跳过依赖小红书数据源的灵感研究
+  const [step, setStep] = useState(activePlatform === "xhs" ? 1 : 2);
+
+  // 切到非小红书平台时，如果还停在 step 1（XHS-only），自动跳到 step 2
+  useEffect(() => {
+    if (activePlatform !== "xhs") {
+      setStep((s) => (s === 1 ? 2 : s));
+    }
+  }, [activePlatform]);
 
   const [selectedRegion, setSelectedRegion] = useState<string>("");
   const [form, setForm] = useState({
@@ -683,51 +691,47 @@ export default function WorkflowWizard() {
   const hasResearchInput = researchInput.businessDescription.trim() || researchInput.competitorLink.trim() || researchInput.niche.trim();
   const isImageGenerating = imageMutation.isPending || editImageMutation.isPending || pipelineImageMutation.isPending;
 
-  if (activePlatform !== "xhs") {
-    const meta = PLATFORMS[activePlatform];
-    const PlatformIcon = meta.icon;
-    return (
-      <div className="max-w-3xl mx-auto py-12">
-        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center space-y-4">
-          <div className={`w-14 h-14 mx-auto rounded-2xl ${meta.bgClass} ${meta.borderClass} border flex items-center justify-center`}>
-            <PlatformIcon className={`h-7 w-7 ${meta.textClass}`} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold">{meta.name} 创作向导即将开放</h2>
-            <p className="text-muted-foreground text-sm mt-1">
-              当前的 3 步爆款向导（同行分析 → AI 生成 → 发布）依赖小红书数据源。<br />
-              {meta.publishMode === "api"
-                ? `${meta.name} 将走 ${meta.publishVia === "ayrshare" ? "Ayrshare" : "Meta 直连"} 自动发布管道，OAuth 接入完成后开放。`
-                : `${meta.name} 即将开放。`}
-            </p>
-          </div>
-          <div className="flex items-center justify-center gap-2 pt-2">
-            <Button variant="outline" onClick={() => setLocation("/content")}>
-              先到内容管理新建草稿
-            </Button>
-            <Button onClick={() => setActivePlatform("xhs")} className="bg-red-500 hover:bg-red-600">
-              切换到小红书
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // 非小红书平台不再被早返回拦截；step 1（基于小红书数据源的同行分析）会被隐藏，直接从 step 2 开始
+  const isXhs = activePlatform === "xhs";
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">创建并发布笔记</h1>
-        <p className="text-muted-foreground">AI内容策略 → 生成原创内容 → 轻松发布</p>
+        <h1 className="text-2xl font-bold">
+          {isXhs ? "创建并发布笔记" : `创建并发布 ${PLATFORMS[activePlatform].shortName} 内容`}
+        </h1>
+        <p className="text-muted-foreground">
+          {isXhs ? "AI内容策略 → 生成原创内容 → 轻松发布" : "AI 生成原创内容 → 定时自动发布"}
+        </p>
       </div>
+
+      {!isXhs && (
+        <div className={`rounded-xl border ${PLATFORMS[activePlatform].borderClass} ${PLATFORMS[activePlatform].bgClass} px-4 py-3 text-sm flex items-start gap-3`}>
+          <Sparkles className={`h-4 w-4 ${PLATFORMS[activePlatform].textClass} mt-0.5 shrink-0`} />
+          <div className="flex-1">
+            <p className={`font-medium ${PLATFORMS[activePlatform].textClass}`}>
+              {PLATFORMS[activePlatform].name} 创作模式
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              "同行分析"步骤基于小红书公开数据，已为你跳过。直接进入 AI 生成 → 排程发布。发布走
+              {PLATFORMS[activePlatform].publishVia === "ayrshare" ? " Ayrshare 聚合" : " Meta 直连"} 管道
+              （需先在<button onClick={() => setLocation("/accounts")} className="underline ml-1">账号页</button>完成 OAuth 授权）。
+            </p>
+          </div>
+        </div>
+      )}
 
       <div data-workflow-step={step} className="flex items-center justify-between bg-card rounded-xl border p-3 overflow-x-auto">
         {STEPS.map((s, i) => (
           <div key={s.id} className="flex items-center flex-1 min-w-0">
             <button
-              onClick={() => s.id <= step && setStep(s.id)}
+              onClick={() => s.id <= step && (isXhs || s.id !== 1) && setStep(s.id)}
+              disabled={!isXhs && s.id === 1}
+              title={!isXhs && s.id === 1 ? "灵感分析仅小红书可用" : undefined}
               className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors shrink-0 ${
-                s.id === step
+                !isXhs && s.id === 1
+                  ? "opacity-40 cursor-not-allowed"
+                  : s.id === step
                   ? "bg-red-50 text-red-600"
                   : s.id < step
                   ? "text-green-600 cursor-pointer hover:bg-green-50"
