@@ -223,4 +223,62 @@ export const api = {
       );
     },
   },
+  competitors: {
+    list: (platform?: string) => {
+      const q = new URLSearchParams();
+      if (platform) q.set("platform", platform);
+      return request<any[]>(`/competitors${q.toString() ? `?${q}` : ""}`);
+    },
+    add: (data: { platform: string; handle: string; region?: string }) =>
+      request<any>(`/competitors`, { method: "POST", body: JSON.stringify(data) }),
+    remove: (id: number) => request<void>(`/competitors/${id}`, { method: "DELETE" }),
+    posts: (id: number) => request<any[]>(`/competitors/${id}/posts`),
+    sync: (id: number) => request<any>(`/competitors/${id}/sync`, { method: "POST" }),
+    discover: (platform: string, keyword: string, limit = 10) => {
+      const q = new URLSearchParams({ platform, keyword, limit: String(limit) });
+      return request<{ platform: string; keyword: string; creators: any[]; note?: string }>(
+        `/competitors/discover?${q}`,
+      );
+    },
+    trending: (platform?: string, limit = 10) => {
+      const q = new URLSearchParams({ limit: String(limit) });
+      if (platform) q.set("platform", platform);
+      return request<any[]>(`/competitors/trending?${q}`);
+    },
+  },
+  strategy: {
+    list: (platform?: string) => {
+      const q = new URLSearchParams();
+      if (platform) q.set("platform", platform);
+      return request<any[]>(`/strategy${q.toString() ? `?${q}` : ""}`);
+    },
+    get: (id: number) => request<any>(`/strategy/${id}`),
+    generate: (data: {
+      platform: string;
+      region?: string;
+      niche?: string;
+      competitorPostIds?: number[];
+      accountIds?: number[];
+      customRequirements?: string;
+    }) => request<{ id: number; status: string; platform: string; strategy: any; meta: any }>(
+      `/strategy/generate`, { method: "POST", body: JSON.stringify(data) },
+    ),
+    approve: (id: number) =>
+      request<{ id: number; status: string; contentId: number }>(
+        `/strategy/${id}/approve`, { method: "POST" },
+      ),
+  },
+  marketData: {
+    trending: (platform: string, keyword: string, region = "MY") => {
+      const q = new URLSearchParams({ platform, keyword, region });
+      return request<{ platform: string; source: string; items: any[] }>(`/market-data/trending?${q}`);
+    },
+    ads: (keyword: string, country = "MY") => {
+      const q = new URLSearchParams({ keyword, country });
+      return request<{ source: string; configured: boolean; items: any[] }>(`/market-data/ads?${q}`);
+    },
+    bestTimes: () => request<Record<string, { bestDays: string[]; bestHours: number[]; insight: string }>>(
+      `/market-data/best-times`,
+    ),
+  },
 };

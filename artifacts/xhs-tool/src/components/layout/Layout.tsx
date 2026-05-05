@@ -18,6 +18,9 @@ import {
   Coins,
   Globe,
   TrendingUp,
+  Users2,
+  BarChart3,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -31,7 +34,10 @@ import { useToast } from "@/hooks/use-toast";
 
 const navItemsConfig = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true },
   { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true },
+  { path: "/competitors", labelKey: "nav.competitors", icon: Users2 },
+  { path: "/market-data", labelKey: "nav.marketData", icon: BarChart3 },
   { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp },
   { path: "/accounts", labelKey: "nav.accounts", icon: Users },
   { path: "/content", labelKey: "nav.content", icon: FileText },

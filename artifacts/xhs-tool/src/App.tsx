@@ -19,6 +19,9 @@ import LandingPage from "@/pages/landing";
 import WorkflowWizard from "@/pages/workflow/index";
 import TrackingPage from "@/pages/tracking/index";
 import TrackingDetail from "@/pages/tracking/detail";
+import CompetitorsPage from "@/pages/competitors";
+import MarketDataPage from "@/pages/market-data";
+import AutopilotPage from "@/pages/autopilot";
 import AIGuide from "@/components/ai-guide/AIGuide";
 import AdminPage from "@/pages/admin";
 import OnboardingGuide from "@/components/onboarding/OnboardingGuide";
@@ -202,6 +205,9 @@ function ClerkProviderWithRoutes() {
             <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
             <Route path="/accounts">{() => <ProtectedRoute component={Accounts} />}</Route>
             <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} />}</Route>
+            <Route path="/autopilot">{() => <ProtectedRoute component={AutopilotPage} />}</Route>
+            <Route path="/competitors">{() => <ProtectedRoute component={CompetitorsPage} />}</Route>
+            <Route path="/market-data">{() => <ProtectedRoute component={MarketDataPage} />}</Route>
             <Route path="/tracking">{() => <ProtectedRoute component={TrackingPage} />}</Route>
             <Route path="/tracking/:id">{() => <ProtectedRoute component={TrackingDetail} />}</Route>
             <Route path="/content">{() => <ProtectedRoute component={ContentList} />}</Route>

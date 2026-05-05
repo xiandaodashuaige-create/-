@@ -10,3 +10,6 @@ export * from "./imageReferences";
 export * from "./userStyleProfiles";
 export * from "./userContentProfiles";
 export * from "./noteTracking";
+export * from "./competitorProfiles";
+export * from "./competitorPosts";
+export * from "./strategies";

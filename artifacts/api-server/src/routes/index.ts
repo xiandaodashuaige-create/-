@@ -14,6 +14,9 @@ import { xhsPublicRouter } from "./xhs";
 import trackingRouter from "./tracking";
 import oauthRouter, { oauthPublicRouter } from "./oauth";
 import legalRouter from "./legal";
+import competitorsRouter from "./competitors";
+import strategyRouter from "./strategy";
+import marketDataRouter from "./marketData";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -40,5 +43,8 @@ router.use(dashboardRouter);
 router.use(sensitiveWordsRouter);
 router.use(xhsRouter);
 router.use(trackingRouter);
+router.use(competitorsRouter);
+router.use(strategyRouter);
+router.use(marketDataRouter);
 
 export default router;
