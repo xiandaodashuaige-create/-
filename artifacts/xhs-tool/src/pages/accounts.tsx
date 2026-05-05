@@ -15,6 +15,18 @@ import { Plus, Trash2, Edit, Users, MapPin } from "lucide-react";
 const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚" };
 const statusLabels: Record<string, string> = { active: "活跃", inactive: "未激活", banned: "已封禁" };
 
+const nicknamePlaceholderByRegion: Record<string, string> = {
+  SG: "如：Sarah的新加坡日记",
+  HK: "如：Hong Kong Living｜阿May",
+  MY: "如：吉隆坡探店女孩",
+};
+
+const notesPlaceholderByRegion: Record<string, string> = {
+  SG: "业务方向，如：新加坡留学咨询、本地美食探店、亲子育儿",
+  HK: "業務方向，如：香港美容護膚分享、銅鑼灣探店、移居香港攻略",
+  MY: "业务方向，如：马来西亚旅游攻略、新山美食、华人社区生活",
+};
+
 export default function Accounts() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -191,7 +203,7 @@ export default function Accounts() {
               <Input
                 value={form.nickname}
                 onChange={(e) => setForm({ ...form, nickname: e.target.value })}
-                placeholder="客户小红书昵称"
+                placeholder={nicknamePlaceholderByRegion[form.region] || "请输入小红书账号昵称"}
               />
             </div>
             <div className="space-y-2">
@@ -212,7 +224,7 @@ export default function Accounts() {
               <Textarea
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="客户行业/业务方向（如：美容护肤、留学咨询）"
+                placeholder={notesPlaceholderByRegion[form.region] || "账号定位、目标受众、运营方向等"}
                 rows={3}
               />
             </div>

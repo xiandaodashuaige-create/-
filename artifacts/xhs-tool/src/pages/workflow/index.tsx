@@ -768,8 +768,32 @@ export default function WorkflowWizard() {
                   </div>
                   {researchResult.analysis?.viralPatterns && (
                     <div className="p-3 rounded-lg bg-gradient-to-r from-red-50 to-orange-50 border border-red-200 text-sm">
-                      <p className="text-xs text-red-600 font-medium mb-1">爆款模式总结</p>
-                      <p className="text-red-800">{researchResult.analysis.viralPatterns}</p>
+                      <p className="text-xs text-red-600 font-medium mb-2">爆款模式总结</p>
+                      {typeof researchResult.analysis.viralPatterns === "string" ? (
+                        <p className="text-red-800 whitespace-pre-wrap">{researchResult.analysis.viralPatterns}</p>
+                      ) : Array.isArray(researchResult.analysis.viralPatterns) ? (
+                        <ul className="space-y-1.5 text-red-800">
+                          {researchResult.analysis.viralPatterns.map((item: any, i: number) => (
+                            <li key={i} className="flex gap-2">
+                              <span className="text-red-500 font-bold">{i + 1}.</span>
+                              <span>{typeof item === "string" ? item : JSON.stringify(item)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : typeof researchResult.analysis.viralPatterns === "object" ? (
+                        <div className="space-y-2">
+                          {Object.entries(researchResult.analysis.viralPatterns).map(([key, val]: [string, any]) => (
+                            <div key={key} className="border-l-2 border-red-300 pl-2.5">
+                              <p className="text-red-700 font-semibold text-xs mb-0.5">{key}</p>
+                              <div className="text-red-800 text-xs">
+                                {typeof val === "string" ? val : Array.isArray(val) ? val.join("；") : Object.entries(val as object).map(([k, v]: [string, any]) => (
+                                  <div key={k}><span className="text-red-600">{k}:</span> {typeof v === "string" ? v : JSON.stringify(v)}</div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                   <div className="p-3 rounded-lg bg-white border text-sm">

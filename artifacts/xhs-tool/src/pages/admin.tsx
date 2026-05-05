@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
@@ -21,6 +22,38 @@ export default function AdminPage() {
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
   const [creditAmount, setCreditAmount] = useState("");
   const [creditDesc, setCreditDesc] = useState("");
+  const [creditDialog, setCreditDialog] = useState<{ open: boolean; user: any | null; mode: "add" | "deduct" }>({ open: false, user: null, mode: "add" });
+
+  function openCreditDialog(user: any, mode: "add" | "deduct") {
+    setCreditDialog({ open: true, user, mode });
+    setCreditAmount("");
+    setCreditDesc("");
+  }
+
+  function closeCreditDialog() {
+    setCreditDialog({ open: false, user: null, mode: "add" });
+    setCreditAmount("");
+    setCreditDesc("");
+  }
+
+  function submitCreditDialog() {
+    const amount = parseInt(creditAmount);
+    if (!amount || amount <= 0) {
+      toast({ title: "请输入正确的积分数量", variant: "destructive" });
+      return;
+    }
+    if (!creditDialog.user) return;
+    const signed = creditDialog.mode === "add" ? amount : -amount;
+    const defaultDesc = creditDialog.mode === "add"
+      ? `管理员充值 ${amount} 积分`
+      : `管理员扣除 ${amount} 积分`;
+    creditMutation.mutate(
+      { userId: creditDialog.user.id, amount: signed, description: creditDesc || defaultDesc },
+      { onSuccess: () => closeCreditDialog() },
+    );
+  }
+
+  const quickAmounts = [50, 100, 200, 500, 1000];
 
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["admin-stats"],
@@ -74,24 +107,6 @@ export default function AdminPage() {
       toast({ title: "套餐更新成功" });
     },
   });
-
-  function handleRecharge(userId: number) {
-    const amount = parseInt(creditAmount);
-    if (!amount || amount <= 0) {
-      toast({ title: "请输入正确的积分数量", variant: "destructive" });
-      return;
-    }
-    creditMutation.mutate({ userId, amount, description: creditDesc || `管理员充值 ${amount} 积分` });
-  }
-
-  function handleDeduct(userId: number) {
-    const amount = parseInt(creditAmount);
-    if (!amount || amount <= 0) {
-      toast({ title: "请输入正确的积分数量", variant: "destructive" });
-      return;
-    }
-    creditMutation.mutate({ userId, amount: -amount, description: creditDesc || `管理员扣除 ${amount} 积分` });
-  }
 
   const costLabels: Record<string, string> = {
     "ai-rewrite": "AI改写",
@@ -239,20 +254,28 @@ export default function AdminPage() {
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       <Badge variant={u.plan !== "free" ? "default" : "secondary"} className={`text-xs ${u.plan === "pro" ? "bg-purple-600" : ""}`}>
                         {u.plan === "starter" ? t("credits.starter") : u.plan === "pro" ? t("credits.pro") : t("credits.free")}
                       </Badge>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-amber-600">{u.credits}</p>
-                        <p className="text-[10px] text-muted-foreground">{t("credits.label")}</p>
+                      <div className="text-right px-2">
+                        <p className="text-base font-bold text-amber-600 leading-none">{u.credits}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t("credits.label")}</p>
                       </div>
                       <Button
                         size="sm"
-                        className="h-7 text-xs bg-green-600 hover:bg-green-700"
-                        onClick={(e) => { e.stopPropagation(); setExpandedUser(u.id); }}
+                        className="h-8 text-xs bg-green-600 hover:bg-green-700 shadow-sm"
+                        onClick={(e) => { e.stopPropagation(); openCreditDialog(u, "add"); }}
                       >
-                        <Plus className="h-3 w-3 mr-1" />{t("admin.recharge")}
+                        <Plus className="h-3.5 w-3.5 mr-1" />{t("admin.recharge")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                        onClick={(e) => { e.stopPropagation(); openCreditDialog(u, "deduct"); }}
+                      >
+                        <Minus className="h-3.5 w-3.5 mr-1" />{t("admin.deduct")}
                       </Button>
                       {expandedUser === u.id ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                     </div>
@@ -288,34 +311,6 @@ export default function AdminPage() {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">{t("admin.recharge")} / {t("admin.deduct")}</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            type="number"
-                            min="1"
-                            value={creditAmount}
-                            onChange={(e) => setCreditAmount(e.target.value)}
-                            placeholder={t("admin.amount")}
-                            className="h-8 text-sm w-24"
-                          />
-                          <Input
-                            value={creditDesc}
-                            onChange={(e) => setCreditDesc(e.target.value)}
-                            placeholder={`${t("admin.description")}（选填）`}
-                            className="h-8 text-sm flex-1"
-                          />
-                          <Button size="sm" className="h-8 bg-green-600 hover:bg-green-700" onClick={() => handleRecharge(u.id)}
-                            disabled={creditMutation.isPending}>
-                            <Plus className="h-3 w-3 mr-1" />{t("admin.recharge")}
-                          </Button>
-                          <Button size="sm" variant="destructive" className="h-8" onClick={() => handleDeduct(u.id)}
-                            disabled={creditMutation.isPending}>
-                            <Minus className="h-3 w-3 mr-1" />{t("admin.deduct")}
-                          </Button>
-                        </div>
-                      </div>
-
                       {transactions.length > 0 && (
                         <div className="space-y-2">
                           <Label className="text-xs font-medium flex items-center gap-1">
@@ -346,6 +341,93 @@ export default function AdminPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={creditDialog.open} onOpenChange={(o) => !o && closeCreditDialog()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {creditDialog.mode === "add" ? (
+                <><Plus className="h-5 w-5 text-green-600" /> {t("admin.recharge")}</>
+              ) : (
+                <><Minus className="h-5 w-5 text-red-600" /> {t("admin.deduct")}</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {creditDialog.user && (
+                <span>
+                  用户：<span className="font-medium text-foreground">{creditDialog.user.nickname || creditDialog.user.email}</span>
+                  {" · "}
+                  当前余额：<span className="font-bold text-amber-600">{creditDialog.user.credits}</span> {t("credits.label")}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label className="text-sm">{t("admin.amount")}</Label>
+              <Input
+                type="number"
+                min="1"
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(e.target.value)}
+                placeholder="输入积分数量"
+                className="text-lg font-bold h-11"
+                autoFocus
+              />
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {quickAmounts.map((n) => (
+                  <Button
+                    key={n}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setCreditAmount(String(n))}
+                  >
+                    {creditDialog.mode === "add" ? "+" : "-"}{n}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm">{t("admin.description")}（选填）</Label>
+              <Input
+                value={creditDesc}
+                onChange={(e) => setCreditDesc(e.target.value)}
+                placeholder={creditDialog.mode === "add" ? "如：用户购买100积分加油包" : "如：违规操作扣除"}
+              />
+            </div>
+
+            {creditAmount && parseInt(creditAmount) > 0 && (
+              <div className={`p-3 rounded-lg border text-sm ${
+                creditDialog.mode === "add"
+                  ? "bg-green-50 border-green-200 text-green-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}>
+                操作后余额：
+                <span className="font-bold text-lg ml-1">
+                  {(creditDialog.user?.credits || 0) + (creditDialog.mode === "add" ? parseInt(creditAmount) : -parseInt(creditAmount))}
+                </span>
+                {" "}{t("credits.label")}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeCreditDialog}>{t("common.cancel")}</Button>
+            <Button
+              className={creditDialog.mode === "add" ? "bg-green-600 hover:bg-green-700" : ""}
+              variant={creditDialog.mode === "add" ? "default" : "destructive"}
+              onClick={submitCreditDialog}
+              disabled={creditMutation.isPending}
+            >
+              {creditMutation.isPending ? "处理中..." : t("common.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
