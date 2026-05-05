@@ -27,6 +27,7 @@ import AdminPage from "@/pages/admin";
 import OnboardingGuide from "@/components/onboarding/OnboardingGuide";
 import { I18nProvider } from "@/lib/i18n";
 import { PlatformProvider } from "@/lib/platform-context";
+import { PlatformGuard } from "@/components/PlatformGuard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -118,12 +119,24 @@ function HomeRedirect() {
   );
 }
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+function ProtectedRoute({
+  component: Component,
+  guard,
+}: {
+  component: React.ComponentType;
+  guard?: "needs-auth" | "xhs-only";
+}) {
   return (
     <>
       <Show when="signed-in">
         <Layout>
-          <Component />
+          {guard ? (
+            <PlatformGuard mode={guard}>
+              <Component />
+            </PlatformGuard>
+          ) : (
+            <Component />
+          )}
         </Layout>
         <AIGuide />
         <OnboardingGuide />
@@ -204,18 +217,18 @@ function ClerkProviderWithRoutes() {
             <Route path="/sign-up/*?" component={SignUpPage} />
             <Route path="/dashboard">{() => <ProtectedRoute component={Dashboard} />}</Route>
             <Route path="/accounts">{() => <ProtectedRoute component={Accounts} />}</Route>
-            <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} />}</Route>
-            <Route path="/autopilot">{() => <ProtectedRoute component={AutopilotPage} />}</Route>
-            <Route path="/competitors">{() => <ProtectedRoute component={CompetitorsPage} />}</Route>
-            <Route path="/market-data">{() => <ProtectedRoute component={MarketDataPage} />}</Route>
-            <Route path="/tracking">{() => <ProtectedRoute component={TrackingPage} />}</Route>
-            <Route path="/tracking/:id">{() => <ProtectedRoute component={TrackingDetail} />}</Route>
+            <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} guard="xhs-only" />}</Route>
+            <Route path="/autopilot">{() => <ProtectedRoute component={AutopilotPage} guard="needs-auth" />}</Route>
+            <Route path="/competitors">{() => <ProtectedRoute component={CompetitorsPage} guard="needs-auth" />}</Route>
+            <Route path="/market-data">{() => <ProtectedRoute component={MarketDataPage} guard="needs-auth" />}</Route>
+            <Route path="/tracking">{() => <ProtectedRoute component={TrackingPage} guard="xhs-only" />}</Route>
+            <Route path="/tracking/:id">{() => <ProtectedRoute component={TrackingDetail} guard="xhs-only" />}</Route>
             <Route path="/content">{() => <ProtectedRoute component={ContentList} />}</Route>
             <Route path="/content/new">{() => <ProtectedRoute component={ContentEditor} />}</Route>
             <Route path="/content/:id">{() => <ProtectedRoute component={ContentEditor} />}</Route>
             <Route path="/assets">{() => <ProtectedRoute component={Assets} />}</Route>
             <Route path="/schedules">{() => <ProtectedRoute component={Schedules} />}</Route>
-            <Route path="/sensitive-words">{() => <ProtectedRoute component={SensitiveWords} />}</Route>
+            <Route path="/sensitive-words">{() => <ProtectedRoute component={SensitiveWords} guard="xhs-only" />}</Route>
             <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
             <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
             <Route component={NotFound} />

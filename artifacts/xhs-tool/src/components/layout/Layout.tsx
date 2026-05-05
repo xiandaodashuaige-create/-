@@ -32,18 +32,26 @@ import { PLATFORM_LIST } from "@/lib/platform-meta";
 import { usePlatform } from "@/lib/platform-context";
 import { useToast } from "@/hooks/use-toast";
 
-const navItemsConfig = [
+type NavItem = {
+  path: string;
+  labelKey: string;
+  icon: typeof LayoutDashboard;
+  highlight?: boolean;
+  xhsOnly?: boolean;
+};
+
+const navItemsConfig: NavItem[] = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true },
-  { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true },
+  { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true, xhsOnly: true },
   { path: "/competitors", labelKey: "nav.competitors", icon: Users2 },
   { path: "/market-data", labelKey: "nav.marketData", icon: BarChart3 },
-  { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp },
+  { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp, xhsOnly: true },
   { path: "/accounts", labelKey: "nav.accounts", icon: Users },
   { path: "/content", labelKey: "nav.content", icon: FileText },
   { path: "/assets", labelKey: "nav.assets", icon: Image },
   { path: "/schedules", labelKey: "nav.schedules", icon: Calendar },
-  { path: "/sensitive-words", labelKey: "nav.sensitiveWords", icon: ShieldAlert },
+  { path: "/sensitive-words", labelKey: "nav.sensitiveWords", icon: ShieldAlert, xhsOnly: true },
   { path: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 
@@ -65,7 +73,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isAdmin = dbUser?.role === "admin";
 
   const navItems = [
-    ...navItemsConfig,
+    ...navItemsConfig.filter((item) => !item.xhsOnly || activePlatform === "xhs"),
     ...(isAdmin ? [{ path: "/admin", labelKey: "nav.admin", icon: Shield }] : []),
   ];
 
