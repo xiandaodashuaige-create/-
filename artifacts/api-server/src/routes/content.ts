@@ -349,6 +349,13 @@ router.post("/content/:id/schedule", async (req, res): Promise<void> => {
       return;
     }
 
+    // 验证发布时间必须是将来（允许 60 秒时钟漂移）
+    const scheduledTime = new Date(parsed.data.scheduledAt).getTime();
+    if (!Number.isFinite(scheduledTime) || scheduledTime <= Date.now() - 60_000) {
+      res.status(400).json({ error: "scheduledAt must be a future timestamp" });
+      return;
+    }
+
     const [content] = await db
       .update(contentTable)
       .set({ status: "scheduled", scheduledAt: new Date(parsed.data.scheduledAt) })

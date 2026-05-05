@@ -21,6 +21,7 @@ import {
   Users2,
   BarChart3,
   Sparkles,
+  Send,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ type NavItem = {
 const navItemsConfig: NavItem[] = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
   { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true },
+  { path: "/quick-publish", labelKey: "nav.quickPublish", icon: Send, highlight: true },
   { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true, xhsOnly: true },
   { path: "/competitors", labelKey: "nav.competitors", icon: Users2 },
   { path: "/market-data", labelKey: "nav.marketData", icon: BarChart3 },

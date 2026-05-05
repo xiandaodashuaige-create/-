@@ -22,6 +22,7 @@ import TrackingDetail from "@/pages/tracking/detail";
 import CompetitorsPage from "@/pages/competitors";
 import MarketDataPage from "@/pages/market-data";
 import AutopilotPage from "@/pages/autopilot";
+import QuickPublishPage from "@/pages/quick-publish";
 import AIGuide from "@/components/ai-guide/AIGuide";
 import AdminPage from "@/pages/admin";
 import OnboardingGuide from "@/components/onboarding/OnboardingGuide";
@@ -219,6 +220,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/accounts">{() => <ProtectedRoute component={Accounts} />}</Route>
             <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} guard="xhs-only" />}</Route>
             <Route path="/autopilot">{() => <ProtectedRoute component={AutopilotPage} guard="needs-auth" />}</Route>
+            <Route path="/quick-publish">{() => <ProtectedRoute component={QuickPublishPage} guard="needs-auth" />}</Route>
             <Route path="/competitors">{() => <ProtectedRoute component={CompetitorsPage} guard="needs-auth" />}</Route>
             <Route path="/market-data">{() => <ProtectedRoute component={MarketDataPage} guard="needs-auth" />}</Route>
             <Route path="/tracking">{() => <ProtectedRoute component={TrackingPage} guard="xhs-only" />}</Route>
