@@ -95,7 +95,7 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
     }
   }
 
-  const connected = status?.connected[platform] ?? [];
+  const connected = status?.connected?.[platform] ?? [];
   const cfg = status?.configured;
 
   // TikTok 既支持 Ayrshare 也支持 Direct；IG/FB 走 Meta Direct
