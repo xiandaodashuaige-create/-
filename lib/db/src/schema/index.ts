@@ -6,3 +6,5 @@ export * from "./sensitiveWords";
 export * from "./activityLog";
 export * from "./users";
 export * from "./creditTransactions";
+export * from "./imageReferences";
+export * from "./userStyleProfiles";

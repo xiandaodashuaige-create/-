@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@workspace/object-storage-web";
 import InsufficientCreditsDialog from "@/components/InsufficientCreditsDialog";
+import { AssistantChat } from "@/components/AssistantChat";
 import {
   Check, ChevronRight, ChevronLeft, FileText, Send,
   Wand2, ShieldCheck, Hash, Type, Loader2, Sparkles, ImagePlus,
@@ -79,6 +80,16 @@ export default function WorkflowWizard() {
   const [imageMode, setImageMode] = useState<"generate" | "reference">("generate");
   const [layoutMode, setLayoutMode] = useState<"single" | "dual-vertical" | "dual-horizontal" | "grid-2x2" | "left-big-right-small">("single");
   const [mimicStrength, setMimicStrength] = useState<"full" | "partial" | "minimal">("partial");
+  const [lastPipelineResult, setLastPipelineResult] = useState<{
+    imageUrl: string;
+    referenceId: number | null;
+    promptUsed: string;
+    textOverlays: Array<{ text: string; position: string; style?: string }>;
+    emojis: string[];
+  } | null>(null);
+  const [customTextOverlays, setCustomTextOverlays] = useState<Array<{ text: string; position: string; style?: string }> | null>(null);
+  const [customEmojis, setCustomEmojis] = useState<string[] | null>(null);
+  const [extraInstructions, setExtraInstructions] = useState<string>("");
   const [contentSaved, setContentSaved] = useState(false);
   const [savedContentId, setSavedContentId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -164,9 +175,29 @@ export default function WorkflowWizard() {
     onSuccess: (result) => {
       const url = result.storedUrl || result.imageUrl;
       setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
-      toast({ title: "爆款封面生成成功！", description: `引擎: ${result.provider}` });
+      setLastPipelineResult({
+        imageUrl: url,
+        referenceId: result.referenceId ?? null,
+        promptUsed: result.promptUsed,
+        textOverlays: result.textOverlays || [],
+        emojis: result.emojis || [],
+      });
+      toast({
+        title: "爆款封面生成成功！",
+        description: `引擎: ${result.provider}${result.styleProfileUsed ? "（已应用你的历史风格档案）" : ""}`,
+      });
     },
     onError: (e: any) => handleCreditError(e),
+  });
+
+  const feedbackMutation = useMutation({
+    mutationFn: (data: { referenceId: number; accepted: boolean }) => api.ai.imageFeedback(data),
+    onSuccess: (_, vars) => {
+      toast({
+        title: vars.accepted ? "已采用，谢谢反馈！" : "已记录",
+        description: vars.accepted ? "系统会从这张图学习你的风格偏好，下次出图更懂你 ✨" : "下次会更努力",
+      });
+    },
   });
 
   const publishMutation = useMutation({
@@ -501,21 +532,67 @@ export default function WorkflowWizard() {
     publishMutation.reset();
   }
 
-  function handleGenerateOrEditImage() {
+  function handleGenerateOrEditImage(overrides?: {
+    layoutMode?: typeof layoutMode;
+    mimicStrength?: typeof mimicStrength;
+    customTextOverlays?: Array<{ text: string; position: string; style?: string }> | null;
+    customEmojis?: string[] | null;
+    extraInstructions?: string;
+  }) {
     if (referenceImageUrl) {
-      // 走"爆款复刻管线"：GPT-4o 视觉分析 + 即梦Seedream出图 + 后端拼图模板
+      const finalLayout = overrides?.layoutMode ?? layoutMode;
+      const finalStrength = overrides?.mimicStrength ?? mimicStrength;
+      const finalOverlays = overrides?.customTextOverlays !== undefined ? overrides.customTextOverlays : customTextOverlays;
+      const finalEmojis = overrides?.customEmojis !== undefined ? overrides.customEmojis : customEmojis;
+      const finalExtra = overrides?.extraInstructions ?? extraInstructions;
       pipelineImageMutation.mutate({
         referenceImageUrl,
         newTopic: imagePrompt || form.title || "小红书内容",
         newTitle: form.title || undefined,
         newKeyPoints: form.tags?.length ? form.tags : undefined,
-        mimicStrength,
+        mimicStrength: finalStrength,
         size: imageSize,
-        layoutMode,
-      });
+        layoutMode: finalLayout,
+        customTextOverlays: finalOverlays || undefined,
+        customEmojis: finalEmojis || undefined,
+        extraInstructions: finalExtra || undefined,
+      } as any);
     } else {
       imageMutation.mutate({ prompt: imagePrompt, size: imageSize });
     }
+  }
+
+  function handleAssistantApply(changes: {
+    layout?: typeof layoutMode;
+    mimicStrength?: typeof mimicStrength;
+    textOverlays?: Array<{ text: string; position: string; style?: string }>;
+    emojis?: string[];
+    extraInstructions?: string;
+    triggerRegenerate: boolean;
+  }) {
+    // Update state for UI consistency
+    if (changes.layout) setLayoutMode(changes.layout);
+    if (changes.mimicStrength) setMimicStrength(changes.mimicStrength);
+    if (changes.textOverlays) setCustomTextOverlays(changes.textOverlays);
+    if (changes.emojis) setCustomEmojis(changes.emojis);
+    if (changes.extraInstructions) setExtraInstructions(changes.extraInstructions);
+    // Regenerate using EXPLICIT merged config (avoid stale-state race)
+    if (changes.triggerRegenerate && referenceImageUrl) {
+      handleGenerateOrEditImage({
+        layoutMode: changes.layout,
+        mimicStrength: changes.mimicStrength,
+        customTextOverlays: changes.textOverlays,
+        customEmojis: changes.emojis,
+        extraInstructions: changes.extraInstructions,
+      });
+      // Clear one-shot extraInstructions after firing
+      if (changes.extraInstructions) setTimeout(() => setExtraInstructions(""), 200);
+    }
+  }
+
+  function handleAssistantFeedback(accepted: boolean) {
+    if (!lastPipelineResult?.referenceId) return;
+    feedbackMutation.mutate({ referenceId: lastPipelineResult.referenceId, accepted });
   }
 
   const hasResearchInput = researchInput.businessDescription.trim() || researchInput.competitorLink.trim() || researchInput.niche.trim();
@@ -1345,7 +1422,7 @@ export default function WorkflowWizard() {
                     )}
                     <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
                       disabled={isImageGenerating || !imagePrompt.trim()}
-                      onClick={handleGenerateOrEditImage}>
+                      onClick={() => handleGenerateOrEditImage()}>
                       {isImageGenerating ? (
                         <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
                       ) : referenceImageUrl ? (
@@ -1354,6 +1431,27 @@ export default function WorkflowWizard() {
                         <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
                       )}
                     </Button>
+
+                    {/* AI 助手聊天 — 任何时候都能用，生成后能直接下指令改图 */}
+                    {referenceImageUrl && (
+                      <AssistantChat
+                        context={{
+                          referenceImageUrl,
+                          generatedImageUrl: lastPipelineResult?.imageUrl ?? null,
+                          topic: imagePrompt || form.title,
+                          title: form.title,
+                          layout: layoutMode,
+                          mimicStrength,
+                          textOverlays: customTextOverlays || lastPipelineResult?.textOverlays || [],
+                          emojis: customEmojis || lastPipelineResult?.emojis || [],
+                          imagePromptUsed: lastPipelineResult?.promptUsed,
+                          referenceId: lastPipelineResult?.referenceId ?? null,
+                        }}
+                        isBusy={isImageGenerating}
+                        onApplyChanges={handleAssistantApply}
+                        onFeedback={handleAssistantFeedback}
+                      />
+                    )}
 
                     <ObjectUploader maxNumberOfFiles={9} maxFileSize={10485760}
                       allowedFileTypes={["image/*"]}

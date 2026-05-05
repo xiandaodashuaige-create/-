@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { db, sensitiveWordsTable } from "@workspace/db";
+import { db, sensitiveWordsTable, imageReferencesTable, usersTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import {
   AiRewriteContentBody,
   AiRewriteContentResponse,
@@ -17,6 +18,8 @@ import { ComfyUIClient } from "../services/comfyui.js";
 import { SeedreamClient } from "../services/seedream.js";
 import { buildCollage, composeWithText, type CollageLayout } from "../services/collage.js";
 import { analyzeCompetitorImage, generateImagePrompt, buildSeedreamPrompt } from "../services/imagePipeline.js";
+import { loadStyleProfileForPrompt, recomputeUserStyleProfile } from "../services/styleProfile.js";
+import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
 import { tryFetchXhsData } from "./xhs";
 
 const router: IRouter = Router();
@@ -550,7 +553,7 @@ router.post("/ai/generate-image-prompt", requireCredits("ai-generate-image-promp
 
 router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
   try {
-    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, size, layoutMode, preferredProvider } = req.body;
+    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, customEmojis, size, layoutMode, preferredProvider, extraInstructions } = req.body;
 
     if (!referenceImageUrl || typeof referenceImageUrl !== "string") {
       res.status(400).json({ error: "referenceImageUrl is required" });
@@ -580,7 +583,15 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
     req.log.info("Pipeline step 1: vision analysis");
     const analysis = await analyzeCompetitorImage(visionInput, req.log);
 
-    req.log.info("Pipeline step 2: prompt generation");
+    req.log.info("Pipeline step 2: prompt generation (with user style profile)");
+    let userIdForLearning: number | null = null;
+    try {
+      const u = await ensureUser(req);
+      userIdForLearning = u?.id ?? null;
+    } catch {
+      // not auth'd or no user — skip personalization
+    }
+    const styleProfile = userIdForLearning ? await loadStyleProfileForPrompt(userIdForLearning) : null;
     const promptResult = await generateImagePrompt({
       analysis,
       newTopic,
@@ -588,7 +599,14 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
       newKeyPoints: Array.isArray(newKeyPoints) ? newKeyPoints : undefined,
       mimicStrength: strength,
       customTextOverlays: Array.isArray(customTextOverlays) ? customTextOverlays : undefined,
+      styleProfile,
+      extraInstructions: typeof extraInstructions === "string" ? extraInstructions : undefined,
     });
+
+    // 用户/助手指定的 emoji 优先于模型自动生成的
+    if (Array.isArray(customEmojis)) {
+      promptResult.emojisToInclude = customEmojis.filter((e: any) => typeof e === "string");
+    }
 
     req.log.info("Pipeline step 3: image generation");
     const imageSize = ["1024x1024", "1024x1536", "1536x1024"].includes(size)
@@ -645,7 +663,7 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
         const [w, h] = imageSize.split("x").map(Number);
         if (layout === "single") {
           // 单图模式：把文字直接塞进 Seedream prompt，一次出图
-          const fullPrompt = buildSeedreamPrompt(promptResult.imagePrompt, promptResult.textToOverlay, "single");
+          const fullPrompt = buildSeedreamPrompt(promptResult.imagePrompt, promptResult.textToOverlay, "single", promptResult.emojisToInclude);
           const r = await seedream.generate({ prompt: fullPrompt, size: imageSize }, req.log);
           imageBuffer = r.imageBuffer;
           durationMs = r.durationMs;
@@ -760,6 +778,32 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
     }
 
     await deductCredits(req, "ai-generate-image");
+
+    let referenceId: number | null = null;
+    if (userIdForLearning) {
+      try {
+        const inserted = await db
+          .insert(imageReferencesTable)
+          .values({
+            userId: userIdForLearning,
+            refImageUrl: referenceImageUrl,
+            analysisJson: analysis as any,
+            generatedImageUrl: storedUrl,
+            generatedObjectPath: objectPath,
+            promptUsed: promptResult.imagePrompt,
+            layout,
+            mimicStrength: strength,
+            provider,
+            topic: newTopic,
+            accepted: false,
+          })
+          .returning({ id: imageReferencesTable.id });
+        referenceId = inserted[0]?.id ?? null;
+      } catch (dbErr) {
+        req.log.warn(dbErr, "Failed to record image reference for learning");
+      }
+    }
+
     res.json({
       imageUrl: storedUrl,
       objectPath,
@@ -767,8 +811,11 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
       analysis,
       promptUsed: promptResult.imagePrompt,
       textOverlays: promptResult.textToOverlay,
+      emojis: promptResult.emojisToInclude,
       provider,
       durationMs,
+      referenceId,
+      styleProfileUsed: !!(styleProfile && styleProfile.sampleSize > 0),
     });
   } catch (err: any) {
     req.log.error(err, "Image pipeline failed");
@@ -776,6 +823,86 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
       ? "图片内容不符合安全政策，请修改主题后重试"
       : "图片生成失败，请重试";
     res.status(500).json({ error: message });
+  }
+});
+
+router.post("/ai/image-feedback", async (req, res): Promise<void> => {
+  try {
+    const { referenceId, accepted, rating, feedbackText } = req.body;
+    if (typeof referenceId !== "number") {
+      res.status(400).json({ error: "referenceId is required" });
+      return;
+    }
+    const user = await ensureUser(req);
+    if (!user) {
+      res.status(401).json({ error: "未登录" });
+      return;
+    }
+    const updates: Record<string, any> = {};
+    if (typeof accepted === "boolean") updates.accepted = accepted;
+    if (typeof rating === "number" && rating >= 1 && rating <= 5) updates.rating = rating;
+    if (typeof feedbackText === "string") updates.feedbackText = feedbackText.slice(0, 500);
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: "至少要提供 accepted/rating/feedbackText 之一" });
+      return;
+    }
+    const rows = await db
+      .update(imageReferencesTable)
+      .set(updates)
+      .where(and(eq(imageReferencesTable.id, referenceId), eq(imageReferencesTable.userId, user.id)))
+      .returning({ id: imageReferencesTable.id, userId: imageReferencesTable.userId });
+    if (rows.length === 0) {
+      res.status(404).json({ error: "记录不存在或无权访问" });
+      return;
+    }
+    if (rows[0].userId && updates.accepted !== undefined) {
+      try {
+        await recomputeUserStyleProfile(rows[0].userId);
+      } catch (e) {
+        req.log.warn(e, "Failed to recompute style profile");
+      }
+    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    req.log.error(err, "Image feedback failed");
+    res.status(500).json({ error: "保存反馈失败" });
+  }
+});
+
+router.post("/ai/assistant-chat", async (req, res): Promise<void> => {
+  try {
+    const { message, history, context } = req.body as {
+      message: string;
+      history?: Array<{ role: "user" | "assistant"; content: string }>;
+      context: AssistantImageContext;
+    };
+    if (!message || typeof message !== "string") {
+      res.status(400).json({ error: "message is required" });
+      return;
+    }
+    if (!context || typeof context !== "object") {
+      res.status(400).json({ error: "context is required" });
+      return;
+    }
+    const reply = await chatWithAssistant(
+      Array.isArray(history) ? history : [],
+      message,
+      {
+        referenceImageUrl: context.referenceImageUrl ?? null,
+        generatedImageUrl: context.generatedImageUrl ?? null,
+        topic: context.topic ?? null,
+        title: context.title ?? null,
+        layout: context.layout || "single",
+        mimicStrength: context.mimicStrength || "partial",
+        textOverlays: Array.isArray(context.textOverlays) ? context.textOverlays : [],
+        emojis: Array.isArray(context.emojis) ? context.emojis : [],
+        imagePromptUsed: context.imagePromptUsed ?? null,
+      },
+    );
+    res.json(reply);
+  } catch (err: any) {
+    req.log.error(err, "Assistant chat failed");
+    res.status(500).json({ error: "AI 助手暂时无法响应，请稍后再试" });
   }
 });
 

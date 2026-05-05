@@ -18,10 +18,13 @@ pnpm workspace monorepo using TypeScript. **鹿联小红书AI爆款创作间 (Lu
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **AI**:
-  - OpenAI via Replit AI Integrations (gpt-4o for vision/text, gpt-image-1 for image fallback)
+  - OpenAI via Replit AI Integrations (gpt-4o for vision/text/agentic function-calling, gpt-image-1 for image fallback)
   - **即梦 Seedream 5.0-lite** (字节跳动·火山引擎方舟 API) — 主力出图引擎，专为中文文字渲染+小红书风格优化（需要 `ARK_API_KEY`）
   - **ComfyUI** (Flux + Redux + ControlNet + AnyText) — GPU 自部署兜底（需要 `COMFYUI_URL`）
   - **后端拼图引擎** (sharp + SVG 文字叠加) — 支持 单图/上下双图/左右双图/2×2四格/左大右双小 五种布局
+  - **12 维视觉分析** — GPT-4o 拆解参考图：布局/色调/风格/氛围/主体/构图/关键元素/文字方案/字幕设计/emoji/情绪钩子/拼图结构/模仿建议(必保留+可换+避坑)
+  - **Agentic AI 助手** — 结果页对话式助手 (`/ai/assistant-chat`)，GPT-4o function-calling 直接执行换布局/改文字/调强度/加emoji/重新生成
+  - **学习系统** — `image_references` + `user_style_profiles` 表记录每次参考图与采用反馈，每次生成自动注入该用户的偏好色调/布局/字体/emoji/情绪
 - **Auth**: Clerk (Replit-managed)
 - **File Storage**: Replit Object Storage (GCS-backed, presigned URL uploads)
 - **Build**: esbuild (CJS bundle)

@@ -97,6 +97,8 @@ export const api = {
       newKeyPoints?: string[];
       mimicStrength?: "full" | "partial" | "minimal";
       customTextOverlays?: Array<{ text: string; position: string }>;
+      customEmojis?: string[];
+      extraInstructions?: string;
       size?: string;
       layoutMode?: "single" | "dual-vertical" | "dual-horizontal" | "grid-2x2" | "left-big-right-small";
       preferredProvider?: "seedream" | "comfyui" | "openai";
@@ -108,9 +110,41 @@ export const api = {
         analysis: any;
         promptUsed: string;
         textOverlays: Array<{ text: string; position: string; style: string }>;
+        emojis: string[];
         provider: string;
         durationMs: number;
+        referenceId: number | null;
+        styleProfileUsed: boolean;
       }>("/ai/generate-image-pipeline", { method: "POST", body: JSON.stringify(data) }),
+    imageFeedback: (data: { referenceId: number; accepted?: boolean; rating?: number; feedbackText?: string }) =>
+      request<{ ok: true }>("/ai/image-feedback", { method: "POST", body: JSON.stringify(data) }),
+    assistantChat: (data: {
+      message: string;
+      history: Array<{ role: "user" | "assistant"; content: string }>;
+      context: {
+        referenceImageUrl?: string | null;
+        generatedImageUrl?: string | null;
+        topic?: string | null;
+        title?: string | null;
+        layout: string;
+        mimicStrength: string;
+        textOverlays: Array<{ text: string; position: string; style?: string }>;
+        emojis: string[];
+        imagePromptUsed?: string | null;
+      };
+    }) =>
+      request<{
+        message: string;
+        actions: Array<{
+          type: "regenerate" | "change_layout" | "change_mimic_strength" | "edit_texts" | "set_emojis" | "extra_instructions" | "no_action";
+          reason: string;
+          newLayout?: string;
+          newStrength?: string;
+          newOverlays?: Array<{ text: string; position: string; style?: string }>;
+          newEmojis?: string[];
+          instructions?: string;
+        }>;
+      }>("/ai/assistant-chat", { method: "POST", body: JSON.stringify(data) }),
     competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>
       request<any>("/ai/competitor-research", { method: "POST", body: JSON.stringify(data) }),
   },
