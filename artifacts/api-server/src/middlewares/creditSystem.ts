@@ -10,6 +10,8 @@ export const CREDIT_COSTS: Record<string, number> = {
   "ai-generate-image": 5,
   "ai-analyze-reference-image": 1,
   "ai-generate-image-prompt": 1,
+  "ai-generate-video-plan": 2,
+  "ai-generate-video": 15,
   "ai-guide": 1,
   "ai-check-sensitivity": 1,
   "content-publish": 2,
@@ -26,6 +28,8 @@ const ROUTE_TO_OPERATION: Record<string, string> = {
   "POST:/ai/analyze-reference-image": "ai-analyze-reference-image",
   "POST:/ai/generate-image-prompt": "ai-generate-image-prompt",
   "POST:/ai/generate-image-pipeline": "ai-generate-image",
+  "POST:/ai/generate-video-plan": "ai-generate-video-plan",
+  "POST:/ai/generate-video": "ai-generate-video",
   "POST:/ai/guide": "ai-guide",
   "POST:/ai/check-sensitivity": "ai-check-sensitivity",
 };
@@ -143,6 +147,29 @@ export async function deductCredits(req: Request, operationType?: string): Promi
   user.credits = newBalance;
 }
 
+/**
+ * 退款（仅用于异步任务失败补偿）。amount 必须为正。
+ */
+export async function refundCredits(userId: number, amount: number, op: string, reason: string): Promise<void> {
+  if (amount <= 0) return;
+  const result = await db.update(usersTable)
+    .set({
+      credits: sql`${usersTable.credits} + ${amount}`,
+      totalCreditsUsed: sql`GREATEST(0, ${usersTable.totalCreditsUsed} - ${amount})`,
+    })
+    .where(eq(usersTable.id, userId))
+    .returning({ newCredits: usersTable.credits });
+  if (!result.length) return;
+  await db.insert(creditTransactionsTable).values({
+    userId,
+    amount,
+    balanceAfter: result[0].newCredits,
+    type: "refund",
+    operationType: op,
+    description: `失败自动退款：${reason}`.slice(0, 200),
+  });
+}
+
 function getOperationLabel(op: string): string {
   const labels: Record<string, string> = {
     "ai-rewrite": "AI智能改写",
@@ -150,6 +177,8 @@ function getOperationLabel(op: string): string {
     "ai-generate-title": "AI生成标题",
     "ai-generate-hashtags": "AI生成标签",
     "ai-generate-image": "AI生成配图",
+    "ai-generate-video-plan": "AI视频创意 brief",
+    "ai-generate-video": "AI生成视频（豆包Seedance）",
     "ai-guide": "AI运营向导",
     "ai-check-sensitivity": "敏感词检测",
     "content-publish": "发布内容",
