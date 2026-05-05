@@ -15,6 +15,8 @@ export interface Schedule {
   accountId: number;
   scheduledAt: Date;
   status: ScheduleStatus;
+  /** @nullable */
+  errorMessage?: string | null;
   createdAt: Date;
   content?: ContentSummary;
   account?: AccountSummary;

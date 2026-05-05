@@ -404,6 +404,9 @@ export type ScheduleStatus =
 
 export const ScheduleStatus = {
   pending: "pending",
+  publishing: "publishing",
+  paused: "paused",
+  published: "published",
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",
@@ -421,6 +424,8 @@ export interface Schedule {
   accountId: number;
   scheduledAt: string;
   status: ScheduleStatus;
+  /** @nullable */
+  errorMessage?: string | null;
   createdAt: string;
   content?: ContentSummary;
   account?: AccountSummary;

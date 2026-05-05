@@ -138,21 +138,62 @@ export async function publishToFacebookPage(
   return { id: data.id };
 }
 
+// 轮询 IG 媒体容器状态，直到 FINISHED（视频/Reels 必需，否则 media_publish 必失败）
+async function waitForIgContainerReady(
+  containerId: string,
+  pageToken: string,
+  opts: { maxWaitMs?: number; intervalMs?: number } = {},
+): Promise<void> {
+  const maxWaitMs = opts.maxWaitMs ?? 5 * 60 * 1000; // 5 分钟
+  const intervalMs = opts.intervalMs ?? 4000;
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const res = await fetch(
+      `${GRAPH_API}/${containerId}?fields=status_code,status&access_token=${encodeURIComponent(pageToken)}`,
+    );
+    const data = (await res.json()) as { status_code?: string; status?: string; error?: unknown };
+    if (!res.ok || data.error) {
+      throw new Error(`Instagram 容器状态查询失败: ${JSON.stringify(data.error ?? data)}`);
+    }
+    if (data.status_code === "FINISHED" || data.status_code === "PUBLISHED") return;
+    if (data.status_code === "ERROR" || data.status_code === "EXPIRED") {
+      throw new Error(`Instagram 媒体处理失败: ${data.status_code} ${data.status ?? ""}`);
+    }
+    // IN_PROGRESS 继续轮询
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("Instagram 媒体处理超时（5 分钟），请稍后重试");
+}
+
 export async function publishToInstagram(
   igAccountId: string,
   pageToken: string,
   caption: string,
-  imageUrl: string,
+  media: { imageUrl?: string; videoUrl?: string },
 ): Promise<{ id: string }> {
+  const isVideo = !!media.videoUrl;
+  const body: Record<string, string> = { caption, access_token: pageToken };
+  if (isVideo) {
+    body["media_type"] = "REELS"; // 2024+ 视频必须走 Reels
+    body["video_url"] = media.videoUrl!;
+  } else if (media.imageUrl) {
+    body["image_url"] = media.imageUrl;
+  } else {
+    throw new Error("Instagram 必须提供图片或视频 URL");
+  }
   const mediaRes = await fetch(`${GRAPH_API}/${igAccountId}/media`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_url: imageUrl, caption, access_token: pageToken }),
+    body: JSON.stringify(body),
   });
   const mediaData = (await mediaRes.json()) as { id?: string; error?: unknown };
   if (!mediaRes.ok || mediaData.error || !mediaData.id) {
     throw new Error(`Instagram 创建媒体失败: ${JSON.stringify(mediaData.error ?? mediaData)}`);
   }
+  // 视频必须轮询，图片为安全起见也轻量轮询一次
+  await waitForIgContainerReady(mediaData.id, pageToken, isVideo
+    ? { maxWaitMs: 5 * 60 * 1000, intervalMs: 4000 }
+    : { maxWaitMs: 30 * 1000, intervalMs: 2000 });
   const publishRes = await fetch(`${GRAPH_API}/${igAccountId}/media_publish`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

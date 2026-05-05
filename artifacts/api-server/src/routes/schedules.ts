@@ -91,6 +91,7 @@ router.get("/schedules", async (req, res): Promise<void> => {
       accountId: row.account_id,
       scheduledAt: row.scheduled_at,
       status: row.status,
+      errorMessage: row.error_message ?? null,
       createdAt: row.created_at,
       content: {
         id: row.content_id,
@@ -472,6 +473,25 @@ router.post("/schedules/:id/pause", async (req, res): Promise<void> => {
     res.json({ ok: true, id, status: "paused" });
   } catch (err) {
     req.log.error(err, "Failed to pause schedule");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/schedules/:id/retry", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const id = Number(req.params.id);
+    const owned = await loadOwnedSchedule(id, u.id);
+    if (!owned) { res.status(404).json({ error: "Schedule not found" }); return; }
+    if (owned.status !== "failed") { res.status(400).json({ error: `当前状态 ${owned.status} 不可重试` }); return; }
+    // 立即重发：scheduledAt 设为现在 - 5 秒，errorMessage 清空，下一次 cron tick (≤60s) 拾取
+    await db.update(schedulesTable)
+      .set({ status: "pending", errorMessage: null, scheduledAt: new Date(Date.now() - 5_000) })
+      .where(eq(schedulesTable.id, id));
+    res.json({ ok: true, id, status: "pending" });
+  } catch (err) {
+    req.log.error(err, "Failed to retry schedule");
     res.status(500).json({ error: "Internal server error" });
   }
 });

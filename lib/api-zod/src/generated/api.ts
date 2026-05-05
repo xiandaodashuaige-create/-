@@ -506,7 +506,16 @@ export const ListSchedulesResponseItem = zod.object({
   contentId: zod.number(),
   accountId: zod.number(),
   scheduledAt: zod.coerce.date(),
-  status: zod.enum(["pending", "completed", "failed", "cancelled"]),
+  status: zod.enum([
+    "pending",
+    "publishing",
+    "paused",
+    "published",
+    "completed",
+    "failed",
+    "cancelled",
+  ]),
+  errorMessage: zod.string().nullish(),
   createdAt: zod.coerce.date(),
   content: zod
     .object({

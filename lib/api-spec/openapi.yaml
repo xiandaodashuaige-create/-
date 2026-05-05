@@ -1076,7 +1076,9 @@ components:
           format: date-time
         status:
           type: string
-          enum: [pending, completed, failed, cancelled]
+          enum: [pending, publishing, paused, published, completed, failed, cancelled]
+        errorMessage:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time

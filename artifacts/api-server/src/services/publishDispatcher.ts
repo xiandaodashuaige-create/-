@@ -24,7 +24,22 @@ interface DueRow {
 const MAX_RETRIES = 3;
 
 async function findDueSchedules(): Promise<DueRow[]> {
+  // 原子认领：把到期 pending 行翻成 publishing，防止下一个 cron tick（IG 视频可能轮询 5 分钟）重复发布
   const rows = await db.execute(sql`
+    WITH due AS (
+      SELECT id FROM schedules
+      WHERE status = 'pending'
+        AND scheduled_at <= NOW()
+        AND platform IN ('tiktok','instagram','facebook')
+      ORDER BY scheduled_at ASC
+      LIMIT 20
+      FOR UPDATE SKIP LOCKED
+    ),
+    claimed AS (
+      UPDATE schedules SET status = 'publishing'
+      WHERE id IN (SELECT id FROM due)
+      RETURNING id
+    )
     SELECT
       s.id AS schedule_id, s.platform, s.account_id, s.content_id,
       c.title, c.body, c.image_urls, c.video_url,
@@ -33,11 +48,8 @@ async function findDueSchedules(): Promise<DueRow[]> {
     FROM schedules s
     INNER JOIN content c ON s.content_id = c.id
     INNER JOIN accounts a ON s.account_id = a.id
-    WHERE s.status = 'pending'
-      AND s.scheduled_at <= NOW()
-      AND s.platform IN ('tiktok','instagram','facebook')
+    WHERE s.id IN (SELECT id FROM claimed)
     ORDER BY s.scheduled_at ASC
-    LIMIT 20
   `);
   return rows.rows as unknown as DueRow[];
 }
@@ -130,8 +142,13 @@ async function publishOne(row: DueRow): Promise<void> {
     if (row.platform === "instagram") {
       if (!row.oauth_access_token || !row.platform_account_id) throw new Error("Instagram 未授权");
       const img = row.image_urls && row.image_urls[0];
-      if (!img) throw new Error("Instagram 必须有至少 1 张图片 URL");
-      const result = await MetaOAuth.publishToInstagram(row.platform_account_id, row.oauth_access_token, caption, img);
+      if (!img && !row.video_url) throw new Error("Instagram 必须有至少 1 张图片或 1 个视频 URL");
+      const result = await MetaOAuth.publishToInstagram(
+        row.platform_account_id,
+        row.oauth_access_token,
+        caption,
+        row.video_url ? { videoUrl: row.video_url } : { imageUrl: img },
+      );
       await markPublished(row.schedule_id, row.content_id, result.id);
       logger.info({ scheduleId: row.schedule_id, postId: result.id }, "Instagram published");
       return;
@@ -143,11 +160,23 @@ async function publishOne(row: DueRow): Promise<void> {
   }
 }
 
+// 释放 stale 'publishing' 行（服务器在发布中崩溃时遗留）：>15 分钟翻回 pending，让下一 tick 重试
+async function recoverStalePublishing(): Promise<void> {
+  await db.execute(sql`
+    UPDATE schedules
+    SET status='pending',
+        error_message=COALESCE(error_message,'') || ' | recovered_from_publishing_at=' || extract(epoch from now())::text
+    WHERE status='publishing'
+      AND scheduled_at < NOW() - INTERVAL '15 minutes'
+  `);
+}
+
 let isRunning = false;
 export async function runPublishDispatcher(): Promise<void> {
   if (isRunning) return;
   isRunning = true;
   const startedAt = Date.now();
+  try { await recoverStalePublishing(); } catch (e) { logger.warn({ err: e }, "recoverStalePublishing failed"); }
   try {
     const due = await findDueSchedules();
     if (due.length === 0) return;

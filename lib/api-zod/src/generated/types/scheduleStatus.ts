@@ -11,6 +11,9 @@ export type ScheduleStatus =
 
 export const ScheduleStatus = {
   pending: "pending",
+  publishing: "publishing",
+  paused: "paused",
+  published: "published",
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",

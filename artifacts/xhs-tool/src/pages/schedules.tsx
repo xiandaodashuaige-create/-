@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Calendar, Trash2, Clock, Sparkles, Loader2, Wand2, CalendarDays, Copy, Check, Pencil, Pause, Play,
+  Calendar, Trash2, Clock, Sparkles, Loader2, Wand2, CalendarDays, Copy, Check, Pencil, Pause, Play, RotateCw, AlertCircle,
   CheckCircle2, AlertTriangle, X,
 } from "lucide-react";
 import { usePlatform } from "@/lib/platform-context";
@@ -79,6 +79,11 @@ export default function Schedules() {
     mutationFn: (id: number) => api.schedules.resume(id),
     onSuccess: () => { refreshAll(); toast({ title: "已恢复", description: "到点将自动发布" }); },
     onError: (e: Error) => toast({ title: "恢复失败", description: e.message, variant: "destructive" }),
+  });
+  const retryMutation = useMutation({
+    mutationFn: (id: number) => api.schedules.retry(id),
+    onSuccess: () => { refreshAll(); toast({ title: "已重新排队", description: "1 分钟内自动重发" }); },
+    onError: (e: Error) => toast({ title: "重试失败", description: e.message, variant: "destructive" }),
   });
 
   const bulkActionMutation = useMutation({
@@ -536,8 +541,13 @@ export default function Schedules() {
                                 {isPending && <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100 text-[10px]">待发布</Badge>}
                                 {isPaused && <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 text-[10px]"><Pause className="h-2.5 w-2.5 mr-0.5" />已暂停</Badge>}
                                 {isDone && <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 text-[10px]"><CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />已完成</Badge>}
-                                {schedule.status === "failed" && <Badge className="bg-red-100 text-red-800 hover:bg-red-100 text-[10px]">失败</Badge>}
+                                {schedule.status === "failed" && <Badge className="bg-red-100 text-red-800 hover:bg-red-100 text-[10px]"><AlertCircle className="h-2.5 w-2.5 mr-0.5" />失败</Badge>}
                               </div>
+                              {schedule.status === "failed" && schedule.errorMessage && (
+                                <p className="text-[11px] text-red-700 mt-1 line-clamp-2" title={schedule.errorMessage}>
+                                  原因：{schedule.errorMessage}
+                                </p>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0">
@@ -554,6 +564,11 @@ export default function Schedules() {
                             {isPaused && (
                               <Button variant="ghost" size="sm" className="h-8 text-emerald-700 hover:text-emerald-800" onClick={() => resumeMutation.mutate(schedule.id)} disabled={resumeMutation.isPending}>
                                 <Play className="h-3.5 w-3.5 mr-1" />恢复
+                              </Button>
+                            )}
+                            {schedule.status === "failed" && (
+                              <Button variant="ghost" size="sm" className="h-8 text-blue-700 hover:text-blue-800" onClick={() => retryMutation.mutate(schedule.id)} disabled={retryMutation.isPending}>
+                                <RotateCw className="h-3.5 w-3.5 mr-1" />重试
                               </Button>
                             )}
                             {canEdit && (

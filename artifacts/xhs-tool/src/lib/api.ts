@@ -235,6 +235,8 @@ export const api = {
       request<{ ok: true; id: number; status: string }>(`/schedules/${id}/pause`, { method: "POST" }),
     resume: (id: number) =>
       request<{ ok: true; id: number; status: string }>(`/schedules/${id}/resume`, { method: "POST" }),
+    retry: (id: number) =>
+      request<{ ok: true; id: number; status: string }>(`/schedules/${id}/retry`, { method: "POST" }),
     bulkAction: (ids: number[], action: "pause" | "resume" | "delete") =>
       request<{ ok: true; affected: number }>(`/schedules/bulk-action`, { method: "POST", body: JSON.stringify({ ids, action }) }),
     bulkCreate: (data: {
