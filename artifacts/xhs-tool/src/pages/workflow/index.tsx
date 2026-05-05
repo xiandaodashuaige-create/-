@@ -53,15 +53,8 @@ export default function WorkflowWizard() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { activePlatform, setActivePlatform } = usePlatform();
-  // 非小红书平台直接从 step 2（AI 生成）开始，跳过依赖小红书数据源的灵感研究
-  const [step, setStep] = useState(activePlatform === "xhs" ? 1 : 2);
-
-  // 切到非小红书平台时，如果还停在 step 1（XHS-only），自动跳到 step 2
-  useEffect(() => {
-    if (activePlatform !== "xhs") {
-      setStep((s) => (s === 1 ? 2 : s));
-    }
-  }, [activePlatform]);
+  // 所有平台都从 step 1（AI 内容策略 / 灵感研究）开始
+  const [step, setStep] = useState(1);
 
   const [selectedRegion, setSelectedRegion] = useState<string>("");
   const [form, setForm] = useState({
@@ -321,7 +314,8 @@ export default function WorkflowWizard() {
       competitorLink: competitorLink || undefined,
       niche: niche || undefined,
       region: selectedRegion,
-    });
+      platform: activePlatform,
+    } as any);
   }
 
   const runAiProgressSequence = useCallback(async (suggestion: any) => {
@@ -365,7 +359,8 @@ export default function WorkflowWizard() {
             region: selectedRegion || undefined,
             style: "creative",
             additionalInstructions: `必须修复以下敏感词问题，替换或删除所有违规表达：${issueList}。保持内容核心信息不变，只修复问题部分。`,
-          });
+            platform: activePlatform,
+          } as any);
           if (fixResult.rewrittenTitle) currentTitle = fixResult.rewrittenTitle;
           if (fixResult.rewrittenBody) currentBody = fixResult.rewrittenBody;
           if (fixResult.suggestedTags?.length) currentTags = [...new Set([...currentTags, ...fixResult.suggestedTags])];
@@ -404,11 +399,11 @@ export default function WorkflowWizard() {
             setImagePrompt(`参考爆款《${topCover.title}》的封面视觉风格 → ${suggestion.imagePrompt}`);
             const pipelineRes = await api.ai.generateImagePipeline({
               referenceImageUrl: proxiedRef,
-              newTopic: suggestion.title || form.title || "小红书内容",
+              newTopic: suggestion.title || form.title || "内容",
               newTitle: suggestion.title,
               mimicStrength: "partial",
               extraInstructions: suggestion.imagePrompt,
-              size: "1024x1536",
+              platform: activePlatform,
             });
             const url = pipelineRes.storedUrl || pipelineRes.imageUrl;
             if (url) {
@@ -422,7 +417,7 @@ export default function WorkflowWizard() {
             ? `${suggestion.imagePrompt}。参考同行爆款笔记的封面风格特点（${styleHints}），生成类似风格但全新原创的配图。要求：小红书爆款封面风格，精美、高级感、吸引眼球、适合社交媒体展示。`
             : suggestion.imagePrompt;
           setImagePrompt(enhancedPrompt);
-          const imageRes = await api.ai.generateImage({ prompt: enhancedPrompt, size: "1024x1536" });
+          const imageRes = await api.ai.generateImage({ prompt: enhancedPrompt });
           const url = imageRes.storedUrl || imageRes.imageUrl;
           if (url) {
             setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
@@ -597,8 +592,14 @@ export default function WorkflowWizard() {
     }
   }, [step]);
 
+  const PLATFORM_CREATOR_URL: Record<string, string> = {
+    xhs: "https://creator.xiaohongshu.com/publish/publish",
+    tiktok: "https://www.tiktok.com/upload",
+    instagram: "https://www.instagram.com/",
+    facebook: "https://www.facebook.com/",
+  };
   function handleOpenXHS() {
-    window.open("https://creator.xiaohongshu.com/publish/publish", "_blank");
+    window.open(PLATFORM_CREATOR_URL[activePlatform] || PLATFORM_CREATOR_URL.xhs, "_blank");
     setPublishStep("opened");
   }
 
@@ -640,7 +641,7 @@ export default function WorkflowWizard() {
       const finalExtra = overrides?.extraInstructions ?? extraInstructions;
       pipelineImageMutation.mutate({
         referenceImageUrl,
-        newTopic: imagePrompt || form.title || "小红书内容",
+        newTopic: imagePrompt || form.title || "内容",
         newTitle: form.title || undefined,
         newKeyPoints: form.tags?.length ? form.tags : undefined,
         mimicStrength: finalStrength,
@@ -649,9 +650,23 @@ export default function WorkflowWizard() {
         customTextOverlays: finalOverlays || undefined,
         customEmojis: finalEmojis || undefined,
         extraInstructions: finalExtra || undefined,
-      } as any);
+        platform: activePlatform,
+      });
     } else {
-      imageMutation.mutate({ prompt: imagePrompt, size: imageSize });
+      // 给纯 prompt 生图也补上平台风格收尾，避免非小红书平台拿到小红书风格图
+      const platformSuffix: Record<string, string> = {
+        xhs: "小红书爆款封面风格，3:4 竖版",
+        tiktok: "TikTok 短视频封面风格，9:16 竖版，hook 字幕居中，潮酷高对比",
+        instagram: "Instagram Feed 封面风格，1:1 方版，editorial / lifestyle 高级感配色",
+        facebook: "Facebook 帖子封面风格，16:9 横版，主体清晰可读性高",
+      };
+      const sizeByPlatform: Record<string, string> = {
+        xhs: "1024x1536", tiktok: "1024x1536", instagram: "1024x1024", facebook: "1536x1024",
+      };
+      imageMutation.mutate({
+        prompt: `${imagePrompt}\n${platformSuffix[activePlatform] || platformSuffix.xhs}`,
+        size: sizeByPlatform[activePlatform] || imageSize,
+      });
     }
   }
 
@@ -713,8 +728,9 @@ export default function WorkflowWizard() {
               {PLATFORMS[activePlatform].name} 创作模式
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              "同行分析"步骤基于小红书公开数据，已为你跳过。直接进入 AI 生成 → 排程发布。发布走
-              {PLATFORMS[activePlatform].publishVia === "ayrshare" ? " Ayrshare 聚合" : " Meta 直连"} 管道
+              AI 会按 {PLATFORMS[activePlatform].name} 的爆款公式（hook / 节奏 / 标签 / 画幅）生成方案。
+              当前同行数据为 AI 推理（非实时抓取）。发布走
+              {PLATFORMS[activePlatform].publishVia === "ayrshare" ? " Ayrshare 聚合" : PLATFORMS[activePlatform].publishVia === "meta_direct" ? " Meta 直连" : PLATFORMS[activePlatform].publishVia === "tiktok_direct" ? " TikTok 直连" : " OAuth"} 管道
               （需先在<button onClick={() => setLocation("/accounts")} className="underline ml-1">账号页</button>完成 OAuth 授权）。
             </p>
           </div>
@@ -725,13 +741,9 @@ export default function WorkflowWizard() {
         {STEPS.map((s, i) => (
           <div key={s.id} className="flex items-center flex-1 min-w-0">
             <button
-              onClick={() => s.id <= step && (isXhs || s.id !== 1) && setStep(s.id)}
-              disabled={!isXhs && s.id === 1}
-              title={!isXhs && s.id === 1 ? "灵感分析仅小红书可用" : undefined}
+              onClick={() => s.id <= step && setStep(s.id)}
               className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-colors shrink-0 ${
-                !isXhs && s.id === 1
-                  ? "opacity-40 cursor-not-allowed"
-                  : s.id === step
+                s.id === step
                   ? "bg-red-50 text-red-600"
                   : s.id < step
                   ? "text-green-600 cursor-pointer hover:bg-green-50"
@@ -1856,7 +1868,7 @@ export default function WorkflowWizard() {
           {/* Publish Steps */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-red-500" />发布到小红书</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Send className={`h-5 w-5 ${PLATFORMS[activePlatform].textClass}`} />发布到 {PLATFORMS[activePlatform].name}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-4">
@@ -1896,10 +1908,14 @@ export default function WorkflowWizard() {
                     {publishStep === "opened" ? <Check className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium">打开小红书创作中心</p>
-                    <p className="text-sm text-muted-foreground mt-1">在创作中心粘贴文字 → 上传图片/视频 → 发布</p>
-                    <Button className="mt-3 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white" onClick={handleOpenXHS}>
-                      <ExternalLink className="h-4 w-4 mr-2" />打开小红书创作中心
+                    <p className="font-medium">打开 {PLATFORMS[activePlatform].name} 创作中心</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {isXhs
+                        ? "在创作中心粘贴文字 → 上传图片/视频 → 发布"
+                        : `已为 ${PLATFORMS[activePlatform].name} 优化文案/标签/画幅，可直接粘贴上传${PLATFORMS[activePlatform].publishMode === "api" ? "；如已绑定账号，定时排程也会自动通过 API 发布" : ""}`}
+                    </p>
+                    <Button className={`mt-3 ${isXhs ? "bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white" : ""}`} variant={isXhs ? "default" : "default"} onClick={handleOpenXHS}>
+                      <ExternalLink className="h-4 w-4 mr-2" />打开 {PLATFORMS[activePlatform].name} 创作中心
                     </Button>
                   </div>
                 </div>
@@ -1911,16 +1927,20 @@ export default function WorkflowWizard() {
                   <div className="flex-1">
                     <p className="font-medium">标记为已发布 <span className="text-xs font-normal text-muted-foreground">（自动开启数据追踪）</span></p>
                     <p className="text-sm text-muted-foreground mt-1">
-                      在小红书发布后复制笔记链接粘贴到下面，系统会每天自动追踪点赞/收藏/评论 + SEO关键词排名
+                      {isXhs
+                        ? "在小红书发布后复制笔记链接粘贴到下面，系统会每天自动追踪点赞/收藏/评论 + SEO关键词排名"
+                        : `在 ${PLATFORMS[activePlatform].name} 发布后，点击"确认已发布"标记完成${isXhs ? "" : "（数据追踪暂仅小红书可用）"}`}
                     </p>
                     <div className="mt-3 flex flex-col sm:flex-row gap-2">
-                      <Input
-                        value={publishedNoteUrl}
-                        onChange={(e) => setPublishedNoteUrl(e.target.value)}
-                        placeholder="粘贴小红书笔记链接（xhslink.com/... 或 xiaohongshu.com/explore/...）"
-                        disabled={publishMutation.isSuccess}
-                        className="flex-1 text-sm"
-                      />
+                      {isXhs ? (
+                        <Input
+                          value={publishedNoteUrl}
+                          onChange={(e) => setPublishedNoteUrl(e.target.value)}
+                          placeholder="粘贴小红书笔记链接（xhslink.com/... 或 xiaohongshu.com/explore/...）"
+                          disabled={publishMutation.isSuccess}
+                          className="flex-1 text-sm"
+                        />
+                      ) : null}
                       <Button
                         variant={publishMutation.isSuccess ? "outline" : publishStep === "opened" ? "default" : "outline"}
                         disabled={publishMutation.isPending || publishMutation.isSuccess || !savedContentId}

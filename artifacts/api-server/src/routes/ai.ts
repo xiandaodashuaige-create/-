@@ -17,7 +17,7 @@ import { requireCredits, deductCredits, ensureUser } from "../middlewares/credit
 import { ComfyUIClient } from "../services/comfyui.js";
 import { SeedreamClient } from "../services/seedream.js";
 import { buildCollage, composeWithText, type CollageLayout } from "../services/collage.js";
-import { analyzeCompetitorImage, generateImagePrompt, buildSeedreamPrompt } from "../services/imagePipeline.js";
+import { analyzeCompetitorImage, generateImagePrompt, buildSeedreamPrompt, PLATFORM_VISUAL_PRESET } from "../services/imagePipeline.js";
 import { loadStyleProfileForPrompt, recomputeUserStyleProfile } from "../services/styleProfile.js";
 import { loadUserContentProfile, renderContentProfileForPrompt } from "../services/contentProfile.js";
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
@@ -535,7 +535,9 @@ router.post("/ai/generate-image-prompt", requireCredits("ai-generate-image-promp
 
 router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
   try {
-    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, customEmojis, size, layoutMode, preferredProvider, extraInstructions } = req.body;
+    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, customEmojis, size, layoutMode, preferredProvider, extraInstructions, platform: rawPlatform } = req.body;
+    const platform = typeof rawPlatform === "string" && rawPlatform in PLATFORM_VISUAL_PRESET ? rawPlatform : "xhs";
+    const platformPreset = PLATFORM_VISUAL_PRESET[platform];
 
     if (!referenceImageUrl || typeof referenceImageUrl !== "string") {
       res.status(400).json({ error: "referenceImageUrl is required" });
@@ -593,7 +595,7 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
     req.log.info("Pipeline step 3: image generation");
     const imageSize = ["1024x1024", "1024x1536", "1536x1024"].includes(size)
       ? size
-      : promptResult.recommendedSize;
+      : platformPreset.size;
 
     let imageBuffer: Buffer;
     let provider = "gpt-image-1";
@@ -645,7 +647,7 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
         const [w, h] = imageSize.split("x").map(Number);
         if (layout === "single") {
           // 单图模式：把文字直接塞进 Seedream prompt，一次出图
-          const fullPrompt = buildSeedreamPrompt(promptResult.imagePrompt, promptResult.textToOverlay, "single", promptResult.emojisToInclude);
+          const fullPrompt = buildSeedreamPrompt(promptResult.imagePrompt, promptResult.textToOverlay, "single", promptResult.emojisToInclude, platform);
           const r = await seedream.generate({ prompt: fullPrompt, size: imageSize }, req.log);
           imageBuffer = r.imageBuffer;
           durationMs = r.durationMs;
@@ -1005,19 +1007,24 @@ router.get("/ai/my-content-profile", async (req, res): Promise<void> => {
 
 router.post("/ai/competitor-research", requireCredits("ai-competitor-research"), async (req, res): Promise<void> => {
   try {
-    const { businessDescription, competitorLink, niche, region } = req.body;
+    const { businessDescription, competitorLink, niche, region, platform: rawPlatform } = req.body;
 
     const bd = typeof businessDescription === "string" ? businessDescription.slice(0, 1000).trim() : "";
     const cl = typeof competitorLink === "string" ? competitorLink.slice(0, 500).trim() : "";
     const ni = typeof niche === "string" ? niche.slice(0, 200).trim() : "";
     const rg = typeof region === "string" ? region.slice(0, 10).trim() : "";
+    const platform = (typeof rawPlatform === "string" && ["xhs", "tiktok", "instagram", "facebook"].includes(rawPlatform))
+      ? rawPlatform as "xhs" | "tiktok" | "instagram" | "facebook"
+      : "xhs";
+    const isXhs = platform === "xhs";
 
     if (!bd && !cl && !ni) {
       res.status(400).json({ error: "请提供业务描述、对标链接或行业关键词" });
       return;
     }
 
-    if (!rg || !["SG", "HK", "MY"].includes(rg)) {
+    // 非小红书平台地区限制放宽：允许 GLOBAL / 任意地区
+    if (isXhs && (!rg || !["SG", "HK", "MY"].includes(rg))) {
       res.status(400).json({ error: "请选择目标地区（SG/HK/MY）" });
       return;
     }
@@ -1035,7 +1042,8 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
     let dataSource = "ai-only";
     let competitorNotes: any[] = [];
 
-    if (searchKeyword) {
+    // 仅小红书走真实数据抓取（其他平台暂时纯 AI 推理）
+    if (isXhs && searchKeyword) {
       const xhsResult = await tryFetchXhsData(searchKeyword);
       dataSource = xhsResult.source;
       if (xhsResult.available && xhsResult.notes.length > 0) {
@@ -1109,13 +1117,61 @@ ${topTagPool || "（暂无）"}
       rg ? `目标地区: ${rg === "SG" ? "新加坡" : rg === "HK" ? "香港" : "马来西亚"}` : "",
     ].filter(Boolean).join("\n") + realDataContext + contentProfileBlock;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content: `你是一位运营过千万级粉丝账号的小红书顶级操盘手，专精于"爆款逆向工程"——拆解高赞笔记的底层逻辑、情绪触发器、信息密度、节奏感，然后用同样的爆款基因生成全新原创内容。${langInstruction}
+    // 各平台系统 prompt（小红书保留原版深度版；其他平台用对应平台爆款公式）
+    const PLATFORM_SYSTEM_PROMPTS: Record<string, string> = {
+      tiktok: `你是 TikTok 顶级 short-form video 操盘手，运营过多个百万粉账号。你专精"前 3 秒 hook → 留存峰谷 → CTA"的脚本拆解。${langInstruction}
+
+# 你要做的
+基于用户的业务/赛道，输出 3 套 TikTok 短视频脚本方案。每套要给出：
+- 角度（angle）：差异化定位
+- title：作为视频开篇 hook 字幕（6-12 字，必须制造好奇缺口/反差/具体数字）
+- body：完整脚本，必须包含 [HOOK 0-3s] [BUILD 3-15s] [PAYOFF 15-45s] [CTA 45-60s] 四段，给出每段台词 + 拍摄镜头建议（中近景/手持运镜/对比 cut 等）
+- tags：3-5 个 TikTok hashtag，1 个大词（#fyp 或本地化大词）+ 2-3 niche + 1 trend
+- style：脚本风格（如 storytelling / 教学拆解 / 对比测评 / 反转剧情）
+- whyThisWorks：解释 hook 公式 + 为什么留存高
+- imagePrompt：封面（首帧）配图建议，9:16 竖版，hook 字幕居中放大
+
+# 严禁
+❌ 开头说"hi guys/大家好/今天我们来讲"——直接抛冲突或具体数字
+❌ 写成纯文字软文——TikTok 是视频，必须有镜头/动作描述
+❌ hashtag 全部小众长尾——必须混一个大流量词撬动推荐池`,
+
+      instagram: `你是 Instagram 顶级 Feed/Reels 内容策略师，运营多个百万粉账号。你专精 caption 节奏、save-rate 提升和视觉一致性。${langInstruction}
+
+# 你要做的
+基于用户的业务/赛道，输出 3 套 IG 内容方案。每套要给出：
+- angle：内容切入角度
+- title：作为 caption 第一行 hook（8-15 字，"more" 折叠前必须吸住）
+- body：完整 caption，250-450 字。结构：hook → relatable scene/value promise → 3-5 个分段 bullet 或短段落 → CTA（save / share / comment with…）。换行多、留白多
+- tags：8-15 个 IG hashtag，混合 branded / community / niche / 地域，全部小写无空格，避开 banned 标签
+- style：风格定位（aesthetic editorial / lifestyle storytelling / educational carousel 等）
+- whyThisWorks：解释 hook + 为什么 save/share rate 会高
+- imagePrompt：1:1 方版封面建议，editorial / lifestyle 调性，构图精致留白考究
+
+# 严禁
+❌ caption 第一行平淡——必须 hook
+❌ 写成全段一坨——必须用换行/bullet 制造扫读节奏
+❌ hashtag 用大写或带空格`,
+
+      facebook: `你是 Facebook 主页内容运营专家，专精 meaningful interactions 优化（评论 > 分享 > 点赞 的算法权重）。${langInstruction}
+
+# 你要做的
+基于用户的业务/赛道，输出 3 套 Facebook 主页帖子方案。每套要给出：
+- angle：内容切入角度
+- title：作为帖子第一句（必须像朋友间真实对话或 newsworthy 开场，禁 clickbait 字眼）
+- body：完整帖子正文，1-3 个短段落，对话感强。结尾必须用一个开放式问题引导评论
+- tags：0-3 个 hashtag，仅在品牌活动场景使用
+- style：风格定位（personal story / community question / behind-the-scenes / quick tip 等）
+- whyThisWorks：解释为什么这个开场会引发评论而非划走
+- imagePrompt：16:9 横版封面建议，主体清晰、可读性高、像新闻配图或故事图
+
+# 严禁
+❌ "You won't believe…" / "Shocking…" 等被算法降权的 clickbait
+❌ "like if you agree" / "tag a friend" 这类 engagement bait（FB 会降低触达）
+❌ 用太多 hashtag（FB 上 hashtag ROI 很低）`,
+    };
+
+    const xhsSystemPrompt = `你是一位运营过千万级粉丝账号的小红书顶级操盘手，专精于"爆款逆向工程"——拆解高赞笔记的底层逻辑、情绪触发器、信息密度、节奏感，然后用同样的爆款基因生成全新原创内容。${langInstruction}
 
 # 你的工作流程（必须严格执行）
 
@@ -1217,7 +1273,39 @@ ${topTagPool || "（暂无）"}
 - 必须根据目标地区（新加坡/香港/马来西亚）的本地文化、消费习惯、地名、价格水平来定制内容
 - 标签要精准，混合使用行业大词+长尾词+热门话题词+地域标签
 - bestPostingTimes 要根据目标地区该行业的受众活跃时间推荐3个具体时间段
-- 整体输出必须达到"用户看完后会觉得：哇，这个AI是真的看懂了同行爆款"的水平`
+- 整体输出必须达到"用户看完后会觉得：哇，这个AI是真的看懂了同行爆款"的水平`;
+
+    // 非小红书平台用更通用的 JSON schema 提示
+    const NON_XHS_JSON_TAIL = `
+
+# JSON 返回格式（必须严格遵守）
+
+{
+  "analysis": {
+    "industry": "行业概要 1-2 句",
+    "targetAudience": "受众画像（年龄/性别/兴趣/痛点）",
+    "contentStrategy": "推荐内容策略 2-3 句",
+    "popularAngles": ["角度1","角度2","角度3"],
+    "competitorInsights": "同行 / 平台爆款规律 4-6 句",
+    "viralPatterns": "该平台 3-4 种主流爆款类型 + 各自公式",
+    "experienceSummary": ["可执行经验1","2","3","4","5","6"],
+    "bestPostingTimes": ["时间段1","时间段2","时间段3"],
+    "postingTimeReason": "为什么这些时间段"
+  },
+  "suggestions": [
+    { "angle":"...", "title":"...", "body":"...", "tags":["..."], "style":"...", "whyThisWorks":"...", "imagePrompt":"..." }
+  ]
+}
+
+suggestions 必须正好 3 个。每个走不同角度。`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: isXhs ? xhsSystemPrompt : (PLATFORM_SYSTEM_PROMPTS[platform] + NON_XHS_JSON_TAIL),
         },
         {
           role: "user",

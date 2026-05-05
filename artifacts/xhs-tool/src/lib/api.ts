@@ -121,6 +121,7 @@ export const api = {
       size?: string;
       layoutMode?: "single" | "dual-vertical" | "dual-horizontal" | "grid-2x2" | "left-big-right-small";
       preferredProvider?: "seedream" | "comfyui" | "openai";
+      platform?: "xhs" | "tiktok" | "instagram" | "facebook";
     }) =>
       request<{
         imageUrl: string;
