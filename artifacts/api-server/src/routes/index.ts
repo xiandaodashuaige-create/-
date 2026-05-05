@@ -17,6 +17,7 @@ import legalRouter from "./legal";
 import competitorsRouter from "./competitors";
 import strategyRouter from "./strategy";
 import marketDataRouter from "./marketData";
+import autoOnboardingRouter from "./autoOnboarding";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -46,5 +47,6 @@ router.use(trackingRouter);
 router.use(competitorsRouter);
 router.use(strategyRouter);
 router.use(marketDataRouter);
+router.use(autoOnboardingRouter);
 
 export default router;
