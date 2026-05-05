@@ -147,6 +147,18 @@ export const api = {
       }>("/ai/assistant-chat", { method: "POST", body: JSON.stringify(data) }),
     competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>
       request<any>("/ai/competitor-research", { method: "POST", body: JSON.stringify(data) }),
+    myContentProfile: () =>
+      request<{
+        sampleSize: number;
+        favoriteTags: Array<{ value: string; count: number }>;
+        preferredTitlePatterns: Array<{ value: string; count: number }>;
+        preferredOpenings: Array<{ value: string; count: number }>;
+        preferredEmojis: Array<{ value: string; count: number }>;
+        preferredRegions: Array<{ value: string; count: number }>;
+        avgBodyLength: number;
+        avgTagCount: number;
+        lastUpdated: string | null;
+      }>("/ai/my-content-profile"),
   },
   admin: {
     stats: () => request<any>("/admin/stats"),

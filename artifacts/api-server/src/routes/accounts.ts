@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, accountsTable } from "@workspace/db";
+import { ensureUser } from "../middlewares/creditSystem";
 import {
   CreateAccountBody,
   GetAccountParams,
@@ -56,7 +57,11 @@ router.post("/accounts", async (req, res): Promise<void> => {
       return;
     }
 
-    const [account] = await db.insert(accountsTable).values(parsed.data).returning();
+    const u = await ensureUser(req);
+    const [account] = await db
+      .insert(accountsTable)
+      .values({ ...parsed.data, ownerUserId: u?.id ?? null })
+      .returning();
     await logActivity("account_added", `Added account: ${account.nickname} (${account.region})`, undefined, account.id);
     res.status(201).json(GetAccountResponse.parse(account));
   } catch (err) {

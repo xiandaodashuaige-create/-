@@ -19,6 +19,7 @@ import { SeedreamClient } from "../services/seedream.js";
 import { buildCollage, composeWithText, type CollageLayout } from "../services/collage.js";
 import { analyzeCompetitorImage, generateImagePrompt, buildSeedreamPrompt } from "../services/imagePipeline.js";
 import { loadStyleProfileForPrompt, recomputeUserStyleProfile } from "../services/styleProfile.js";
+import { loadUserContentProfile, renderContentProfileForPrompt } from "../services/contentProfile.js";
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
 import { tryFetchXhsData } from "./xhs";
 
@@ -982,6 +983,45 @@ async function generateWithGptImage(
   return Buffer.from(b64, "base64");
 }
 
+router.get("/ai/my-content-profile", async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u?.id) {
+      res.status(401).json({ error: "未登录" });
+      return;
+    }
+    const profile = await loadUserContentProfile(u.id);
+    if (!profile) {
+      res.json({
+        sampleSize: 0,
+        favoriteTags: [],
+        preferredTitlePatterns: [],
+        preferredOpenings: [],
+        preferredEmojis: [],
+        preferredRegions: [],
+        avgBodyLength: 0,
+        avgTagCount: 0,
+        lastUpdated: null,
+      });
+      return;
+    }
+    res.json({
+      sampleSize: profile.sampleSize,
+      favoriteTags: profile.favoriteTags,
+      preferredTitlePatterns: profile.preferredTitlePatterns,
+      preferredOpenings: profile.preferredOpenings,
+      preferredEmojis: profile.preferredEmojis,
+      preferredRegions: profile.preferredRegions,
+      avgBodyLength: profile.avgBodyLength,
+      avgTagCount: profile.avgTagCount,
+      lastUpdated: profile.lastUpdated,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to load content profile");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.post("/ai/competitor-research", requireCredits("ai-competitor-research"), async (req, res): Promise<void> => {
   try {
     const { businessDescription, competitorLink, niche, region } = req.body;
@@ -1067,12 +1107,26 @@ ${topTagPool || "（暂无）"}
       }
     }
 
+    // 加载客户历史风格画像（成长能力的核心）
+    let contentProfileBlock = "";
+    let contentProfileSampleSize = 0;
+    try {
+      const u = await ensureUser(req);
+      if (u?.id) {
+        const profile = await loadUserContentProfile(u.id);
+        if (profile) {
+          contentProfileSampleSize = profile.sampleSize;
+          contentProfileBlock = renderContentProfileForPrompt(profile);
+        }
+      }
+    } catch { /* 未登录或异常都不阻塞 */ }
+
     const inputContext = [
       bd ? `业务/品牌描述: ${bd}` : "",
       cl ? `对标参考链接/账号: ${cl}` : "",
       ni ? `行业/赛道: ${ni}` : "",
       rg ? `目标地区: ${rg === "SG" ? "新加坡" : rg === "HK" ? "香港" : "马来西亚"}` : "",
-    ].filter(Boolean).join("\n") + realDataContext;
+    ].filter(Boolean).join("\n") + realDataContext + contentProfileBlock;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -1235,7 +1289,14 @@ ${topTagPool || "（暂无）"}
     }
 
     await deductCredits(req, "ai-competitor-research");
-    res.json({ analysis: result.analysis || {}, suggestions: validSuggestions, dataSource, competitorNotes });
+    res.json({
+      analysis: result.analysis || {},
+      suggestions: validSuggestions,
+      dataSource,
+      competitorNotes,
+      personalProfileApplied: contentProfileSampleSize >= 3,
+      personalProfileSampleSize: contentProfileSampleSize,
+    });
   } catch (err) {
     req.log.error(err, "Failed to do competitor research");
     res.status(500).json({ error: "竞品分析失败，请稍后重试" });

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { ObjectUploader } from "@workspace/object-storage-web";
 import InsufficientCreditsDialog from "@/components/InsufficientCreditsDialog";
@@ -70,6 +71,14 @@ export default function WorkflowWizard() {
   });
   const [researchResult, setResearchResult] = useState<any>(null);
   const [selectedSuggestion, setSelectedSuggestion] = useState<number | null>(null);
+  const [showProfilePeek, setShowProfilePeek] = useState(false);
+  const [profileData, setProfileData] = useState<any>(null);
+
+  useEffect(() => {
+    if (showProfilePeek && !profileData) {
+      api.ai.myContentProfile().then(setProfileData).catch(() => setProfileData({ sampleSize: 0 }));
+    }
+  }, [showProfilePeek, profileData]);
 
   
   const [aiResult, setAiResult] = useState<any>(null);
@@ -951,6 +960,32 @@ export default function WorkflowWizard() {
                 </CardContent>
               </Card>
 
+              {/* Personal Profile Applied Banner - 成长能力可视化 */}
+              {researchResult.personalProfileApplied && (
+                <div className="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 px-4 py-3 flex items-center gap-3">
+                  <div className="shrink-0 h-9 w-9 rounded-full bg-violet-100 flex items-center justify-center text-lg">🧬</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-violet-900">
+                      AI 已结合你过往 {researchResult.personalProfileSampleSize} 篇笔记的个人风格生成本次方案
+                    </p>
+                    <p className="text-xs text-violet-700/80 mt-0.5">
+                      标签、开头、字数、emoji 已自动向你的历史偏好靠拢 — 你发的越多，AI 越懂你
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowProfilePeek(true)}
+                    className="text-xs text-violet-700 underline underline-offset-4 hover:text-violet-900 shrink-0"
+                  >
+                    查看我的画像
+                  </button>
+                </div>
+              )}
+              {!researchResult.personalProfileApplied && researchResult.personalProfileSampleSize !== undefined && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                  💡 你目前已积累 {researchResult.personalProfileSampleSize} 篇笔记，再发布 {Math.max(3 - researchResult.personalProfileSampleSize, 0)} 篇 AI 就会开始学习你的个人风格，下次方案会更贴合你。
+                </div>
+              )}
+
               {/* Experience Summary - 经验总结 */}
               {Array.isArray(researchResult.analysis?.experienceSummary) && researchResult.analysis.experienceSummary.length > 0 && (
                 <Card className="border-amber-200 bg-amber-50/30">
@@ -1782,6 +1817,77 @@ export default function WorkflowWizard() {
         currentCredits={creditDialog.current}
         requiredCredits={creditDialog.required}
       />
+
+      <Dialog open={showProfilePeek} onOpenChange={setShowProfilePeek}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">🧬 我的内容风格画像</DialogTitle>
+            <DialogDescription>
+              AI 自动从你过往的笔记中学习出的偏好。每次保存或发布笔记后会自动更新。
+            </DialogDescription>
+          </DialogHeader>
+          {!profileData ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">加载中…</div>
+          ) : profileData.sampleSize === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              暂无样本。请先保存或发布几篇笔记，AI 才能开始学习你的风格。
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm max-h-[60vh] overflow-y-auto">
+              <div className="flex items-center justify-between text-xs text-muted-foreground border-b pb-2">
+                <span>已学习样本：<span className="font-semibold text-foreground">{profileData.sampleSize} 篇</span></span>
+                <span>平均字数：{profileData.avgBodyLength} · 平均标签：{profileData.avgTagCount}</span>
+              </div>
+
+              {profileData.preferredTitlePatterns?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">惯用标题公式</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {profileData.preferredTitlePatterns.map((p: any, i: number) => (
+                      <Badge key={i} variant="outline" className="text-xs">{p.value} ×{p.count}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {profileData.favoriteTags?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">高频标签 Top 10</p>
+                  <div className="flex flex-wrap gap-1">
+                    {profileData.favoriteTags.slice(0, 10).map((t: any, i: number) => (
+                      <span key={i} className="text-xs text-red-500">#{t.value}<span className="text-muted-foreground/70">·{t.count}</span></span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {profileData.preferredOpenings?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">常用开头风格</p>
+                  <ul className="space-y-1">
+                    {profileData.preferredOpenings.slice(0, 5).map((o: any, i: number) => (
+                      <li key={i} className="text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">"{o.value}…" <span className="text-[10px] opacity-60">×{o.count}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {profileData.preferredEmojis?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">偏爱 emoji</p>
+                  <div className="text-lg tracking-wide">
+                    {profileData.preferredEmojis.slice(0, 10).map((e: any) => e.value).join(" ")}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[10px] text-muted-foreground pt-2 border-t">
+                最后更新：{profileData.lastUpdated ? new Date(profileData.lastUpdated).toLocaleString("zh-CN") : "—"}
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

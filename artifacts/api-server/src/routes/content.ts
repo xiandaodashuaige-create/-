@@ -18,7 +18,8 @@ import {
   MarkContentPublishedResponse,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
-import { requireCredits, deductCredits } from "../middlewares/creditSystem";
+import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
+import { triggerContentProfileRecompute } from "../services/contentProfile.js";
 
 const router: IRouter = Router();
 
@@ -127,6 +128,13 @@ router.post("/content", requireCredits("content-create"), async (req, res): Prom
 
     const parsed_result = GetContentResponse.parse(result);
     await deductCredits(req, "content-create");
+
+    // 触发"成长画像"重算（异步、失败不阻塞）
+    try {
+      const u = await ensureUser(req);
+      triggerContentProfileRecompute(u?.id);
+    } catch { /* ignore */ }
+
     res.status(201).json(parsed_result);
   } catch (err) {
     req.log.error(err, "Failed to create content");
@@ -200,6 +208,11 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
       ...content,
       account: account ? { id: account.id, nickname: account.nickname, region: account.region } : { id: content.accountId, nickname: "Unknown", region: "SG" },
     };
+
+    try {
+      const u = await ensureUser(req);
+      triggerContentProfileRecompute(u?.id);
+    } catch { /* ignore */ }
 
     res.json(UpdateContentResponse.parse(result));
   } catch (err) {
@@ -317,6 +330,12 @@ router.post("/content/:id/publish", requireCredits("content-publish"), async (re
     };
 
     await deductCredits(req, "content-publish");
+
+    try {
+      const u = await ensureUser(req);
+      triggerContentProfileRecompute(u?.id);
+    } catch { /* ignore */ }
+
     res.json(MarkContentPublishedResponse.parse(result));
   } catch (err) {
     req.log.error(err, "Failed to publish content");

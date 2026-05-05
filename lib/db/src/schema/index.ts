@@ -8,3 +8,4 @@ export * from "./users";
 export * from "./creditTransactions";
 export * from "./imageReferences";
 export * from "./userStyleProfiles";
+export * from "./userContentProfiles";

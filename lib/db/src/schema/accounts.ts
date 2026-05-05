@@ -1,9 +1,11 @@
 import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
 
 export const accountsTable = pgTable("accounts", {
   id: serial("id").primaryKey(),
+  ownerUserId: integer("owner_user_id").references(() => usersTable.id, { onDelete: "set null" }),
   nickname: text("nickname").notNull(),
   region: text("region").notNull(),
   avatarUrl: text("avatar_url"),
@@ -17,6 +19,6 @@ export const accountsTable = pgTable("accounts", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
-export const insertAccountSchema = createInsertSchema(accountsTable).omit({ id: true, createdAt: true, updatedAt: true, contentCount: true });
+export const insertAccountSchema = createInsertSchema(accountsTable).omit({ id: true, createdAt: true, updatedAt: true, contentCount: true, ownerUserId: true });
 export type InsertAccount = z.infer<typeof insertAccountSchema>;
 export type Account = typeof accountsTable.$inferSelect;
