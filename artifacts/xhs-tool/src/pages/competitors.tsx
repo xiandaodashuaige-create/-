@@ -10,7 +10,29 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users2, RefreshCw, Trash2, Search, Sparkles, Heart, MessageCircle, Eye, Plus, ExternalLink, Loader2,
+  TrendingUp, Hash, Music, Clock, BarChart3,
 } from "lucide-react";
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg bg-background p-3 border">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-lg font-bold mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function InsightBlock({ icon, title, body, tail }: { icon: React.ReactNode; title: string; body: string; tail?: React.ReactNode }) {
+  return (
+    <div className="rounded-lg bg-background p-4 border">
+      <div className="flex items-center gap-2 text-sm font-medium mb-1.5">
+        {icon}{title}
+      </div>
+      <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
+      {tail}
+    </div>
+  );
+}
 
 function formatCount(n: number | null | undefined): string {
   const v = Number(n) || 0;
@@ -33,6 +55,7 @@ export default function CompetitorsPage() {
   const [discoverNote, setDiscoverNote] = useState<string>("");
   const [discovering, setDiscovering] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(false);
 
   const { data: list = [], isLoading } = useQuery({
     queryKey: ["competitors", platform],
@@ -65,6 +88,13 @@ export default function CompetitorsPage() {
     onError: (err: any) => toast({ title: "同步失败", description: err?.message, variant: "destructive" }),
   });
 
+  const insightsQuery = useQuery({
+    queryKey: ["competitor-insights", platform],
+    queryFn: () => api.competitors.insights(platform),
+    enabled: insightsOpen,
+    retry: false,
+  });
+
   const delMut = useMutation({
     mutationFn: (id: number) => api.competitors.remove(id),
     onSuccess: () => {
@@ -92,12 +122,23 @@ export default function CompetitorsPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Users2 className="h-7 w-7 text-primary" />
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">同行库</h1>
           <p className="text-sm text-muted-foreground">
             添加 {platformMeta.name} 同行账号，AI 会基于他们的真实爆款数据帮你制定内容策略
           </p>
         </div>
+        <Button
+          variant={insightsOpen ? "default" : "outline"}
+          onClick={() => {
+            setInsightsOpen((v) => !v);
+            if (!insightsOpen) qc.invalidateQueries({ queryKey: ["competitor-insights", platform] });
+          }}
+          disabled={list.length === 0}
+        >
+          <BarChart3 className="h-4 w-4 mr-2" />
+          {insightsOpen ? "隐藏行业分析" : "运行行业分析"}
+        </Button>
       </div>
 
       {/* 添加 + 发现 */}
@@ -191,6 +232,119 @@ export default function CompetitorsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* 行业聚合分析 */}
+      {insightsOpen && (
+        <Card className="p-5 space-y-5 border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            <h2 className="font-semibold">行业聚合分析（{platformMeta.name}）</h2>
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => insightsQuery.refetch()} disabled={insightsQuery.isFetching}>
+              <RefreshCw className={`h-3.5 w-3.5 ${insightsQuery.isFetching ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
+
+          {insightsQuery.isLoading || insightsQuery.isFetching ? (
+            <div className="flex items-center gap-2 py-8 text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              正在跨账号聚合数据并让 AI 提炼爆款规律…
+            </div>
+          ) : insightsQuery.error ? (
+            <div className="text-sm text-destructive py-4">
+              {(insightsQuery.error as any)?.message || "分析失败"}
+              <div className="text-xs text-muted-foreground mt-1">提示：请先点同行卡上的 ↻ 抓取真实数据</div>
+            </div>
+          ) : insightsQuery.data ? (() => {
+            const d = insightsQuery.data;
+            return (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <Stat label="分析账号" value={d.competitorsAnalyzed} />
+                  <Stat label="样本内容" value={d.postsAnalyzed} />
+                  <Stat label="累计播放" value={formatCount(d.totalViews)} />
+                  <Stat label="平均互动率" value={`${d.avgEngagementRate}%`} />
+                </div>
+
+                <div className="rounded-lg bg-background p-4 border">
+                  <div className="flex items-center gap-2 text-sm font-medium mb-2">
+                    <Sparkles className="h-4 w-4 text-amber-500" />爆款公式
+                  </div>
+                  <p className="text-sm leading-relaxed">{d.viralFormula}</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <InsightBlock icon={<Clock className="h-4 w-4" />} title={`最佳发布时段（${d.timezoneLabel}）`} body={d.postingStrategy}
+                    tail={d.bestPostingHoursLocal.length > 0 && (
+                      <div className="flex gap-1.5 flex-wrap mt-2">
+                        {d.bestPostingHoursLocal.map((h) => (
+                          <Badge key={h} variant="secondary">{h}:00</Badge>
+                        ))}
+                      </div>
+                    )} />
+                  <InsightBlock icon={<TrendingUp className="h-4 w-4" />} title="时长策略" body={`${d.durationStrategy} 平均 ${d.avgVideoLengthSec}s`} />
+                  <InsightBlock icon={<Hash className="h-4 w-4" />} title="标签策略" body={d.hashtagStrategy}
+                    tail={d.topHashtags.length > 0 && (
+                      <div className="flex gap-1.5 flex-wrap mt-2">
+                        {d.topHashtags.slice(0, 8).map((t) => (
+                          <Badge key={t.tag} variant="outline">#{t.tag} <span className="ml-1 text-muted-foreground">×{t.count}</span></Badge>
+                        ))}
+                      </div>
+                    )} />
+                  <InsightBlock icon={<Music className="h-4 w-4" />} title="BGM 策略" body={d.bgmStrategy}
+                    tail={d.topMusicTracks.length > 0 && (
+                      <ul className="text-xs text-muted-foreground mt-2 space-y-0.5">
+                        {d.topMusicTracks.slice(0, 3).map((m) => (
+                          <li key={m.track}>· {m.track} <span className="text-foreground/60">×{m.count}</span></li>
+                        ))}
+                      </ul>
+                    )} />
+                </div>
+
+                {d.keyInsights.length > 0 && (
+                  <div className="rounded-lg bg-background p-4 border">
+                    <div className="text-sm font-medium mb-2">关键洞察</div>
+                    <ul className="space-y-1.5">
+                      {d.keyInsights.map((k, i) => (
+                        <li key={i} className="text-sm flex gap-2">
+                          <span className="text-primary font-semibold">{i + 1}.</span><span>{k}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {d.competitorBreakdown.length > 0 && (
+                  <div className="rounded-lg bg-background p-4 border overflow-x-auto">
+                    <div className="text-sm font-medium mb-2">同行表现拆解</div>
+                    <table className="w-full text-xs">
+                      <thead className="text-muted-foreground">
+                        <tr className="text-left border-b">
+                          <th className="py-1.5 pr-3">账号</th>
+                          <th className="py-1.5 pr-3">粉丝</th>
+                          <th className="py-1.5 pr-3">样本</th>
+                          <th className="py-1.5 pr-3">均播放</th>
+                          <th className="py-1.5">最强钩子</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {d.competitorBreakdown.map((c) => (
+                          <tr key={c.handle} className="border-b last:border-b-0">
+                            <td className="py-1.5 pr-3 font-medium">@{c.handle}</td>
+                            <td className="py-1.5 pr-3">{formatCount(c.followers)}</td>
+                            <td className="py-1.5 pr-3">{c.posts}</td>
+                            <td className="py-1.5 pr-3">{formatCount(c.avgViews)}</td>
+                            <td className="py-1.5 truncate max-w-[280px]">{c.topHook}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            );
+          })() : null}
+        </Card>
       )}
 
       {/* 详情 — 同行内容 */}

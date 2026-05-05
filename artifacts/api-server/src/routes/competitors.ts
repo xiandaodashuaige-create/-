@@ -20,6 +20,18 @@ import {
   resolveIgBusinessByUsername,
   fetchInstagramBusinessMedia,
 } from "../services/metaCompetitorScraper";
+import { openai } from "@workspace/integrations-openai-ai-server";
+
+const REGION_TZ_OFFSET: Record<string, number> = {
+  CN: 8, SG: 8, MY: 8, HK: 8, TW: 8, JP: 9, KR: 9,
+  TH: 7, VN: 7, ID: 7, PH: 8, IN: 5,
+  US: -5, GB: 0, DE: 1, FR: 1, AU: 10,
+};
+const REGION_LABELS: Record<string, string> = {
+  CN: "中国", SG: "新加坡", MY: "马来西亚", HK: "香港", TW: "台湾",
+  JP: "日本", KR: "韩国", TH: "泰国", VN: "越南", ID: "印尼", PH: "菲律宾",
+  IN: "印度", US: "美国", GB: "英国", DE: "德国", FR: "法国", AU: "澳大利亚",
+};
 
 const router: IRouter = Router();
 
@@ -346,6 +358,198 @@ router.get("/competitors/trending", async (req, res): Promise<void> => {
     .where(inArray(competitorPostsTable.competitorId, profs.map(p => p.id)))
     .orderBy(desc(competitorPostsTable.likeCount)).limit(limit);
   res.json(posts);
+});
+
+// ── GET /api/competitors/insights/aggregate?platform=tiktok — 行业聚合分析 ───────
+router.get("/competitors/insights/aggregate", async (req, res): Promise<void> => {
+  const user = await ensureUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const platform = (req.query.platform as string) || undefined;
+
+  const profWhere = platform && isValidPlatform(platform)
+    ? and(eq(competitorProfilesTable.userId, user.id), eq(competitorProfilesTable.platform, platform))
+    : eq(competitorProfilesTable.userId, user.id);
+  const competitors = await db.select().from(competitorProfilesTable).where(profWhere);
+
+  if (competitors.length === 0) {
+    res.status(404).json({ error: "暂无同行账号，请先在上方添加同行" });
+    return;
+  }
+
+  const competitorIds = competitors.map((c) => c.id);
+  const posts = await db.select().from(competitorPostsTable)
+    .where(inArray(competitorPostsTable.competitorId, competitorIds));
+
+  if (posts.length === 0) {
+    res.status(409).json({ error: "同行账号暂无内容样本", message: "请先点同行卡上的 ↻ 抓取至少一个同行的真实数据再运行行业分析" });
+    return;
+  }
+
+  const primaryRegion = competitors.find((c) => c.region)?.region || "SG";
+  const tzOffset = REGION_TZ_OFFSET[primaryRegion] ?? 0;
+  const tzLabel = `${REGION_LABELS[primaryRegion] || primaryRegion} (UTC${tzOffset >= 0 ? "+" : ""}${tzOffset})`;
+
+  const hourCounts = new Map<number, { count: number; views: number }>();
+  const hashtagCounts = new Map<string, number>();
+  const musicCounts = new Map<string, number>();
+  let totalDuration = 0;
+  let totalViews = 0;
+  let totalLikes = 0;
+  let totalComments = 0;
+  let totalShares = 0;
+  let withDuration = 0;
+
+  for (const v of posts) {
+    if (v.publishedAt) {
+      const utcHour = new Date(v.publishedAt).getUTCHours();
+      const localHour = (utcHour + tzOffset + 24) % 24;
+      const cur = hourCounts.get(localHour) ?? { count: 0, views: 0 };
+      cur.count++;
+      cur.views += v.viewCount;
+      hourCounts.set(localHour, cur);
+    }
+    for (const tag of v.hashtags ?? []) {
+      const norm = tag.trim().toLowerCase();
+      if (norm) hashtagCounts.set(norm, (hashtagCounts.get(norm) ?? 0) + 1);
+    }
+    if (v.musicName && v.musicName !== "Unknown" && v.musicName !== "待获取") {
+      const key = v.musicAuthor && v.musicAuthor !== "Unknown" && v.musicAuthor !== "未知"
+        ? `${v.musicName} - ${v.musicAuthor}` : v.musicName;
+      musicCounts.set(key, (musicCounts.get(key) ?? 0) + 1);
+    }
+    if (v.duration) { totalDuration += v.duration; withDuration++; }
+    totalViews += v.viewCount;
+    totalLikes += v.likeCount;
+    totalComments += v.commentCount;
+    totalShares += v.shareCount;
+  }
+
+  const bestPostingHoursLocal = [...hourCounts.entries()]
+    .sort((a, b) => b[1].views - a[1].views).slice(0, 4).map(([h]) => h).sort((a, b) => a - b);
+  const topHashtags = [...hashtagCounts.entries()]
+    .sort((a, b) => b[1] - a[1]).slice(0, 10).map(([tag, count]) => ({ tag, count }));
+  const topMusicTracks = [...musicCounts.entries()]
+    .sort((a, b) => b[1] - a[1]).slice(0, 5).map(([track, count]) => ({ track, count }));
+
+  const avgVideoLengthSec = withDuration > 0 ? Math.round(totalDuration / withDuration) : 0;
+  const avgEngagementRate = totalViews > 0
+    ? Number((((totalLikes + totalComments + totalShares) / totalViews) * 100).toFixed(2))
+    : 0;
+
+  const competitorBreakdown = competitors.map((c) => {
+    const myVids = posts.filter((v) => v.competitorId === c.id);
+    const avgViews = myVids.length > 0
+      ? Math.round(myVids.reduce((s, v) => s + v.viewCount, 0) / myVids.length) : 0;
+    const topVid = [...myVids].sort((a, b) => b.viewCount - a.viewCount)[0];
+    return {
+      handle: c.handle,
+      followers: c.followerCount ?? 0,
+      posts: myVids.length,
+      avgViews,
+      topHook: (topVid?.description ?? topVid?.title ?? "").slice(0, 80) || "无可用文案",
+    };
+  }).filter((c) => c.posts > 0);
+
+  const topPostsForAi = [...posts]
+    .sort((a, b) => b.viewCount - a.viewCount).slice(0, 12)
+    .map((v) => {
+      const owner = competitors.find((c) => c.id === v.competitorId);
+      return {
+        from: owner?.handle,
+        desc: (v.description ?? v.title ?? "").slice(0, 160),
+        durationSec: v.duration,
+        views: v.viewCount,
+        likes: v.likeCount,
+        music: v.musicName,
+        hashtags: v.hashtags?.slice(0, 5) ?? [],
+      };
+    });
+
+  let viralFormula = "";
+  let durationStrategy = "";
+  let hashtagStrategy = "";
+  let bgmStrategy = "";
+  let postingStrategy = "";
+  let keyInsights: string[] = [];
+
+  try {
+    const platformLabel = platform === "xhs" ? "小红书" : platform === "instagram" ? "Instagram"
+      : platform === "facebook" ? "Facebook" : "TikTok";
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5-mini",
+      max_completion_tokens: 4000,
+      messages: [
+        {
+          role: "system",
+          content: `你是${platformLabel}爆款规律提炼专家。基于多个真实同行账号的真实内容数据，提炼跨账号的共性爆款规律。只返回JSON，禁止使用任何泛泛而谈的套话（如"前3秒强钩子"），所有结论必须引用具体数字、标签、BGM 名称、账号名等真实证据。
+{
+  "viralFormula": "2-3句话总结跨账号共性爆款公式，必须引用至少2个具体证据（账号名/数字/标签）",
+  "durationStrategy": "1-2句内容时长策略，引用真实平均时长和具体爆款时长",
+  "hashtagStrategy": "1-2句标签组合策略，至少列举3个真实出现的标签",
+  "bgmStrategy": "1-2句BGM选择策略，引用真实BGM名称",
+  "postingStrategy": "1-2句发布时段策略，引用真实最佳时段",
+  "keyInsights": ["洞察1（必须含数字或具体证据）", "洞察2", "洞察3", "洞察4", "洞察5"]
+}
+用中文。`,
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            platform: platformLabel,
+            competitorsAnalyzed: competitorBreakdown.length,
+            postsAnalyzed: posts.length,
+            primaryMarket: REGION_LABELS[primaryRegion] || primaryRegion,
+            stats: { totalViews, totalLikes, avgEngagementRatePct: avgEngagementRate, avgVideoLengthSec, bestPostingHoursLocal, tzLabel },
+            topHashtags, topMusicTracks, competitorBreakdown,
+            topPostsAcrossCompetitors: topPostsForAi,
+          }),
+        },
+      ],
+    }, { timeout: 60_000, maxRetries: 1 });
+
+    const raw = completion.choices[0]?.message?.content ?? "";
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (m) {
+      const parsed = JSON.parse(m[0]);
+      viralFormula = parsed.viralFormula ?? "";
+      durationStrategy = parsed.durationStrategy ?? "";
+      hashtagStrategy = parsed.hashtagStrategy ?? "";
+      bgmStrategy = parsed.bgmStrategy ?? "";
+      postingStrategy = parsed.postingStrategy ?? "";
+      keyInsights = Array.isArray(parsed.keyInsights) ? parsed.keyInsights : [];
+    }
+  } catch (err) {
+    logger.error({ err }, "aggregate insights AI failed");
+  }
+
+  if (!viralFormula) viralFormula = `已分析 ${competitorBreakdown.length} 个真实同行账号、共 ${posts.length} 条内容，累计播放 ${totalViews.toLocaleString()} 次，平均互动率 ${avgEngagementRate}%。AI 总结暂时不可用，请稍后重试。`;
+  if (!durationStrategy) durationStrategy = `平均时长 ${avgVideoLengthSec} 秒。`;
+  if (!hashtagStrategy) hashtagStrategy = topHashtags.length > 0
+    ? `跨账号高频标签：${topHashtags.slice(0, 5).map((t) => `#${t.tag}(${t.count})`).join(" / ")}` : "标签数据不足。";
+  if (!bgmStrategy) bgmStrategy = topMusicTracks.length > 0
+    ? `跨账号热门 BGM：${topMusicTracks.slice(0, 3).map((m) => m.track).join(" / ")}` : "BGM 数据不足。";
+  if (!postingStrategy) postingStrategy = bestPostingHoursLocal.length > 0
+    ? `${tzLabel} 高曝光时段：${bestPostingHoursLocal.map((h) => `${h}:00`).join(" / ")}` : "发布时段数据不足。";
+  if (keyInsights.length === 0) {
+    keyInsights = [
+      `共分析 ${competitorBreakdown.length} 个真实同行账号、${posts.length} 条内容`,
+      `累计播放 ${totalViews.toLocaleString()} 次，平均互动率 ${avgEngagementRate}%`,
+      `平均内容时长 ${avgVideoLengthSec} 秒`,
+      topHashtags.length > 0 ? `共性标签 Top 3：${topHashtags.slice(0, 3).map((t) => "#" + t.tag).join(", ")}` : "标签数据不足",
+      bestPostingHoursLocal.length > 0 ? `${tzLabel} 最佳发布时段：${bestPostingHoursLocal.map((h) => h + ":00").join(", ")}` : "发布时段数据不足",
+    ];
+  }
+
+  res.json({
+    platform: platform || "all",
+    competitorsAnalyzed: competitorBreakdown.length,
+    postsAnalyzed: posts.length,
+    totalViews, totalLikes, avgEngagementRate, avgVideoLengthSec,
+    bestPostingHoursLocal, timezoneLabel: tzLabel,
+    topHashtags, topMusicTracks,
+    viralFormula, durationStrategy, hashtagStrategy, bgmStrategy, postingStrategy,
+    keyInsights, competitorBreakdown,
+  });
 });
 
 export default router;

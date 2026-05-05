@@ -247,6 +247,30 @@ export const api = {
       if (platform) q.set("platform", platform);
       return request<any[]>(`/competitors/trending?${q}`);
     },
+    insights: (platform?: string) => {
+      const q = new URLSearchParams();
+      if (platform) q.set("platform", platform);
+      return request<{
+        platform: string;
+        competitorsAnalyzed: number;
+        postsAnalyzed: number;
+        totalViews: number;
+        totalLikes: number;
+        avgEngagementRate: number;
+        avgVideoLengthSec: number;
+        bestPostingHoursLocal: number[];
+        timezoneLabel: string;
+        topHashtags: { tag: string; count: number }[];
+        topMusicTracks: { track: string; count: number }[];
+        viralFormula: string;
+        durationStrategy: string;
+        hashtagStrategy: string;
+        bgmStrategy: string;
+        postingStrategy: string;
+        keyInsights: string[];
+        competitorBreakdown: { handle: string; followers: number; posts: number; avgViews: number; topHook: string }[];
+      }>(`/competitors/insights/aggregate${q.toString() ? `?${q}` : ""}`);
+    },
   },
   strategy: {
     list: (platform?: string) => {
