@@ -5,12 +5,13 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
-import type { AiRewriteBodyRegion } from "./aiRewriteBodyRegion";
+import type { AiRewriteBodyPlatform } from "./aiRewriteBodyPlatform";
 import type { AiRewriteBodyStyle } from "./aiRewriteBodyStyle";
 
 export interface AiRewriteBody {
   originalContent: string;
   style?: AiRewriteBodyStyle;
-  region?: AiRewriteBodyRegion;
+  region?: string;
+  platform?: AiRewriteBodyPlatform;
   additionalInstructions?: string;
 }

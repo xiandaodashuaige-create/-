@@ -5,7 +5,9 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetRecentActivityPlatform } from "./getRecentActivityPlatform";
 
 export type GetRecentActivityParams = {
   limit?: number;
+  platform?: GetRecentActivityPlatform;
 };

@@ -285,19 +285,21 @@ export const AiRewriteBodyStyle = {
   viral: "viral",
 } as const;
 
-export type AiRewriteBodyRegion =
-  (typeof AiRewriteBodyRegion)[keyof typeof AiRewriteBodyRegion];
+export type AiRewriteBodyPlatform =
+  (typeof AiRewriteBodyPlatform)[keyof typeof AiRewriteBodyPlatform];
 
-export const AiRewriteBodyRegion = {
-  SG: "SG",
-  HK: "HK",
-  MY: "MY",
+export const AiRewriteBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
 } as const;
 
 export interface AiRewriteBody {
   originalContent: string;
   style?: AiRewriteBodyStyle;
-  region?: AiRewriteBodyRegion;
+  region?: string;
+  platform?: AiRewriteBodyPlatform;
   additionalInstructions?: string;
 }
 
@@ -307,9 +309,20 @@ export interface AiRewriteResponse {
   suggestedTags: string[];
 }
 
+export type AiCheckSensitivityBodyPlatform =
+  (typeof AiCheckSensitivityBodyPlatform)[keyof typeof AiCheckSensitivityBodyPlatform];
+
+export const AiCheckSensitivityBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;
+
 export interface AiCheckSensitivityBody {
   title: string;
   body: string;
+  platform?: AiCheckSensitivityBodyPlatform;
 }
 
 export type SensitivityIssueSeverity =
@@ -344,20 +357,42 @@ export const AiGenerateTitleBodyStyle = {
   viral: "viral",
 } as const;
 
+export type AiGenerateTitleBodyPlatform =
+  (typeof AiGenerateTitleBodyPlatform)[keyof typeof AiGenerateTitleBodyPlatform];
+
+export const AiGenerateTitleBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;
+
 export interface AiGenerateTitleBody {
   body: string;
   style?: AiGenerateTitleBodyStyle;
   count?: number;
+  platform?: AiGenerateTitleBodyPlatform;
 }
 
 export interface AiGenerateTitleResponse {
   titles: string[];
 }
 
+export type AiGenerateHashtagsBodyPlatform =
+  (typeof AiGenerateHashtagsBodyPlatform)[keyof typeof AiGenerateHashtagsBodyPlatform];
+
+export const AiGenerateHashtagsBodyPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;
+
 export interface AiGenerateHashtagsBody {
   title: string;
   body: string;
   count?: number;
+  platform?: AiGenerateHashtagsBodyPlatform;
 }
 
 export interface AiGenerateHashtagsResponse {
@@ -555,4 +590,15 @@ export type ListSchedulesParams = {
 
 export type GetRecentActivityParams = {
   limit?: number;
+  platform?: GetRecentActivityPlatform;
 };
+
+export type GetRecentActivityPlatform =
+  (typeof GetRecentActivityPlatform)[keyof typeof GetRecentActivityPlatform];
+
+export const GetRecentActivityPlatform = {
+  xhs: "xhs",
+  tiktok: "tiktok",
+  instagram: "instagram",
+  facebook: "facebook",
+} as const;

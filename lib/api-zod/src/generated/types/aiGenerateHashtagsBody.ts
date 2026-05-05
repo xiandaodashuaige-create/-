@@ -5,9 +5,11 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
+import type { AiGenerateHashtagsBodyPlatform } from "./aiGenerateHashtagsBodyPlatform";
 
 export interface AiGenerateHashtagsBody {
   title: string;
   body: string;
   count?: number;
+  platform?: AiGenerateHashtagsBodyPlatform;
 }

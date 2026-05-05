@@ -5,8 +5,10 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
+import type { AiCheckSensitivityBodyPlatform } from "./aiCheckSensitivityBodyPlatform";
 
 export interface AiCheckSensitivityBody {
   title: string;
   body: string;
+  platform?: AiCheckSensitivityBodyPlatform;
 }

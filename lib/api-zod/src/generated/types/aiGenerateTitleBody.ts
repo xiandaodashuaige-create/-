@@ -5,10 +5,12 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
+import type { AiGenerateTitleBodyPlatform } from "./aiGenerateTitleBodyPlatform";
 import type { AiGenerateTitleBodyStyle } from "./aiGenerateTitleBodyStyle";
 
 export interface AiGenerateTitleBody {
   body: string;
   style?: AiGenerateTitleBodyStyle;
   count?: number;
+  platform?: AiGenerateTitleBodyPlatform;
 }

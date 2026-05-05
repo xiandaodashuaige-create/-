@@ -22,6 +22,7 @@ import { loadStyleProfileForPrompt, recomputeUserStyleProfile } from "../service
 import { loadUserContentProfile, renderContentProfileForPrompt } from "../services/contentProfile.js";
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
 import { tryFetchXhsData } from "./xhs";
+import { getPlatformPromptContext, buildRegionContext } from "../lib/platformPrompts.js";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -42,17 +43,10 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
       return;
     }
 
-    const { originalContent, style, region, additionalInstructions } = parsed.data;
-
-    const regionContext = region
-      ? region === "HK"
-        ? "Target audience is in Hong Kong. IMPORTANT: You MUST write ALL content in Traditional Chinese (繁體中文) with natural Hong Kong Cantonese expressions and tone. Use Hong Kong local vocabulary (e.g., 搵=找, 嘅=的, 啲=些, 唔=不, 俾=给, 揀=选). The audience speaks Cantonese and reads Traditional Chinese characters."
-        : `Target audience is in ${region === "SG" ? "Singapore" : "Malaysia"}. Write in Simplified Chinese.`
-      : "";
-
-    const styleContext = style
-      ? `Writing style: ${style}.`
-      : "Writing style: casual and engaging.";
+    const { originalContent, style, region, additionalInstructions, platform } = parsed.data;
+    const ctx = getPlatformPromptContext(platform);
+    const regionContext = buildRegionContext(region, ctx);
+    const styleContext = style ? `Writing style: ${style}.` : "Writing style: casual and engaging.";
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -60,26 +54,22 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
       messages: [
         {
           role: "system",
-          content: `You are a professional Xiaohongshu (Little Red Book) content writer. Your job is to rewrite content to be original, engaging, and optimized for the platform. ${regionContext} ${styleContext}
-        
+          content: `${ctx.rolePrompt} ${regionContext} ${styleContext}
+
 Rules:
-- Keep the core message and information but rewrite completely
-- Use natural, conversational Chinese${region === "HK" ? " (Traditional Chinese / 繁體中文 with Hong Kong expressions)" : ""}
-- Add appropriate line breaks and formatting for readability
-- Make it feel authentic and personal, not like AI-generated content
-- Avoid any sensitive or banned words on Xiaohongshu
+${ctx.styleRules}
 ${additionalInstructions ? `Additional instructions: ${additionalInstructions}` : ""}
 
 Respond in JSON format:
 {
-  "rewrittenTitle": "catchy title here",
-  "rewrittenBody": "rewritten content here",
+  "rewrittenTitle": "catchy title / hook here",
+  "rewrittenBody": "rewritten content / script here",
   "suggestedTags": ["tag1", "tag2", "tag3"]
 }`,
         },
         {
           role: "user",
-          content: `Please rewrite this content for Xiaohongshu:\n\n${originalContent}`,
+          content: `Please rewrite this content for ${ctx.platformDisplayName}:\n\n${originalContent}`,
         },
       ],
       response_format: { type: "json_object" },
@@ -119,7 +109,8 @@ router.post("/ai/check-sensitivity", requireCredits("ai-check-sensitivity"), asy
       return;
     }
 
-    const { title, body } = parsed.data;
+    const { title, body, platform } = parsed.data;
+    const ctx = getPlatformPromptContext(platform);
 
     const customWords = await db.select().from(sensitiveWordsTable);
     const wordList = customWords.map((w) => `${w.word} (${w.category}, ${w.severity})`).join("\n");
@@ -130,7 +121,7 @@ router.post("/ai/check-sensitivity", requireCredits("ai-check-sensitivity"), asy
       messages: [
         {
           role: "system",
-          content: `You are a Xiaohongshu content compliance checker. Analyze the given content for potential violations of Xiaohongshu's community guidelines and advertising rules.
+          content: `${ctx.complianceContext}
 
 Check for:
 1. Absolute claims (e.g., "best", "number one", "most effective")
@@ -203,12 +194,10 @@ router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (re
       return;
     }
 
-    const { body: contentBody, style, count } = parsed.data;
+    const { body: contentBody, style, count, platform } = parsed.data;
     const titleCount = count || 5;
-
-    const styleHint = style
-      ? `Style: ${style}.`
-      : "Style: engaging and eye-catching.";
+    const ctx = getPlatformPromptContext(platform);
+    const styleHint = style ? `Style: ${style}.` : "Style: engaging and eye-catching.";
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -216,14 +205,9 @@ router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (re
       messages: [
         {
           role: "system",
-          content: `You are a Xiaohongshu title expert. Generate ${titleCount} catchy, click-worthy titles for the given content. ${styleHint}
+          content: `You are a ${ctx.platformDisplayName} title/hook expert. Generate ${titleCount} catchy, click-worthy ${ctx.platform === "tiktok" ? "video hooks" : "titles"} for the given content. ${styleHint}
 
-Rules for good XHS titles:
-- Use numbers when appropriate (e.g., "5 must-try...")
-- Include emotional hooks
-- Keep under 20 Chinese characters when possible
-- Use trending formats on Xiaohongshu
-- Mix different styles: question, exclamation, list, story
+${ctx.titleRules}
 
 Respond in JSON format:
 {
@@ -266,8 +250,9 @@ router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), asy
       return;
     }
 
-    const { title, body: contentBody, count } = parsed.data;
+    const { title, body: contentBody, count, platform } = parsed.data;
     const tagCount = count || 10;
+    const ctx = getPlatformPromptContext(platform);
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -275,14 +260,10 @@ router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), asy
       messages: [
         {
           role: "system",
-          content: `You are a Xiaohongshu hashtag expert. Generate ${tagCount} relevant hashtags for the given content.
+          content: `You are a ${ctx.platformDisplayName} hashtag expert. Generate ${tagCount} relevant hashtags for the given content.
 
-Rules:
-- Mix popular and niche hashtags
-- Include Chinese hashtags
-- Consider trending topics
-- Include category-specific tags
-- Format without # symbol
+${ctx.hashtagRules}
+- Format without # symbol (the client will add it)
 
 Respond in JSON format:
 {

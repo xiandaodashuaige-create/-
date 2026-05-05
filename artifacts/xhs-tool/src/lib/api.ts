@@ -32,10 +32,27 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   dashboard: {
-    stats: () => request<any>("/dashboard/stats"),
-    recentActivity: (limit = 10) => request<any[]>(`/dashboard/recent-activity?limit=${limit}`),
-    contentByRegion: () => request<any[]>("/dashboard/content-by-region"),
-    contentByStatus: () => request<any[]>("/dashboard/content-by-status"),
+    stats: (params?: { platform?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.platform) q.set("platform", params.platform);
+      return request<any>(`/dashboard/stats${q.toString() ? `?${q}` : ""}`);
+    },
+    recentActivity: (limit = 10, platform?: string) => {
+      const q = new URLSearchParams();
+      q.set("limit", String(limit));
+      if (platform) q.set("platform", platform);
+      return request<any[]>(`/dashboard/recent-activity?${q}`);
+    },
+    contentByRegion: (params?: { platform?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.platform) q.set("platform", params.platform);
+      return request<any[]>(`/dashboard/content-by-region${q.toString() ? `?${q}` : ""}`);
+    },
+    contentByStatus: (params?: { platform?: string }) => {
+      const q = new URLSearchParams();
+      if (params?.platform) q.set("platform", params.platform);
+      return request<any[]>(`/dashboard/content-by-status${q.toString() ? `?${q}` : ""}`);
+    },
   },
   accounts: {
     list: (params?: { platform?: string; region?: string; status?: string }) => {

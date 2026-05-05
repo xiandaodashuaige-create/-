@@ -88,6 +88,7 @@ router.get("/dashboard/recent-activity", async (req, res): Promise<void> => {
     if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
     const query = GetRecentActivityQueryParams.safeParse(req.query);
     const limit = query.success && query.data.limit ? query.data.limit : 10;
+    const platform = query.success ? query.data.platform : undefined;
 
     // 当前 activityLogTable 没有直接的 owner_user_id 列；通过 accountId 反查归属。
     // 为避免泄露其他租户活动，过滤 accountId 在当前用户名下，或 accountId/contentId 都为 NULL 的系统级活动暂时不展示。
@@ -96,6 +97,7 @@ router.get("/dashboard/recent-activity", async (req, res): Promise<void> => {
       FROM activity_log al
       INNER JOIN accounts a ON al.account_id = a.id
       WHERE a.owner_user_id = ${u.id}
+      ${platform ? sql`AND a.platform = ${platform}` : sql``}
       ORDER BY al.created_at DESC
       LIMIT ${limit}
     `);

@@ -74,23 +74,23 @@ export default function ContentEditor() {
   });
 
   const rewriteMutation = useMutation({
-    mutationFn: (data: any) => api.ai.rewrite(data),
+    mutationFn: (data: any) => api.ai.rewrite({ platform: activePlatform, ...data }),
     onSuccess: (result) => setAiResult(result),
     onError: (e: Error) => toast({ title: "AI改写失败", description: e.message, variant: "destructive" }),
   });
 
   const sensitivityMutation = useMutation({
-    mutationFn: (data: any) => api.ai.checkSensitivity(data),
+    mutationFn: (data: any) => api.ai.checkSensitivity({ platform: activePlatform, ...data }),
     onSuccess: (result) => setSensitivityResult(result),
     onError: (e: Error) => toast({ title: "检测失败", description: e.message, variant: "destructive" }),
   });
 
   const titleMutation = useMutation({
-    mutationFn: (data: any) => api.ai.generateTitle(data),
+    mutationFn: (data: any) => api.ai.generateTitle({ platform: activePlatform, ...data }),
   });
 
   const hashtagMutation = useMutation({
-    mutationFn: (data: any) => api.ai.generateHashtags(data),
+    mutationFn: (data: any) => api.ai.generateHashtags({ platform: activePlatform, ...data }),
   });
 
   const imageMutation = useMutation({

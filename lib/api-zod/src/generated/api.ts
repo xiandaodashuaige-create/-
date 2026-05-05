@@ -427,7 +427,8 @@ export const DeleteAssetParams = zod.object({
 export const AiRewriteContentBody = zod.object({
   originalContent: zod.string(),
   style: zod.enum(["casual", "professional", "creative", "viral"]).optional(),
-  region: zod.enum(["SG", "HK", "MY"]).optional(),
+  region: zod.string().optional(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
   additionalInstructions: zod.string().optional(),
 });
 
@@ -443,6 +444,7 @@ export const AiRewriteContentResponse = zod.object({
 export const AiCheckSensitivityBody = zod.object({
   title: zod.string(),
   body: zod.string(),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
 });
 
 export const AiCheckSensitivityResponse = zod.object({
@@ -467,6 +469,7 @@ export const AiGenerateTitleBody = zod.object({
   body: zod.string(),
   style: zod.enum(["casual", "professional", "creative", "viral"]).optional(),
   count: zod.number().default(aiGenerateTitleBodyCountDefault),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
 });
 
 export const AiGenerateTitleResponse = zod.object({
@@ -482,6 +485,7 @@ export const AiGenerateHashtagsBody = zod.object({
   title: zod.string(),
   body: zod.string(),
   count: zod.number().default(aiGenerateHashtagsBodyCountDefault),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
 });
 
 export const AiGenerateHashtagsResponse = zod.object({
@@ -550,6 +554,7 @@ export const getRecentActivityQueryLimitDefault = 10;
 
 export const GetRecentActivityQueryParams = zod.object({
   limit: zod.coerce.number().default(getRecentActivityQueryLimitDefault),
+  platform: zod.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
 });
 
 export const GetRecentActivityResponseItem = zod.object({

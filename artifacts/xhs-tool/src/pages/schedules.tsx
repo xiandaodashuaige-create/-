@@ -13,6 +13,7 @@ export default function Schedules() {
   const { toast } = useToast();
   const { activePlatform } = usePlatform();
   const platformMeta = PLATFORMS[activePlatform];
+  const PlatformIcon = platformMeta.icon;
 
   const { data: allSchedules = [], isLoading } = useQuery({
     queryKey: ["schedules"],
@@ -39,10 +40,18 @@ export default function Schedules() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <span className="text-2xl">{platformMeta.icon}</span>
+        <div className={`w-10 h-10 rounded-lg ${platformMeta.bgClass} ${platformMeta.borderClass} border flex items-center justify-center`}>
+          <PlatformIcon className={`h-5 w-5 ${platformMeta.textClass}`} />
+        </div>
         <div>
-          <h1 className="text-2xl font-bold">{platformMeta.label} · 发布计划</h1>
-          <p className="text-muted-foreground">管理内容发布时间表</p>
+          <h1 className="text-2xl font-bold">{platformMeta.name} · 发布计划</h1>
+          <p className="text-muted-foreground text-sm">
+            {platformMeta.publishMode === "manual"
+              ? "手动发布：复制内容 + 下载素材，按计划时间发布"
+              : platformMeta.enabled
+              ? "自动发布：到点后系统自动调用 API 投递"
+              : `${platformMeta.name} 自动发布即将开放，目前可建立计划占位`}
+          </p>
         </div>
       </div>
 

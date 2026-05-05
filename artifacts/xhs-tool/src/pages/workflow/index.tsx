@@ -21,7 +21,8 @@ import {
   Search, Target, Lightbulb, RotateCcw, Zap, TrendingUp,
   Video, Eye, Download, Clock, Image as ImageIcon, RefreshCw
 } from "lucide-react";
-import { PLATFORM_LIST } from "@/lib/platform-meta";
+import { PLATFORM_LIST, PLATFORMS } from "@/lib/platform-meta";
+import { usePlatform } from "@/lib/platform-context";
 
 const STEPS = [
   { id: 1, label: "内容策略", icon: Search, desc: "选择地区、AI分析同行内容策略和发布时间" },
@@ -51,6 +52,7 @@ export default function WorkflowWizard() {
   const [, setLocation] = useLocation();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { activePlatform, setActivePlatform } = usePlatform();
   const [step, setStep] = useState(1);
 
   const [selectedRegion, setSelectedRegion] = useState<string>("");
@@ -680,6 +682,37 @@ export default function WorkflowWizard() {
 
   const hasResearchInput = researchInput.businessDescription.trim() || researchInput.competitorLink.trim() || researchInput.niche.trim();
   const isImageGenerating = imageMutation.isPending || editImageMutation.isPending || pipelineImageMutation.isPending;
+
+  if (activePlatform !== "xhs") {
+    const meta = PLATFORMS[activePlatform];
+    const PlatformIcon = meta.icon;
+    return (
+      <div className="max-w-3xl mx-auto py-12">
+        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center space-y-4">
+          <div className={`w-14 h-14 mx-auto rounded-2xl ${meta.bgClass} ${meta.borderClass} border flex items-center justify-center`}>
+            <PlatformIcon className={`h-7 w-7 ${meta.textClass}`} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold">{meta.name} 创作向导即将开放</h2>
+            <p className="text-muted-foreground text-sm mt-1">
+              当前的 3 步爆款向导（同行分析 → AI 生成 → 发布）依赖小红书数据源。<br />
+              {meta.publishMode === "api"
+                ? `${meta.name} 将走 ${meta.publishVia === "ayrshare" ? "Ayrshare" : "Meta 直连"} 自动发布管道，OAuth 接入完成后开放。`
+                : `${meta.name} 即将开放。`}
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <Button variant="outline" onClick={() => setLocation("/content")}>
+              先到内容管理新建草稿
+            </Button>
+            <Button onClick={() => setActivePlatform("xhs")} className="bg-red-500 hover:bg-red-600">
+              切换到小红书
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">

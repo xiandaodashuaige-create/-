@@ -29,11 +29,14 @@ import {
   Activity,
 } from "lucide-react";
 import HotTopicsCard from "@/components/tracking/HotTopicsCard";
+import { usePlatform } from "@/lib/platform-context";
+import { PLATFORMS } from "@/lib/platform-meta";
 
 export default function TrackingPage() {
   const [, setLocation] = useLocation();
   const qc = useQueryClient();
   const { toast } = useToast();
+  const { activePlatform, setActivePlatform } = usePlatform();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ xhsUrl: "", title: "", keywords: "" });
 
@@ -73,6 +76,31 @@ export default function TrackingPage() {
       qc.invalidateQueries({ queryKey: ["tracking"] });
     },
   });
+
+  if (activePlatform !== "xhs") {
+    const meta = PLATFORMS[activePlatform];
+    const PlatformIcon = meta.icon;
+    return (
+      <div className="max-w-3xl mx-auto py-12">
+        <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center space-y-4">
+          <div className={`w-14 h-14 mx-auto rounded-2xl ${meta.bgClass} ${meta.borderClass} border flex items-center justify-center`}>
+            <PlatformIcon className={`h-7 w-7 ${meta.textClass}`} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold">{meta.name} 表现追踪即将开放</h2>
+            <p className="text-muted-foreground text-sm mt-1">
+              当前的笔记互动 / 关键词排名追踪基于小红书公开数据。<br />
+              {meta.name} 将通过{meta.publishVia === "ayrshare" ? " Ayrshare 反向回拉 " : " Meta Insights API "}
+              获取互动数据，OAuth 接入完成后开放。
+            </p>
+          </div>
+          <Button onClick={() => setActivePlatform("xhs")} className="bg-red-500 hover:bg-red-600">
+            切换到小红书
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -494,6 +494,11 @@ paths:
           schema:
             type: integer
             default: 10
+        - name: platform
+          in: query
+          schema:
+            type: string
+            enum: [xhs, tiktok, instagram, facebook]
       responses:
         "200":
           description: Recent activity
@@ -931,7 +936,9 @@ components:
           enum: [casual, professional, creative, viral]
         region:
           type: string
-          enum: [SG, HK, MY]
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
         additionalInstructions:
           type: string
       required:
@@ -960,6 +967,9 @@ components:
           type: string
         body:
           type: string
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
       required:
         - title
         - body
@@ -1009,6 +1019,9 @@ components:
         count:
           type: integer
           default: 5
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
       required:
         - body
 
@@ -1032,6 +1045,9 @@ components:
         count:
           type: integer
           default: 10
+        platform:
+          type: string
+          enum: [xhs, tiktok, instagram, facebook]
       required:
         - title
         - body
