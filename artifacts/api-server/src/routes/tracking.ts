@@ -148,9 +148,29 @@ router.get("/tracking/notes", async (req, res): Promise<void> => {
       if (!metricsByTracking.has(m.trackingId)) metricsByTracking.set(m.trackingId, m);
     }
 
+    // 每个 tracking 取最新一天的所有关键词排名
+    const latestRanksRaw = await db
+      .select()
+      .from(keywordRankingsDailyTable)
+      .where(inArray(keywordRankingsDailyTable.trackingId, ids))
+      .orderBy(desc(keywordRankingsDailyTable.date));
+
+    const latestDateByTracking = new Map<number, string>();
+    const ranksByTracking = new Map<number, typeof latestRanksRaw>();
+    for (const r of latestRanksRaw) {
+      if (!latestDateByTracking.has(r.trackingId)) {
+        latestDateByTracking.set(r.trackingId, r.date);
+      }
+      if (latestDateByTracking.get(r.trackingId) !== r.date) continue;
+      const arr = ranksByTracking.get(r.trackingId) || [];
+      arr.push(r);
+      ranksByTracking.set(r.trackingId, arr);
+    }
+
     const result = list.map((t) => ({
       ...t,
       latestMetrics: metricsByTracking.get(t.id) || null,
+      latestRanks: ranksByTracking.get(t.id) || [],
     }));
 
     res.json(result);

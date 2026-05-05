@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, FileText, Image, Calendar, TrendingUp, Clock, PenSquare, ChevronRight, Sparkles } from "lucide-react";
+import { Users, FileText, Image, Calendar, TrendingUp, Clock, PenSquare, ChevronRight, Sparkles, Heart, Bookmark, MessageCircle, Search } from "lucide-react";
 
 export default function Dashboard() {
   const [, setLocation] = useLocation();
@@ -12,6 +12,7 @@ export default function Dashboard() {
   const { data: activity } = useQuery({ queryKey: ["recent-activity"], queryFn: () => api.dashboard.recentActivity(8) });
   const { data: byRegion } = useQuery({ queryKey: ["content-by-region"], queryFn: api.dashboard.contentByRegion });
   const { data: byStatus } = useQuery({ queryKey: ["content-by-status"], queryFn: api.dashboard.contentByStatus });
+  const { data: trackings = [] } = useQuery<any[]>({ queryKey: ["tracking"], queryFn: api.tracking.list });
 
   const statCards = [
     { label: "总账号数", value: stats?.totalAccounts ?? 0, sub: `${stats?.activeAccounts ?? 0} 活跃`, icon: Users, color: "text-blue-500" },
@@ -128,6 +129,58 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-orange-200/60">
+        <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUp className="h-4 w-4 text-orange-500" />
+            我的笔记表现
+            <Badge variant="outline" className="text-[10px] ml-1">每 12 小时自动更新</Badge>
+          </CardTitle>
+          {trackings.length > 0 && (
+            <Button variant="ghost" size="sm" className="text-xs" onClick={() => setLocation("/tracking")}>
+              查看全部 <ChevronRight className="h-3.5 w-3.5 ml-0.5" />
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {trackings.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-4 text-center">
+              发布笔记后，在第3步粘贴笔记链接，系统会自动追踪互动数和关键词排名
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {trackings.slice(0, 3).map((t: any) => {
+                const m = t.latestMetrics || {};
+                const ranks: any[] = t.latestRanks || [];
+                const bestRank = ranks.filter((r) => r.rank).sort((a, b) => a.rank - b.rank)[0];
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setLocation(`/tracking/${t.id}`)}
+                    className="w-full text-left p-3 rounded-lg border hover:bg-muted/40 transition-colors"
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <p className="font-medium text-sm truncate flex-1">{t.title || t.xhsNoteId}</p>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      <span className="flex items-center gap-1"><Heart className="h-3 w-3 text-red-400" />{m.likedCount ?? "—"}</span>
+                      <span className="flex items-center gap-1"><Bookmark className="h-3 w-3 text-amber-400" />{m.collectedCount ?? "—"}</span>
+                      <span className="flex items-center gap-1"><MessageCircle className="h-3 w-3 text-blue-400" />{m.commentCount ?? "—"}</span>
+                      {bestRank && (
+                        <span className="flex items-center gap-1 ml-auto text-orange-600 font-medium">
+                          <Search className="h-3 w-3" />#{bestRank.rank} · {bestRank.keyword}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

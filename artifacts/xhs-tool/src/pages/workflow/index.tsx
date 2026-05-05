@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -103,6 +103,9 @@ export default function WorkflowWizard() {
   const [savedContentId, setSavedContentId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
   const [publishStep, setPublishStep] = useState<"ready" | "copied" | "opened">("ready");
+  const [publishedNoteUrl, setPublishedNoteUrl] = useState("");
+  const [autoTrackingId, setAutoTrackingId] = useState<number | null>(null);
+  const [autoTrackingError, setAutoTrackingError] = useState<string>("");
   const [editMode, setEditMode] = useState(false);
 
   const [aiProgress, setAiProgress] = useState<{ active: boolean; steps: AiProgressStep[] }>({
@@ -214,8 +217,56 @@ export default function WorkflowWizard() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["content"] });
       toast({ title: "内容已标记为已发布" });
+      // 只有发布成功后才尝试追踪（用户粘了链接才触发；失败静默不阻塞流程）
+      const url = publishedNoteUrl.trim();
+      if (url && /xhslink\.com|xiaohongshu\.com/.test(url)) {
+        autoTrackMutation.mutate({ xhsUrl: url });
+      }
     },
   });
+
+  // 自动追踪：发布成功 + 用户粘了链接，就静默后台创建追踪记录
+  const autoTrackMutation = useMutation({
+    mutationFn: (data: { xhsUrl: string }) => {
+      const kws = [
+        researchInput.niche,
+        ...(form.tags || []),
+        ...((researchResult?.analysis?.popularAngles as string[] | undefined) || []),
+      ]
+        .map((k) => String(k || "").trim())
+        .filter(Boolean)
+        .slice(0, 5);
+      return api.tracking.create({
+        xhsUrl: data.xhsUrl,
+        title: form.title,
+        targetKeywords: kws,
+        contentId: savedContentId ?? undefined,
+        accountId: form.accountId ?? undefined,
+      });
+    },
+    onSuccess: (row: any) => {
+      setAutoTrackingId(row?.id ?? null);
+      setAutoTrackingError("");
+      qc.invalidateQueries({ queryKey: ["tracking"] });
+    },
+    onError: (e: any) => {
+      setAutoTrackingError(e?.message || "无法解析这个链接");
+    },
+  });
+
+  // 灵感 step1：根据 niche+region 自动拉热点话题（debounce）
+  const niche = researchInput.niche.trim();
+  const { data: hotTopicsData } = useQuery({
+    queryKey: ["hot-topics-inline", niche, selectedRegion],
+    queryFn: () =>
+      api.tracking.hotTopics({
+        niche,
+        region: selectedRegion || undefined,
+      }),
+    enabled: niche.length >= 2 && !!selectedRegion,
+    staleTime: 30 * 60 * 1000,
+  });
+  const hotTopics: string[] = (hotTopicsData?.topics || []).slice(0, 8);
 
   function canProceed(): boolean {
     switch (step) {
@@ -812,6 +863,31 @@ export default function WorkflowWizard() {
                       onChange={(e) => setResearchInput({ ...researchInput, niche: e.target.value })}
                       placeholder="例如：美妆护肤、留学咨询、母婴育儿、餐饮探店"
                     />
+                    {hotTopics.length > 0 && (
+                      <div className="mt-2 p-3 rounded-lg bg-gradient-to-r from-orange-50 to-rose-50 border border-orange-200">
+                        <p className="text-xs font-medium text-orange-700 mb-2 flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {regionLabels[selectedRegion] || selectedRegion} · {researchInput.niche} 当下热点话题（点击加入业务描述）
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {hotTopics.map((t) => (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => setResearchInput((prev) => ({
+                                ...prev,
+                                businessDescription: prev.businessDescription
+                                  ? `${prev.businessDescription}，关注热点 #${t}`
+                                  : `关注热点 #${t}`,
+                              }))}
+                              className="text-xs px-2 py-1 rounded-full bg-white border border-orange-200 text-orange-700 hover:bg-orange-100 transition-colors"
+                            >
+                              #{t}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1753,47 +1829,61 @@ export default function WorkflowWizard() {
                     {publishMutation.isSuccess ? <Check className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium">标记为已发布</p>
-                    <p className="text-sm text-muted-foreground mt-1">在小红书发布成功后，点击更新状态</p>
-                    <Button className="mt-3" variant={publishMutation.isSuccess ? "outline" : publishStep === "opened" ? "default" : "outline"}
-                      disabled={publishMutation.isPending || publishMutation.isSuccess || !savedContentId} onClick={handleMarkPublished}>
-                      {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> :
-                       publishMutation.isSuccess ? <><Check className="h-4 w-4 mr-2" />已标记</> :
-                       <><CheckCircle2 className="h-4 w-4 mr-2" />确认已发布</>}
-                    </Button>
+                    <p className="font-medium">标记为已发布 <span className="text-xs font-normal text-muted-foreground">（自动开启数据追踪）</span></p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      在小红书发布后复制笔记链接粘贴到下面，系统会每天自动追踪点赞/收藏/评论 + SEO关键词排名
+                    </p>
+                    <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                      <Input
+                        value={publishedNoteUrl}
+                        onChange={(e) => setPublishedNoteUrl(e.target.value)}
+                        placeholder="粘贴小红书笔记链接（xhslink.com/... 或 xiaohongshu.com/explore/...）"
+                        disabled={publishMutation.isSuccess}
+                        className="flex-1 text-sm"
+                      />
+                      <Button
+                        variant={publishMutation.isSuccess ? "outline" : publishStep === "opened" ? "default" : "outline"}
+                        disabled={publishMutation.isPending || publishMutation.isSuccess || !savedContentId}
+                        onClick={handleMarkPublished}
+                      >
+                        {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> :
+                         publishMutation.isSuccess ? <><Check className="h-4 w-4 mr-2" />已标记</> :
+                         <><CheckCircle2 className="h-4 w-4 mr-2" />确认已发布</>}
+                      </Button>
+                    </div>
+                    {publishMutation.isSuccess && autoTrackingId && (
+                      <div className="mt-3 flex items-center gap-2 text-sm text-green-700 bg-green-100/60 rounded-lg px-3 py-2">
+                        <TrendingUp className="h-4 w-4" />
+                        <span>已自动加入追踪 · 第一份数据将在 30 秒内出现</span>
+                        <Button size="sm" variant="ghost" className="h-7 ml-auto text-green-700 hover:text-green-800"
+                          onClick={() => setLocation(`/tracking/${autoTrackingId}`)}>
+                          查看 →
+                        </Button>
+                      </div>
+                    )}
+                    {publishMutation.isSuccess && !autoTrackingId && publishedNoteUrl.trim() && autoTrackingError && (
+                      <div className="mt-3 flex items-center gap-2 text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                        <AlertTriangle className="h-4 w-4" />
+                        <span>自动追踪未启用：{autoTrackingError}</span>
+                      </div>
+                    )}
+                    {publishMutation.isSuccess && !publishedNoteUrl.trim() && (
+                      <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+                        <AlertTriangle className="h-4 w-4" />
+                        <span>未粘贴链接，本篇不会自动追踪。可稍后到"笔记追踪"补加。</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
 
               {publishMutation.isSuccess && (
-                <div className="space-y-3">
-                  <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-center">
-                    <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-2" />
-                    <p className="font-medium text-green-800">恭喜！笔记发布流程已完成</p>
-                    <div className="flex gap-3 justify-center mt-4">
-                      <Button variant="outline" onClick={handleReset}>发布下一篇</Button>
-                      <Button onClick={() => setLocation("/content")}>查看所有内容</Button>
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-xl bg-gradient-to-r from-orange-50 to-rose-50 border border-orange-200">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 rounded-full bg-orange-500/15 flex items-center justify-center shrink-0">
-                        <TrendingUp className="h-5 w-5 text-orange-500" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-orange-800">追踪这条笔记的表现</p>
-                        <p className="text-sm text-orange-700/80 mt-1">
-                          复制小红书的笔记链接，加入追踪后，每天自动监控点赞/收藏曲线 + 关键词搜索排名
-                        </p>
-                        <Button
-                          className="mt-3 bg-orange-500 hover:bg-orange-600 text-white"
-                          size="sm"
-                          onClick={() => setLocation("/tracking")}
-                        >
-                          <TrendingUp className="h-4 w-4 mr-2" />前往追踪页面
-                        </Button>
-                      </div>
-                    </div>
+                <div className="p-4 rounded-xl bg-green-50 border border-green-200 text-center">
+                  <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto mb-2" />
+                  <p className="font-medium text-green-800">恭喜！笔记发布流程已完成</p>
+                  <div className="flex gap-3 justify-center mt-4">
+                    <Button variant="outline" onClick={handleReset}>发布下一篇</Button>
+                    <Button onClick={() => setLocation("/content")}>查看所有内容</Button>
                   </div>
                 </div>
               )}

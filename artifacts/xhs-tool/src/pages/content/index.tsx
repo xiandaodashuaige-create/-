@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, FileText, Trash2, Edit, Send, Calendar, Eye } from "lucide-react";
+import { Plus, FileText, Trash2, Edit, Send, Calendar, Eye, Heart, Search, TrendingUp } from "lucide-react";
+import { useLocation } from "wouter";
 
 const statusConfig: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   draft: { label: "草稿", variant: "secondary" },
@@ -19,6 +20,7 @@ const statusConfig: Record<string, { label: string; variant: "default" | "second
 export default function ContentList() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("ALL");
 
@@ -26,6 +28,16 @@ export default function ContentList() {
     queryKey: ["content", statusFilter, regionFilter],
     queryFn: () => api.content.list({ status: statusFilter, region: regionFilter }),
   });
+
+  const { data: trackings = [] } = useQuery<any[]>({
+    queryKey: ["tracking"],
+    queryFn: api.tracking.list,
+  });
+  // 按 contentId 建立查找索引：可以一行一行展示该笔记的实时表现
+  const trackingByContentId = new Map<number, any>();
+  for (const t of trackings) {
+    if (t.contentId) trackingByContentId.set(Number(t.contentId), t);
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.content.delete(id),
@@ -102,14 +114,33 @@ export default function ContentList() {
         <div className="space-y-3">
           {content.map((item: any) => {
             const sc = statusConfig[item.status] || statusConfig.draft;
+            const tracking = trackingByContentId.get(Number(item.id));
+            const m = tracking?.latestMetrics || {};
+            const ranks: any[] = tracking?.latestRanks || [];
+            const bestRank = ranks.filter((r) => r.rank).sort((a, b) => a.rank - b.rank)[0];
             return (
               <Card key={item.id} className="hover:shadow-md transition-shadow">
                 <CardContent className="pt-6">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold truncate">{item.title}</h3>
                         <Badge variant={sc.variant}>{sc.label}</Badge>
+                        {tracking && (
+                          <button
+                            onClick={() => setLocation(`/tracking/${tracking.id}`)}
+                            className="inline-flex items-center gap-2 text-xs px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 transition-colors"
+                            title="点击查看追踪详情"
+                          >
+                            <TrendingUp className="h-3 w-3" />
+                            <span className="flex items-center gap-1"><Heart className="h-3 w-3" />{m.likedCount ?? "—"}</span>
+                            {bestRank && (
+                              <span className="flex items-center gap-1 border-l border-orange-200 pl-2">
+                                <Search className="h-3 w-3" />#{bestRank.rank}
+                              </span>
+                            )}
+                          </button>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground line-clamp-2">
                         {item.body}
