@@ -323,17 +323,39 @@ export default function WorkflowWizard() {
 
     if (suggestion.imagePrompt) {
       const topNotes = competitorCovers.slice(0, 3);
-      let enhancedPrompt = suggestion.imagePrompt;
-      if (topNotes.length > 0) {
-        const styleHints = topNotes.map((n: any) => n.title).filter(Boolean).join("、");
-        enhancedPrompt = `${suggestion.imagePrompt}。参考同行爆款笔记的封面风格特点（${styleHints}），生成类似风格但全新原创的配图。要求：小红书爆款封面风格，精美、高级感、吸引眼球、适合社交媒体展示。`;
-      }
-      setImagePrompt(enhancedPrompt);
+      const topCover = topNotes[0];
+
       try {
-        const imageRes = await api.ai.generateImage({ prompt: enhancedPrompt, size: "1024x1536" });
-        const url = imageRes.storedUrl || imageRes.imageUrl;
-        if (url) {
-          setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+        if (topCover?.cover_url) {
+          // 真·参考爆款封面：用 pipeline 让 AI 先视觉分析爆款封面，再生成同风格原创图
+          const proxiedRef = proxyXhsImage(topCover.cover_url);
+          if (proxiedRef) {
+            setImagePrompt(`参考爆款《${topCover.title}》的封面视觉风格 → ${suggestion.imagePrompt}`);
+            const pipelineRes = await api.ai.generateImagePipeline({
+              referenceImageUrl: proxiedRef,
+              newTopic: suggestion.title || form.title || "小红书内容",
+              newTitle: suggestion.title,
+              mimicStrength: "partial",
+              extraInstructions: suggestion.imagePrompt,
+              size: "1024x1536",
+            });
+            const url = pipelineRes.storedUrl || pipelineRes.imageUrl;
+            if (url) {
+              setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+            }
+          }
+        } else {
+          // 没拿到封面就退回纯文字 prompt
+          const styleHints = topNotes.map((n: any) => n.title).filter(Boolean).join("、");
+          const enhancedPrompt = styleHints
+            ? `${suggestion.imagePrompt}。参考同行爆款笔记的封面风格特点（${styleHints}），生成类似风格但全新原创的配图。要求：小红书爆款封面风格，精美、高级感、吸引眼球、适合社交媒体展示。`
+            : suggestion.imagePrompt;
+          setImagePrompt(enhancedPrompt);
+          const imageRes = await api.ai.generateImage({ prompt: enhancedPrompt, size: "1024x1536" });
+          const url = imageRes.storedUrl || imageRes.imageUrl;
+          if (url) {
+            setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+          }
         }
       } catch (err: any) {
         if (err?.status === 403) { handleCreditError(err); }
@@ -929,6 +951,31 @@ export default function WorkflowWizard() {
                 </CardContent>
               </Card>
 
+              {/* Experience Summary - 经验总结 */}
+              {Array.isArray(researchResult.analysis?.experienceSummary) && researchResult.analysis.experienceSummary.length > 0 && (
+                <Card className="border-amber-200 bg-amber-50/30">
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-amber-600" />
+                      AI 提炼的可执行经验
+                      <Badge className="bg-amber-100 text-amber-700 text-[10px] ml-auto">
+                        共 {researchResult.analysis.experienceSummary.length} 条
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {researchResult.analysis.experienceSummary.map((tip: string, i: number) => (
+                        <li key={i} className="flex gap-2 text-sm text-amber-900">
+                          <span className="shrink-0 w-5 h-5 rounded-full bg-amber-200 text-amber-900 text-[11px] font-bold flex items-center justify-center">{i + 1}</span>
+                          <span className="leading-relaxed">{tip}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Real Competitor Notes Gallery */}
               {researchResult.competitorNotes?.length > 0 && (
                 <Card className="border-red-200 bg-red-50/20">
@@ -1035,6 +1082,11 @@ export default function WorkflowWizard() {
                             <span className="text-[10px] text-muted-foreground">+{suggestion.tags.length - 4}</span>
                           )}
                         </div>
+                        {suggestion.mimicSource && (
+                          <div className="text-[11px] text-orange-700 bg-orange-50 rounded px-2 py-1.5 border border-orange-200">
+                            <span className="font-medium text-orange-800">伪原创自：</span>{suggestion.mimicSource}
+                          </div>
+                        )}
                         <div className="text-[11px] text-green-700 bg-green-50 rounded px-2 py-1.5 border border-green-200">
                           <span className="font-medium text-green-800">爆款公式：</span>{suggestion.whyThisWorks}
                         </div>

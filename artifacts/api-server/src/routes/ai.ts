@@ -1020,24 +1020,50 @@ router.post("/ai/competitor-research", requireCredits("ai-competitor-research"),
       if (xhsResult.available && xhsResult.notes.length > 0) {
         competitorNotes = xhsResult.notes;
         const sorted = [...xhsResult.notes].sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0));
+        // 把每篇的完整摘要（200字）+ 标签都喂给 AI，确保它能真正吃透爆款风格
         const noteSummaries = sorted.map((n: any, i: number) =>
-          `${i + 1}. 「${n.title}」by @${n.author} — ❤️${n.liked_count} ⭐${n.collected_count} 💬${n.comment_count}${n.desc ? ` | 摘要: ${n.desc.slice(0, 80)}` : ""} | 标签: ${(n.tags || []).join(", ")}`
-        ).join("\n");
+          `${i + 1}. 「${n.title}」by @${n.author} — ❤️${n.liked_count} ⭐${n.collected_count} 💬${n.comment_count}${n.cover_url ? ` 📷有封面` : ""}
+   摘要：${(n.desc || "").slice(0, 200) || "（无）"}
+   标签：${(n.tags || []).slice(0, 8).map((t: string) => `#${t}`).join(" ") || "（无）"}`
+        ).join("\n\n");
+
+        // 聚合所有爆款里的高频标签 → 标签池，强制 AI 优先采用
+        const tagFreq = new Map<string, number>();
+        for (const n of sorted) {
+          for (const t of (n.tags || [])) {
+            const norm = String(t).trim().replace(/^#/, "");
+            if (norm) tagFreq.set(norm, (tagFreq.get(norm) || 0) + 1);
+          }
+        }
+        const topTagPool = [...tagFreq.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 25)
+          .map(([t, c]) => `#${t}(${c}次)`)
+          .join("、");
+
         const avgLikes = Math.round(sorted.reduce((s: number, n: any) => s + (n.liked_count || 0), 0) / sorted.length);
         const avgCollected = Math.round(sorted.reduce((s: number, n: any) => s + (n.collected_count || 0), 0) / sorted.length);
-        realDataContext = `\n\n📊 以下是该领域小红书${sorted.length}篇真实爆款笔记（按点赞数排序，来源：实时抓取）：
+        realDataContext = `\n\n📊 以下是该领域小红书${sorted.length}篇真实爆款笔记（按点赞数排序，实时抓取）：
+
 ${noteSummaries}
 
 📈 数据概览：共${sorted.length}篇，平均点赞${avgLikes}，平均收藏${avgCollected}，最高点赞${sorted[0]?.liked_count || 0}
 
+🏷 爆款高频标签池（按出现次数排序，**生成方案时必须优先从这里挑 3-4 个，再补充 2-3 个长尾标签**）：
+${topTagPool || "（暂无）"}
+
 ⚠️ 核心任务：你必须深度分析以上全部${sorted.length}篇爆款笔记，完成以下工作：
 1. 【分类归纳】将这些爆款按内容方向/角度分成3-5个类别（如：教程攻略类、个人体验类、测评对比类、避坑指南类、种草推荐类等）
 2. 【爆款模式提炼】从标题、正文结构、情绪钩子、标签策略四个维度，总结每类爆款的成功规律
-3. 【伪原创方案】基于提炼出的爆款模式，生成3套伪原创内容方案。每套方案必须：
-   - 借鉴某篇/某类高赞笔记的成功模式（在whyThisWorks中说明参考了哪篇）
-   - 标题使用该类爆款验证过的标题公式（数字+痛点、对比反差、好奇心缺口等）
-   - 正文结构模仿爆款的行文逻辑，但内容完全原创
-   - 标签策略参考高赞笔记的标签组合`;
+3. 【经验总结 experienceSummary】产出 5-8 条**可直接执行的具体经验**，不要泛泛而谈。例如：
+   - "标题首字优先用数字（27岁/3天/¥199），${sorted.length}篇里有X篇这么做，平均点赞高XX%"
+   - "前 2 句必须出现具体地名/价格/痛点，不要写'最近发现'这种虚词"
+   - "结尾必带提问引导评论（'你们花了多少钱？'），实测互动率高3倍"
+4. 【伪原创方案 suggestions】生成3套方案。每套方案必须：
+   - **mimicSource**: 明确说"借鉴第N篇《XXX标题》的YY模式"（必填，方便用户对照原帖）
+   - 标题用爆款验证过的公式（数字+痛点、对比反差、好奇心缺口等）
+   - 正文模仿爆款的行文节奏，但内容完全原创
+   - **tags 必须从上面【爆款高频标签池】里挑 3-4 个 + 自己补 2-3 个长尾词**`;
       }
     }
 
@@ -1121,6 +1147,7 @@ ${noteSummaries}
     "popularAngles": ["热门切入角度1", "热门切入角度2", "热门切入角度3"],
     "competitorInsights": "竞品爆款深度分析（4-6句话）：明确指出最高赞那篇用了什么开头公式、什么叙事结构、什么情绪钩子。指出20篇笔记里反复出现的成功模式。",
     "viralPatterns": "爆款模式总结：将20篇归为3-4个内容类型，每个类型说明：①标题公式 ②开头钩子 ③叙事结构 ④为什么这种类型在该地区高赞",
+    "experienceSummary": ["可直接执行的经验1（带数据/对比，如：'标题前置数字的笔记平均点赞高47%'）", "经验2", "经验3", "经验4", "经验5", "经验6", "经验7", "经验8"],
     "bestPostingTimes": ["推荐发布时间1（如：周一 12:00-13:00）", "推荐发布时间2", "推荐发布时间3"],
     "postingTimeReason": "为什么推荐这些时间段（基于该地区行业特点和用户活跃规律）"
   },
@@ -1129,10 +1156,11 @@ ${noteSummaries}
       "angle": "内容切入角度（要具体，如：避坑指南/真实测评/踩雷警告/省钱攻略，不要写"个人体验"这种泛词）",
       "title": "标题（必须使用爆款标题公式，禁止平淡描述）",
       "body": "完整笔记正文（350-550字，按钩子→背景→干货→高潮→互动的内在节奏来写，但**绝对不能出现'【钩子段】【背景段】【干货段】【高潮段】【互动段】'这些标签字样**——它们只是写作思路，不是章节标题。必须从8种爆款开头公式之一开始，绝对禁用'大家好'）",
-      "tags": ["标签1", "标签2", "标签3", "标签4", "标签5", "标签6"],
+      "tags": ["标签1从爆款标签池挑", "标签2从爆款标签池挑", "标签3从爆款标签池挑", "长尾标签4", "长尾标签5", "长尾标签6"],
       "style": "内容风格描述（如：测评对比体/踩坑警告体/干货清单体/真实记录体）",
-      "whyThisWorks": "明确说明：①借鉴了第几篇爆款（标题）②用了什么开头公式 ③用了什么叙事结构 ④为什么对这个地区受众有效（3-4句话，要具体）",
-      "imagePrompt": "配图建议（具体描述画面主体、构图、色调、风格、氛围）"
+      "mimicSource": "明确说：本方案借鉴第N篇《XXX标题》的YY模式（必填，便于用户对照原帖）",
+      "whyThisWorks": "明确说明：①用了什么开头公式 ②用了什么叙事结构 ③为什么对该地区受众有效（3-4句话，要具体）",
+      "imagePrompt": "配图建议（具体描述画面主体、构图、色调、风格、氛围；要呼应爆款封面的视觉语言）"
     }
   ]
 }
@@ -1192,8 +1220,14 @@ ${noteSummaries}
         ...s,
         title: stripStructureLabels(s.title),
         body: stripStructureLabels(s.body),
+        mimicSource: typeof s.mimicSource === "string" ? s.mimicSource : "",
       }))
       .slice(0, 3);
+
+    // 把 experienceSummary 也兜底为数组
+    if (result.analysis && !Array.isArray(result.analysis.experienceSummary)) {
+      result.analysis.experienceSummary = [];
+    }
 
     if (validSuggestions.length === 0) {
       res.status(500).json({ error: "AI返回格式异常，请重试" });
