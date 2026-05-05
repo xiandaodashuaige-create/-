@@ -127,10 +127,18 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
             </div>
             <div className="flex gap-2">
               {cfg?.ayrshareDashboardUrl && (
-                <Button size="sm" variant="outline" asChild>
-                  <a href={cfg.ayrshareDashboardUrl} target="_blank" rel="noreferrer">
-                    去 Ayrshare 授权 <ExternalLink className="h-3 w-3 ml-1" />
-                  </a>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    window.open(
+                      cfg.ayrshareDashboardUrl,
+                      "ayrshare-auth",
+                      "width=960,height=760,menubar=no,toolbar=no,location=no",
+                    );
+                  }}
+                >
+                  授权登录 <ExternalLink className="h-3 w-3 ml-1" />
                 </Button>
               )}
               <Button size="sm" disabled={!cfg?.ayrshare || ayrshareSync.isPending} onClick={() => ayrshareSync.mutate()}>
