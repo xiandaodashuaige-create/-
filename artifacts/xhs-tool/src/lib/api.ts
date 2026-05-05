@@ -268,6 +268,20 @@ export const api = {
         `/strategy/${id}/approve`, { method: "POST" },
       ),
   },
+  oauth: {
+    status: () =>
+      request<{
+        authenticated: boolean;
+        configured: { meta: boolean; tiktok: boolean; ayrshare: boolean; ayrshareDashboardUrl?: string };
+        connected: Record<string, Array<{ id: number; nickname: string; platformAccountId: string | null; oauthExpiresAt: string | null; ayrshareProfileKey: string | null }>>;
+      }>(`/oauth/status`),
+    getAuthUrl: (platform: "tiktok" | "facebook") =>
+      request<{ authUrl: string; redirectUri: string }>(`/oauth/${platform}/connect?json=1`),
+    disconnect: (accountId: number) =>
+      request<{ ok: true }>(`/oauth/disconnect`, { method: "POST", body: JSON.stringify({ accountId }) }),
+    ayrshareSync: () =>
+      request<{ synced: number; accounts: string[] }>(`/oauth/ayrshare/sync`, { method: "POST" }),
+  },
   marketData: {
     trending: (platform: string, keyword: string, region = "MY") => {
       const q = new URLSearchParams({ platform, keyword, region });

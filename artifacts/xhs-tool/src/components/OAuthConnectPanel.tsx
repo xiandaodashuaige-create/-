@@ -7,23 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ExternalLink, Link2, Unlink, RefreshCw, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { PlatformId } from "@/lib/platform-meta";
 import { PLATFORMS } from "@/lib/platform-meta";
-
-type OAuthStatus = {
-  authenticated: boolean;
-  configured: { meta: boolean; tiktok: boolean; ayrshare: boolean; ayrshareDashboardUrl?: string };
-  connected: Record<string, Array<{ id: number; nickname: string; platformAccountId: string | null; oauthExpiresAt: string | null; ayrshareProfileKey: string | null }>>;
-};
-
-async function fetchStatus(): Promise<OAuthStatus> {
-  const r = await fetch("/api/oauth/status", { credentials: "include" });
-  return r.json();
-}
-
-async function getAuthUrl(platform: "tiktok" | "facebook"): Promise<string> {
-  const r = await fetch(`/api/oauth/${platform}/connect?json=1`, { credentials: "include" });
-  if (!r.ok) throw new Error((await r.json()).error || "无法生成授权链接");
-  return (await r.json()).authUrl;
-}
+import { api } from "@/lib/api";
 
 export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
   const qc = useQueryClient();
@@ -32,7 +16,7 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
 
   const { data: status, refetch } = useQuery({
     queryKey: ["oauth-status"],
-    queryFn: fetchStatus,
+    queryFn: () => api.oauth.status(),
     refetchInterval: 15_000,
   });
 
@@ -50,33 +34,18 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
   }, [refetch, qc, toast]);
 
   const disconnect = useMutation({
-    mutationFn: async (accountId: number) => {
-      const r = await fetch("/api/oauth/disconnect", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId }),
-      });
-      if (!r.ok) throw new Error("断开失败");
-      return r.json();
-    },
+    mutationFn: (accountId: number) => api.oauth.disconnect(accountId),
     onSuccess: () => {
       refetch();
       qc.invalidateQueries({ queryKey: ["accounts"] });
       toast({ title: "已断开授权" });
     },
+    onError: (e: Error) => toast({ title: "断开失败", description: e.message, variant: "destructive" }),
   });
 
   const ayrshareSync = useMutation({
-    mutationFn: async () => {
-      const r = await fetch("/api/oauth/ayrshare/sync", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!r.ok) throw new Error((await r.json()).error || "同步失败");
-      return r.json();
-    },
-    onSuccess: (d: { synced: number; accounts: string[] }) => {
+    mutationFn: () => api.oauth.ayrshareSync(),
+    onSuccess: (d) => {
       refetch();
       qc.invalidateQueries({ queryKey: ["accounts"] });
       toast({ title: `已同步 ${d.synced} 个 Ayrshare 账号`, description: d.accounts.join(", ") || "无" });
@@ -88,8 +57,8 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
 
   async function connect(p: "tiktok" | "facebook") {
     try {
-      const url = await getAuthUrl(p);
-      window.open(url, "oauth", "width=600,height=750");
+      const { authUrl } = await api.oauth.getAuthUrl(p);
+      window.open(authUrl, "oauth", "width=600,height=750");
     } catch (e) {
       toast({ title: "无法启动授权", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     }
