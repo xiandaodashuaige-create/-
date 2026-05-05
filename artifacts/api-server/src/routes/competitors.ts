@@ -201,6 +201,12 @@ router.post("/competitors", async (req, res): Promise<void> => {
     );
   }
 
+  // 触发该 platform × category 的全平台训练画像刷新（fire-and-forget）
+  try {
+    const { triggerCategoryRecompute } = await import("../services/categoryTraining.js");
+    triggerCategoryRecompute(platform, saved.category);
+  } catch { /* ignore */ }
+
   logger.info({ userId: user.id, platform, handle: profileData.handle, postsCount: posts.length }, "competitor synced");
   res.status(201).json({ ...saved, postCount: posts.length });
 });
@@ -242,6 +248,12 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
   const [profile] = await db.select().from(competitorProfilesTable)
     .where(and(eq(competitorProfilesTable.id, id), eq(competitorProfilesTable.userId, user.id)));
   if (!profile) { res.status(404).json({ error: "not_found" }); return; }
+
+  // 在覆盖 body 之前先抓取客户端显式传入的 category（用于训练画像触发）
+  const explicitCategoryRaw = (req.body as any)?.category;
+  const explicitCategory = typeof explicitCategoryRaw === "string" && explicitCategoryRaw.trim().length >= 2
+    ? explicitCategoryRaw.trim()
+    : null;
 
   // 复用 POST 逻辑：直接转发到 /competitors（去重靠 upsert）
   req.body = { platform: profile.platform, handle: profile.handle, region: profile.region };
@@ -317,7 +329,15 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
       res.json({ ok: true, postsSynced: igPosts.length });
     } else {
       res.status(400).json({ error: "platform_not_supported" });
+      return;
     }
+
+    // 触发该 platform × category 的全平台训练画像刷新（fire-and-forget）
+    // 优先用客户端显式传入的 category，回退到 profile 已存 category
+    try {
+      const { triggerCategoryRecompute } = await import("../services/categoryTraining.js");
+      triggerCategoryRecompute(profile.platform, explicitCategory ?? profile.category);
+    } catch { /* ignore */ }
   } catch (err: any) {
     logger.error({ err: err.message, id }, "competitor sync failed");
     res.status(500).json({ error: "sync_failed", message: err?.message });

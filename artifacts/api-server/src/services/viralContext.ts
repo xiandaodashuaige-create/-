@@ -7,6 +7,7 @@ import {
   type CompetitorPost,
 } from "@workspace/db";
 import { loadUserContentProfile, renderContentProfileForPrompt } from "./contentProfile.js";
+import { loadCategoryProfile, renderCategoryProfileForPrompt } from "./categoryTraining.js";
 
 // 同义词扩展（与 strategyGenerator 保持一致风格）
 const NICHE_SYNONYMS: Record<string, string[]> = {
@@ -188,12 +189,21 @@ export async function loadViralContext(input: LoadViralContextInput): Promise<Vi
     }
   }
 
-  // 3) 个人风格画像（可选）
+  // 3) 个人风格画像（可选） + 4) 全平台同类目训练画像
   let profileBlock = "";
+  let categoryBlock = "";
   if (input.includeUserProfile !== false) {
     try {
       const profile = await loadUserContentProfile(input.userId);
       profileBlock = renderContentProfileForPrompt(profile);
+    } catch {
+      // 忽略
+    }
+  }
+  if (input.niche && input.niche.trim().length >= 2) {
+    try {
+      const cat = await loadCategoryProfile(input.platform, input.niche.trim());
+      categoryBlock = renderCategoryProfileForPrompt(cat);
     } catch {
       // 忽略
     }
@@ -231,7 +241,7 @@ export async function loadViralContext(input: LoadViralContextInput): Promise<Vi
   }
 
   const promptBlock = !hasViralData
-    ? `\n【⚠️ 爆款参考数据】当前用户在 ${platformLabel} 暂无已收集的爆款样本，AI 将基于行业通用规律生成；请提示用户尽快添加同行账号以提升精准度。\n${profileBlock}`
+    ? `\n【⚠️ 爆款参考数据】当前用户在 ${platformLabel} 暂无已收集的爆款样本，AI 将基于平台后台同类目训练沉淀 + 行业通用规律生成；请提示用户尽快添加同行账号以提升精准度。${categoryBlock}${profileBlock}`
     : `
 【📊 已收集爆款参考数据 — 必须严格借鉴】（基于该用户在 ${platformLabel} 已抓取的真实数据）
 ${competitorBlock ? `\n• 对标同行账号：${competitorBlock}` : ""}${sampleBlock ? `\n• 同行爆款样本（按互动量+行业相关性 Top ${usedPosts.length}）：\n${sampleBlock}` : ""}
@@ -241,10 +251,16 @@ ${competitorBlock ? `\n• 对标同行账号：${competitorBlock}` : ""}${sampl
 1. hashtags 必须从上面【高频/热门 hashtags】里至少挑 50%，再补充 1-2 个长尾词；不要凭空生造。
 2. 钩子/标题结构、节奏、句式必须参考"同行爆款样本"，但主题强行回到用户行业【${input.niche || "未指定"}】。
 3. 文案风格、emoji 用法、字数节奏必须与样本风格保持一致。
-${profileBlock}`.trim();
+${categoryBlock}${profileBlock}`.trim();
+
+  // 硬性 prompt 预算：避免极端长 hashtags/标题/缓存把上下文打爆。
+  const PROMPT_BUDGET = 6000;
+  const finalPromptBlock = promptBlock.length > PROMPT_BUDGET
+    ? promptBlock.slice(0, PROMPT_BUDGET) + "\n…(已截断超长爆款上下文)"
+    : promptBlock;
 
   return {
-    promptBlock,
+    promptBlock: finalPromptBlock,
     topHashtags: allTopHashtags,
     topTitles: allTopTitles,
     topMusic,

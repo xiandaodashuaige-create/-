@@ -1,14 +1,35 @@
 import { logger } from "../lib/logger.js";
 import { runDailyTrackingJob } from "./noteTracking.js";
 import { runPublishDispatcher } from "./publishDispatcher.js";
+import { recomputeAllCategoryProfiles } from "./categoryTraining.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const TRACKING_INTERVAL_MS = 12 * HOUR_MS;
 const PUBLISH_INTERVAL_MS = 60 * 1000;
+const CATEGORY_TRAINING_INTERVAL_MS = 6 * HOUR_MS;
 
 let trackingTimer: NodeJS.Timeout | null = null;
 let publishTimer: NodeJS.Timeout | null = null;
+let categoryTrainingTimer: NodeJS.Timeout | null = null;
 let isRunning = false;
+let isCategoryTrainingRunning = false;
+
+async function safeRunCategoryTraining(label: string): Promise<void> {
+  if (isCategoryTrainingRunning) {
+    logger.warn({ label }, "Category training already running, skip this tick");
+    return;
+  }
+  isCategoryTrainingRunning = true;
+  const startedAt = Date.now();
+  try {
+    const { refreshed } = await recomputeAllCategoryProfiles();
+    logger.info({ label, refreshed, durationMs: Date.now() - startedAt }, "Category training tick done");
+  } catch (e: any) {
+    logger.error({ err: e?.message, label }, "Category training failed");
+  } finally {
+    isCategoryTrainingRunning = false;
+  }
+}
 
 /**
  * 进程内单实例 cron。
@@ -42,8 +63,16 @@ export function startCronJobs(): void {
   setTimeout(() => runPublishDispatcher(), 15_000);
   publishTimer = setInterval(() => runPublishDispatcher(), PUBLISH_INTERVAL_MS);
 
+  // 每 6 小时刷新一次「全平台多类目训练画像」（跨用户聚合，让平台越用越聪明）
+  setTimeout(() => safeRunCategoryTraining("initial"), 90_000);
+  categoryTrainingTimer = setInterval(() => safeRunCategoryTraining("scheduled"), CATEGORY_TRAINING_INTERVAL_MS);
+
   logger.info(
-    { trackingHours: TRACKING_INTERVAL_MS / HOUR_MS, publishSeconds: PUBLISH_INTERVAL_MS / 1000 },
+    {
+      trackingHours: TRACKING_INTERVAL_MS / HOUR_MS,
+      publishSeconds: PUBLISH_INTERVAL_MS / 1000,
+      categoryTrainingHours: CATEGORY_TRAINING_INTERVAL_MS / HOUR_MS,
+    },
     "Cron jobs started (single-instance)",
   );
 }
@@ -51,4 +80,5 @@ export function startCronJobs(): void {
 export function stopCronJobs(): void {
   if (trackingTimer) { clearInterval(trackingTimer); trackingTimer = null; }
   if (publishTimer) { clearInterval(publishTimer); publishTimer = null; }
+  if (categoryTrainingTimer) { clearInterval(categoryTrainingTimer); categoryTrainingTimer = null; }
 }

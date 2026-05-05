@@ -13,3 +13,4 @@ export * from "./noteTracking";
 export * from "./competitorProfiles";
 export * from "./competitorPosts";
 export * from "./strategies";
+export * from "./categoryTrainingProfiles";
