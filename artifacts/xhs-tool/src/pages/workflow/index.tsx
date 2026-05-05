@@ -77,6 +77,8 @@ export default function WorkflowWizard() {
   const [imageSize, setImageSize] = useState("1024x1536");
   const [referenceImageUrl, setReferenceImageUrl] = useState("");
   const [imageMode, setImageMode] = useState<"generate" | "reference">("generate");
+  const [layoutMode, setLayoutMode] = useState<"single" | "dual-vertical" | "dual-horizontal" | "grid-2x2" | "left-big-right-small">("single");
+  const [mimicStrength, setMimicStrength] = useState<"full" | "partial" | "minimal">("partial");
   const [contentSaved, setContentSaved] = useState(false);
   const [savedContentId, setSavedContentId] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
@@ -153,6 +155,16 @@ export default function WorkflowWizard() {
       const url = result.storedUrl || result.imageUrl;
       setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
       toast({ title: "参考图伪原创成功！" });
+    },
+    onError: (e: any) => handleCreditError(e),
+  });
+
+  const pipelineImageMutation = useMutation({
+    mutationFn: (data: Parameters<typeof api.ai.generateImagePipeline>[0]) => api.ai.generateImagePipeline(data),
+    onSuccess: (result) => {
+      const url = result.storedUrl || result.imageUrl;
+      setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
+      toast({ title: "爆款封面生成成功！", description: `引擎: ${result.provider}` });
     },
     onError: (e: any) => handleCreditError(e),
   });
@@ -491,14 +503,23 @@ export default function WorkflowWizard() {
 
   function handleGenerateOrEditImage() {
     if (referenceImageUrl) {
-      editImageMutation.mutate({ prompt: imagePrompt, referenceImageUrl, size: imageSize });
+      // 走"爆款复刻管线"：GPT-4o 视觉分析 + 即梦Seedream出图 + 后端拼图模板
+      pipelineImageMutation.mutate({
+        referenceImageUrl,
+        newTopic: imagePrompt || form.title || "小红书内容",
+        newTitle: form.title || undefined,
+        newKeyPoints: form.tags?.length ? form.tags : undefined,
+        mimicStrength,
+        size: imageSize,
+        layoutMode,
+      });
     } else {
       imageMutation.mutate({ prompt: imagePrompt, size: imageSize });
     }
   }
 
   const hasResearchInput = researchInput.businessDescription.trim() || researchInput.competitorLink.trim() || researchInput.niche.trim();
-  const isImageGenerating = imageMutation.isPending || editImageMutation.isPending;
+  const isImageGenerating = imageMutation.isPending || editImageMutation.isPending || pipelineImageMutation.isPending;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -1287,18 +1308,48 @@ export default function WorkflowWizard() {
                     <Select value={imageSize} onValueChange={setImageSize}>
                       <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1024x1536">竖版 9:16</SelectItem>
+                        <SelectItem value="1024x1536">竖版 3:4（小红书推荐）</SelectItem>
                         <SelectItem value="1024x1024">正方形 1:1</SelectItem>
-                        <SelectItem value="1536x1024">横版 16:9</SelectItem>
+                        <SelectItem value="1536x1024">横版 4:3</SelectItem>
                       </SelectContent>
                     </Select>
+
+                    {referenceImageUrl && (
+                      <>
+                        <div>
+                          <p className="text-xs font-medium mb-1.5 text-gray-700">📐 封面布局模式</p>
+                          <Select value={layoutMode} onValueChange={(v) => setLayoutMode(v as any)}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="single">单图模式（一张完整大图）</SelectItem>
+                              <SelectItem value="dual-vertical">上下双图拼接</SelectItem>
+                              <SelectItem value="dual-horizontal">左右双图拼接</SelectItem>
+                              <SelectItem value="grid-2x2">四格拼图（2×2 网格）</SelectItem>
+                              <SelectItem value="left-big-right-small">左大右双小</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[10px] text-gray-500 mt-1">拼图模式会生成多张子图后用模板拼接，适合"前后对比"、"多产品"、"步骤展示"类爆款</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium mb-1.5 text-gray-700">🎯 复刻强度</p>
+                          <Select value={mimicStrength} onValueChange={(v) => setMimicStrength(v as any)}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="full">完全复刻（布局/配色/风格全部模仿）</SelectItem>
+                              <SelectItem value="partial">部分借鉴（只学风格，内容自由）</SelectItem>
+                              <SelectItem value="minimal">仅参考氛围（最大原创度）</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
                     <Button className="w-full bg-red-500 hover:bg-red-600 text-white"
                       disabled={isImageGenerating || !imagePrompt.trim()}
                       onClick={handleGenerateOrEditImage}>
                       {isImageGenerating ? (
                         <><Loader2 className="h-4 w-4 animate-spin mr-2" />生成中...</>
                       ) : referenceImageUrl ? (
-                        <><RefreshCw className="h-4 w-4 mr-2" />基于参考图生成</>
+                        <><RefreshCw className="h-4 w-4 mr-2" />🔥 复刻爆款封面（含中文文字+布局）</>
                       ) : (
                         <><ImagePlus className="h-4 w-4 mr-2" />生成配图</>
                       )}

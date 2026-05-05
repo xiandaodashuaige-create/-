@@ -14,7 +14,9 @@ import {
 import { ObjectStorageService } from "../lib/objectStorage";
 import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
 import { ComfyUIClient } from "../services/comfyui.js";
-import { analyzeCompetitorImage, generateImagePrompt } from "../services/imagePipeline.js";
+import { SeedreamClient } from "../services/seedream.js";
+import { buildCollage, composeWithText, type CollageLayout } from "../services/collage.js";
+import { analyzeCompetitorImage, generateImagePrompt, buildSeedreamPrompt } from "../services/imagePipeline.js";
 import { tryFetchXhsData } from "./xhs";
 
 const router: IRouter = Router();
@@ -548,7 +550,7 @@ router.post("/ai/generate-image-prompt", requireCredits("ai-generate-image-promp
 
 router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
   try {
-    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, size } = req.body;
+    const { referenceImageUrl, newTopic, newTitle, newKeyPoints, mimicStrength, customTextOverlays, size, layoutMode, preferredProvider } = req.body;
 
     if (!referenceImageUrl || typeof referenceImageUrl !== "string") {
       res.status(400).json({ error: "referenceImageUrl is required" });
@@ -560,6 +562,10 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
     }
 
     const strength = ["full", "partial", "minimal"].includes(mimicStrength) ? mimicStrength : "partial";
+    const layout: CollageLayout = ["single", "dual-vertical", "dual-horizontal", "grid-2x2", "left-big-right-small"].includes(layoutMode)
+      ? layoutMode
+      : "single";
+    const numCells = layout === "single" ? 1 : layout === "grid-2x2" ? 4 : layout === "left-big-right-small" ? 3 : 2;
 
     let visionInput = referenceImageUrl;
     let referenceBuffer: Buffer | null = null;
@@ -594,8 +600,96 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
     let durationMs = 0;
     const startGen = Date.now();
 
+    const seedream = SeedreamClient.fromEnv();
     const comfy = ComfyUIClient.fromEnv();
-    if (comfy && referenceBuffer) {
+    const wantSeedream = preferredProvider !== "comfyui" && preferredProvider !== "openai" && !!seedream;
+    const wantComfy = preferredProvider !== "openai" && !!comfy;
+
+    async function tryComfyFallback(): Promise<{ buf: Buffer; ms: number } | null> {
+      if (!wantComfy || !comfy || !referenceBuffer) return null;
+      const healthy = await comfy.healthCheck();
+      if (!healthy) return null;
+      try {
+        const [w, h] = imageSize.split("x").map(Number);
+        const reduxStrength = strength === "full" ? 0.85 : strength === "partial" ? 0.65 : 0.4;
+        const cnStrength = strength === "full" ? 0.7 : strength === "partial" ? 0.45 : 0.2;
+        const fluxResult = await comfy.generateWithReference({
+          referenceImageBase64: referenceBuffer.toString("base64"),
+          prompt: promptResult.imagePrompt,
+          width: w,
+          height: h,
+          reduxStrength,
+          controlnetStrength: cnStrength,
+        });
+        let outBuf: Buffer;
+        let totalMs = fluxResult.durationMs;
+        if (promptResult.textToOverlay.length > 0) {
+          const overlayResult = await comfy.overlayChineseText({
+            baseImageBase64: fluxResult.imageBase64,
+            textItems: promptResult.textToOverlay.map((t) => ({ text: t.text, position: t.position })),
+          });
+          outBuf = Buffer.from(overlayResult.imageBase64, "base64");
+          totalMs += overlayResult.durationMs;
+        } else {
+          outBuf = Buffer.from(fluxResult.imageBase64, "base64");
+        }
+        return { buf: outBuf, ms: totalMs };
+      } catch (cErr) {
+        req.log.warn(cErr, "ComfyUI fallback path failed");
+        return null;
+      }
+    }
+
+    if (wantSeedream && seedream) {
+      try {
+        const [w, h] = imageSize.split("x").map(Number);
+        if (layout === "single") {
+          // 单图模式：把文字直接塞进 Seedream prompt，一次出图
+          const fullPrompt = buildSeedreamPrompt(promptResult.imagePrompt, promptResult.textToOverlay, "single");
+          const r = await seedream.generate({ prompt: fullPrompt, size: imageSize }, req.log);
+          imageBuffer = r.imageBuffer;
+          durationMs = r.durationMs;
+        } else {
+          // 拼图模式：先生成 N 张子图（不带文字），然后后端拼接 + SVG 文字叠加
+          const subPromptBase = promptResult.imagePrompt.replace(/no text|no words|no logo/gi, "").trim();
+          const subSize = layout === "dual-horizontal" ? imageSize : `${w}x${Math.round(h / (layout === "grid-2x2" ? 2 : 2))}`;
+          const subImages: Buffer[] = [];
+          for (let i = 0; i < numCells; i++) {
+            const variantHint = numCells > 1 ? `\n（这是 ${numCells} 格拼图中的第 ${i + 1} 张，要求与其他张风格统一但内容有差异）` : "";
+            const subPrompt = `${subPromptBase}${variantHint}\n小红书风格，画面无文字，画面饱满有冲击力。`;
+            const r = await seedream.generate({ prompt: subPrompt, size: subSize }, req.log);
+            subImages.push(r.imageBuffer);
+            durationMs += r.durationMs;
+          }
+          const collaged = await buildCollage({ layout, images: subImages, width: w, height: h, gap: 12 });
+          imageBuffer = await composeWithText({
+            baseImage: collaged,
+            textOverlays: promptResult.textToOverlay.map((t) => ({
+              text: t.text,
+              position: t.position,
+              bgColor: t.style?.includes("白底") ? "#ffffff" : t.style?.includes("黄底") ? "#fde047" : undefined,
+              color: t.style?.includes("白底") || t.style?.includes("黄底") ? "#111111" : "#ffffff",
+            })),
+            width: w,
+            height: h,
+          });
+        }
+        provider = layout === "single" ? "seedream-5.0-lite" : `seedream-5.0-lite+collage(${layout})`;
+      } catch (sdErr: any) {
+        req.log.warn({ err: sdErr?.message }, "Seedream failed, attempting ComfyUI fallback");
+        const cFb = await tryComfyFallback();
+        if (cFb) {
+          imageBuffer = cFb.buf;
+          durationMs = cFb.ms;
+          provider = "comfyui-fallback-from-seedream";
+        } else {
+          req.log.warn("ComfyUI unavailable, final fallback to gpt-image-1");
+          imageBuffer = await generateWithGptImage(promptResult.imagePrompt, imageSize, promptResult.textToOverlay);
+          provider = "gpt-image-1-fallback-from-seedream";
+          durationMs = Date.now() - startGen;
+        }
+      }
+    } else if (wantComfy && comfy && referenceBuffer) {
       const healthy = await comfy.healthCheck();
       if (healthy) {
         try {
@@ -685,8 +779,43 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
   }
 });
 
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h === "0.0.0.0" || h.endsWith(".localhost")) return true;
+  if (h === "metadata.google.internal" || h === "instance-data") return true;
+  // IPv4 private/link-local/loopback ranges
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (ipv4) {
+    const [a, b] = ipv4.slice(1).map(Number);
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a === 0) return true;
+  }
+  // IPv6 loopback / link-local / unique-local
+  if (h === "::1" || h === "[::1]") return true;
+  if (h.startsWith("fe80:") || h.startsWith("[fe80:")) return true;
+  if (h.startsWith("fc") || h.startsWith("fd") || h.startsWith("[fc") || h.startsWith("[fd")) return true;
+  return false;
+}
+
 async function fetchImageAsBuffer(urlOrPath: string, req: any): Promise<Buffer> {
   const isExternal = urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://");
+  if (isExternal) {
+    let parsed: URL;
+    try {
+      parsed = new URL(urlOrPath);
+    } catch {
+      throw new Error("Invalid image URL");
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Only http(s) URLs allowed");
+    if (isPrivateOrLocalHost(parsed.hostname)) {
+      throw new Error("Refusing to fetch from private/internal host");
+    }
+  }
   const fetchUrl = isExternal
     ? urlOrPath
     : `http://localhost:${process.env.PORT || 8080}${urlOrPath}`;

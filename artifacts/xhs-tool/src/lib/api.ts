@@ -90,6 +90,27 @@ export const api = {
         "/ai/edit-image",
         { method: "POST", body: JSON.stringify(data) }
       ),
+    generateImagePipeline: (data: {
+      referenceImageUrl: string;
+      newTopic: string;
+      newTitle?: string;
+      newKeyPoints?: string[];
+      mimicStrength?: "full" | "partial" | "minimal";
+      customTextOverlays?: Array<{ text: string; position: string }>;
+      size?: string;
+      layoutMode?: "single" | "dual-vertical" | "dual-horizontal" | "grid-2x2" | "left-big-right-small";
+      preferredProvider?: "seedream" | "comfyui" | "openai";
+    }) =>
+      request<{
+        imageUrl: string;
+        storedUrl: string;
+        objectPath: string;
+        analysis: any;
+        promptUsed: string;
+        textOverlays: Array<{ text: string; position: string; style: string }>;
+        provider: string;
+        durationMs: number;
+      }>("/ai/generate-image-pipeline", { method: "POST", body: JSON.stringify(data) }),
     competitorResearch: (data: { businessDescription?: string; competitorLink?: string; niche?: string; region?: string }) =>
       request<any>("/ai/competitor-research", { method: "POST", body: JSON.stringify(data) }),
   },
