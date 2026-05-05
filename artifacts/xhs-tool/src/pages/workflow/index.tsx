@@ -1029,7 +1029,14 @@ export default function WorkflowWizard() {
                         .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0))
                         .slice(0, 5)
                         .map((note: any, i: number) => (
-                        <div key={note.id || i} className="group rounded-xl border bg-white overflow-hidden hover:shadow-md transition-all">
+                        <a
+                          key={note.id || i}
+                          href={note.note_url || (note.id ? `https://www.xiaohongshu.com/explore/${note.id}` : "#")}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group rounded-xl border bg-white overflow-hidden hover:shadow-md hover:border-red-300 transition-all cursor-pointer block"
+                          title="点击在新标签打开小红书原笔记"
+                        >
                           {note.cover_url ? (
                             <div className="aspect-[3/4] bg-muted overflow-hidden relative">
                               <img
@@ -1070,7 +1077,7 @@ export default function WorkflowWizard() {
                               </div>
                             )}
                           </div>
-                        </div>
+                        </a>
                       ))}
                     </div>
                     <p className="text-[10px] text-muted-foreground mt-3 text-center">

@@ -73,6 +73,9 @@ function normalizeTikHubNotes(rawData: any): NormalizedNote[] {
       type: note.type || "normal",
       source: "tikhub",
       cover_url: note.cover?.urlDefault || note.cover?.url || "",
+      note_url: (item.id || note.note_id || note.id)
+        ? `https://www.xiaohongshu.com/explore/${item.id || note.note_id || note.id}${item.xsecToken || note.xsec_token ? `?xsec_token=${item.xsecToken || note.xsec_token}&xsec_source=pc_search` : ""}`
+        : "",
     };
   });
 }
@@ -137,6 +140,9 @@ function normalizeRapidAPINotes(rawItems: any[]): NormalizedNote[] {
       type: note.type || "normal",
       source: "rapidapi",
       cover_url: coverUrl,
+      note_url: note.id
+        ? `https://www.xiaohongshu.com/explore/${note.id}${note.xsec_token ? `?xsec_token=${note.xsec_token}&xsec_source=pc_search` : ""}`
+        : "",
     };
   });
 }
