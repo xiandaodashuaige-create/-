@@ -21,6 +21,7 @@ import {
   Search, Target, Lightbulb, RotateCcw, Zap, TrendingUp,
   Video, Eye, Download, Clock, Image as ImageIcon, RefreshCw
 } from "lucide-react";
+import { PLATFORM_LIST } from "@/lib/platform-meta";
 
 const STEPS = [
   { id: 1, label: "内容策略", icon: Search, desc: "选择地区、AI分析同行内容策略和发布时间" },
@@ -1260,6 +1261,48 @@ export default function WorkflowWizard() {
               </div>
             </div>
           )}
+
+          {/* 一稿多发占位（A/B 项目搬入后启用）：让用户提前看到这是全平台爆款矩阵 */}
+          <Card className="border-dashed border-orange-200 bg-gradient-to-r from-orange-50/50 to-rose-50/50">
+            <CardContent className="py-3">
+              <div className="flex items-start gap-3">
+                <Sparkles className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-orange-800">
+                    同时为以下平台生成
+                    <Badge variant="outline" className="ml-2 text-[10px] border-orange-300 text-orange-600">即将开放</Badge>
+                  </p>
+                  <p className="text-xs text-orange-700/70 mt-0.5">
+                    一篇灵感 · 自动适配 4 个平台的格式 / 标题 / Tag 风格 · 全平台数据回流
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {PLATFORM_LIST.map((p) => {
+                      const Icon = p.icon;
+                      return (
+                        <label
+                          key={p.id}
+                          className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${
+                            p.id === "xhs"
+                              ? `${p.bgClass} ${p.textClass} ${p.borderClass}`
+                              : "bg-white border-dashed text-muted-foreground/60"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled
+                            checked={p.id === "xhs"}
+                            className="h-3 w-3 accent-current"
+                          />
+                          <Icon className="h-3 w-3" />
+                          {p.shortName}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Large Preview - Primary */}

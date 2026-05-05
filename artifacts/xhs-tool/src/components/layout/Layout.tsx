@@ -25,6 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useI18n, type Lang } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { PLATFORM_LIST } from "@/lib/platform-meta";
 
 const navItemsConfig = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
@@ -74,7 +75,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       >
         <div className="flex items-center gap-2 px-6 h-16 border-b border-border">
           <BookOpen className="h-6 w-6 text-red-500" />
-          <span className="font-bold text-lg">{t("app.name")}</span>
+          <div className="flex flex-col leading-tight">
+            <span className="font-bold text-base">鹿联 Viral Suite</span>
+            <span className="text-[10px] text-muted-foreground">全平台爆款矩阵</span>
+          </div>
           <Button
             variant="ghost"
             size="icon"
@@ -83,6 +87,38 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             <X className="h-5 w-5" />
           </Button>
+        </div>
+
+        {/* 平台切换器：当前小红书激活，其他灰显"即将开放"。后续 A/B 项目搬入后逐个解锁 */}
+        <div className="px-3 pt-3 pb-2 border-b border-border">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 px-2 mb-1.5">
+            平台
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {PLATFORM_LIST.map((p) => {
+              const Icon = p.icon;
+              const active = p.id === "xhs";
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={!p.enabled}
+                  title={p.enabled ? p.name : `${p.name} 即将开放`}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                    active
+                      ? `${p.bgClass} ${p.textClass} ${p.borderClass}`
+                      : "border-dashed border-muted-foreground/20 text-muted-foreground/50 cursor-not-allowed bg-muted/20"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="truncate">{p.shortName}</span>
+                  {!p.enabled && (
+                    <span className="ml-auto text-[9px] opacity-60">soon</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <ScrollArea className="flex-1 py-4">

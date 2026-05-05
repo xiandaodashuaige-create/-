@@ -8,6 +8,8 @@ export const noteTrackingTable = pgTable(
   {
     id: serial("id").primaryKey(),
     ownerUserId: integer("owner_user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+    // platform 维度：默认 xhs，未来支持 tiktok/instagram/facebook
+    platform: text("platform").notNull().default("xhs"),
     contentId: integer("content_id").references(() => contentTable.id, { onDelete: "set null" }),
     accountId: integer("account_id").references(() => accountsTable.id, { onDelete: "set null" }),
     xhsNoteId: text("xhs_note_id").notNull(),
@@ -20,6 +22,7 @@ export const noteTrackingTable = pgTable(
     archived: integer("archived").notNull().default(0),
   },
   (t) => ({
+    // 同一用户同一笔记只追踪一次；platform 默认 xhs，未来如需跨平台同 ID 共存可演进为 (user, platform, noteId)
     userNoteUq: uniqueIndex("note_tracking_user_note_uq").on(t.ownerUserId, t.xhsNoteId),
   }),
 );
