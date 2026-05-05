@@ -1,0 +1,139 @@
+5 个问题的答案
+1. 技术栈：基本一致，有差异
+和小红书系统一致的部分：
+
+前端：React 18 + Vite + TypeScript + Tailwind + Radix UI + react-query + wouter
+后端：Express 5 + Drizzle ORM + PostgreSQL
+包管理：pnpm monorepo
+TK 项目额外多出来的（小红书一般没有）：
+
+openai ^6.35 + @google/genai ^1.51 — 双 AI 模型客户端
+@tobyg74/tiktok-api-dl — TikTok 视频元数据
+msedge-tts — 微软 Edge 免费 TTS 中文配音
+multer — 视频上传
+jsonwebtoken + cookie-parser — 自建 token
+2. 登录系统：没有真正接登录
+当前是一个简化版本：用 getUserId(req) 从 x-clerk-user-id 请求头读 ID，没读到就回退到固定的 demo 用户。也就是说：
+
+❌ 没接 Clerk、Replit Auth 或任何真实 SSO
+❌ 没有注册/登录页
+✅ 留了 Clerk header 接入位（未来 5 分钟可接上）
+所有 API 路由都靠这个 getUserId 拿用户身份，是当前最大的安全 P0 遗留。
+
+3. 数据来源
+TikTok 数据：用 TikHub（不是 RapidAPI）
+
+TIKHUB_API_KEY 环境变量
+调 https://api.tikhub.io/api/v1/... 拉竞品视频列表 / 单条视频详情 / 创作者搜索
+视频口播转录走 TikHub 的 fetch_one_video 拿 mp4 → ffmpeg → OpenAI Whisper (gpt-4o-mini-transcribe)
+兜底有 @tobyg74/tiktok-api-dl（开源 npm 包）
+FB / IG 数据：没接 Meta Graph API，统一走 Ayrshare 第三方聚合服务（AYRSHARE_API_KEY）。Ayrshare 帮你接好 TikTok / Facebook / Instagram 三个平台的 OAuth + 发布 + 数据回拉。
+
+4. 发布逻辑：全自动 API 发布（不是跳转）
+通过 Ayrshare 的 /post API 直接把视频自动发到 TikTok/FB/IG
+用户在网页里点"发布"或定时发布，后端调 Ayrshare → Ayrshare 帮你 OAuth 调各平台 API
+路由：POST /api/publish/jobs 单条 / POST /api/publish/weekly-plan 批量 / GET /api/publish/calendar 日历视图
+这和小红书系统的"引导跳转手动发"逻辑完全不同——这是真自动化
+5. 是否同一个 project
+两个独立的 project，从依赖、目录、artifact 注册看：
+
+这个仓库是 鹿联TK AI 爆款创作系统，monorepo 里只有 tiktok-ai 一个 web artifact + api-server 一个后端
+小红书系统在另外的 Replit project / 仓库里
+它们没有共享 monorepo，但复用了同一套技术选型模板（Vite + Express + Drizzle）
+package.json（关键 3 份）
+根 package.json（pnpm workspace）
+
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "...强制 pnpm...",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+  },
+  "private": true,
+  "devDependencies": {
+    "typescript": "~5.9.2",
+    "prettier": "^3.8.1"
+  }
+}
+
+artifacts/api-server/package.json（后端）
+
+{
+  "name": "@workspace/api-server",
+  "type": "module",
+  "scripts": {
+    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "build": "node ./build.mjs",
+    "start": "node --enable-source-maps ./dist/index.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.51.0",
+    "@tobyg74/tiktok-api-dl": "^1.3.7",
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "@workspace/integrations-openai-ai-server": "workspace:*",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2",
+    "drizzle-orm": "catalog:",
+    "express": "^5",
+    "jsonwebtoken": "^9.0.3",
+    "msedge-tts": "^2.0.5",
+    "multer": "^2.1.1",
+    "openai": "^6.35.0",
+    "pino": "^9",
+    "pino-http": "^10",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.1.0",
+    "@types/node": "catalog:",
+    "esbuild": "^0.27.3",
+    "esbuild-plugin-pino": "^2.3.3",
+    "pino-pretty": "^13",
+    "thread-stream": "3.1.0"
+  }
+}
+
+artifacts/tiktok-ai/package.json（前端，节选关键依赖）
+
+{
+  "name": "@workspace/tiktok-ai",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "build": "vite build --config vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "vite": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "wouter": "^3.3.5",
+    "framer-motion": "catalog:",
+    "tailwindcss": "catalog:",
+    "lucide-react": "catalog:",
+    "zod": "catalog:",
+    "react-hook-form": "^7.55.0",
+    "recharts": "^2.15.2",
+    "@radix-ui/react-*": "全套 Radix 原语",
+    "@workspace/api-client-react": "workspace:*"
+  }
+}
+
+一句话总结
+这个 TK AI 系统和小红书系统技术底盘几乎一样（React+Vite+Express+Drizzle+PG），但业务能力高出一个量级：
+
+真接了 OpenAI / Google Gemini 双模型做策略生成
+真接了 TikHub 拉竞品 + Whisper 转录口播
+真接了 Ayrshare 全自动发布（小红书那套是手动跳转）
+唯独缺真实登录，等待接 Clerk

@@ -1,0 +1,94 @@
+技术问题回答
+Q1. 技术栈和小红书系统一样吗？
+是的，完全相同：
+
+层	本项目	小红书系统
+前端	React + Vite	React + Vite
+后端	Express 5	Express
+ORM	Drizzle ORM	Drizzle ORM
+数据库	PostgreSQL	PostgreSQL
+API契约	OpenAPI + Orval codegen	—
+包管理	pnpm monorepo workspace	—
+本项目比标准模板多了一层：OpenAPI spec → Orval 自动生成 React Query hooks + Zod schema，前后端类型完全同步。
+
+Q2. 有自己的登录系统吗？
+没有用户登录系统。 Dashboard 完全开放，customerId = "default" 硬编码，所有人访问同一份数据。
+
+有的是平台 OAuth 授权（连接客户自己的社交账号）：
+
+POST /api/oauth/meta/start → Meta (Facebook/Instagram) OAuth 2.0 完整流程
+POST /api/oauth/tiktok/start → TikTok OAuth 2.0 完整流程
+授权完成后 access token 存入 PostgreSQL social_accounts 表
+这是"连接你的 FB/IG/TikTok 账号"，不是"登录这个 dashboard"。
+
+Q3 & Q4. 数据来源 — TikTok 用什么？
+TikHub（api.tikhub.io），不是 RapidAPI：
+
+GET https://api.tikhub.io/api/v1/tiktok/app/v3/fetch_trending_hashtag_videos
+    ?keyword=beauty&region=MY&count=20
+
+需要配置 TIKHUB_API_KEY Secret。无 key 时返回本地 mock 数据，界面有 amber 提示。
+
+Q5. FB/IG 用什么？
+两条路：
+
+用途	方式
+广告库搜索（市场数据）	Meta Graph API graph.facebook.com/v19.0/ads_archive
+账号连接 & 发布	Meta Graph API OAuth（需 META_APP_ID + META_APP_SECRET）
+不用爬虫。账号授权后可拿到 Page Access Token 直接调 Graph API 发帖。
+
+Q6. 发布逻辑：全自动还是跳转手动？
+全自动 API 发布，不是手动跳转：
+
+POST /api/posts/:id/publish
+  → 调用 Ayrshare API（AYRSHARE_API_KEY）
+  → Ayrshare 代为发布到 Facebook / Instagram / TikTok
+  → 返回 ayrsharePostId，写入数据库 published 状态
+
+Ayrshare 是多平台发布中间层（类似 Buffer/Hootsuite 的 API）。配置好 API Key 后完全无需人工操作。无 Key 时走 mock 流程（返回假 post ID）。
+
+Q7. 和小红书系统是同一个做的还是两个独立的？
+两个独立项目。本项目（SocialAuto Dashboard）是这个 Replit 里独立构建的，面向马来西亚小商家，做竞品监控 + AI 内容生成 + 多平台发布。小红书工具是另一个独立系统。两者技术栈相同但代码库完全分开。
+
+package.json（前端 + 后端）
+artifacts/dashboard/package.json（前端）:
+
+{
+  "name": "@workspace/dashboard",
+  "devDependencies": {
+    "@tanstack/react-query": "catalog:",
+    "@workspace/api-client-react": "workspace:*",
+    "framer-motion": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "recharts": "^2.15.2",
+    "tailwindcss": "catalog:",
+    "vite": "catalog:",
+    "wouter": "^3.3.5",
+    "zod": "catalog:",
+    "@radix-ui/react-*": "（shadcn/ui 全套组件）",
+    "... 共 40+ 个依赖"
+  }
+}
+
+artifacts/api-server/package.json（后端）:
+
+{
+  "name": "@workspace/api-server",
+  "dependencies": {
+    "axios": "^1.16.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2",
+    "drizzle-orm": "catalog:",
+    "express": "^5",
+    "node-cron": "^4.2.1",
+    "openai": "^6.35.0",
+    "pino": "^9",
+    "pino-http": "^10",
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*"
+  }
+}
+
+关键点： openai 包同时负责两件事 — GPT-4o-mini 生成文案 + Whisper-1 语音转录。Ayrshare SDK 是直接用 axios 调用 REST API，不是 npm 包。
