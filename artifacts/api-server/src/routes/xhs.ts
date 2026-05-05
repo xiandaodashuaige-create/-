@@ -112,11 +112,23 @@ function normalizeRapidAPINotes(rawItems: any[]): NormalizedNote[] {
   return rawItems.map((item: any) => {
     const note = item.note || item;
     const tags = (note.desc || "").match(/#[^\s#]+/g) || [];
+    // RapidAPI 真实字段名：images_list[0].url（带签名的小红书 CDN 直链）
+    // 兼容旧/异常情况：cover.url、image_list[0].url
+    const firstImage = note.images_list?.[0] || note.image_list?.[0] || note.imageList?.[0];
+    const coverUrl =
+      firstImage?.url ||
+      firstImage?.url_size_large ||
+      note.cover?.url ||
+      note.cover?.urlDefault ||
+      "";
+    // RapidAPI 也用了奇怪的 like 计数字段，比如 interaction_area.text
+    const likedCountRaw =
+      note.liked_count ?? note.likes ?? note.interactInfo?.likedCount ?? note.interact_info?.liked_count ?? "0";
     return {
       id: note.id || "",
       title: note.title || note.display_title || "",
       desc: (note.desc || "").slice(0, 200),
-      liked_count: note.liked_count || note.likes || 0,
+      liked_count: typeof likedCountRaw === "string" ? parseInt(likedCountRaw, 10) || 0 : likedCountRaw,
       collected_count: note.collected_count || note.collects || 0,
       comment_count: note.comments_count || note.comment_count || 0,
       shared_count: note.shared_count || 0,
@@ -124,7 +136,7 @@ function normalizeRapidAPINotes(rawItems: any[]): NormalizedNote[] {
       tags: tags.map((t: string) => t.replace(/\[话题\]/g, "").replace("#", "")),
       type: note.type || "normal",
       source: "rapidapi",
-      cover_url: note.cover?.url || note.image_list?.[0]?.url || "",
+      cover_url: coverUrl,
     };
   });
 }
@@ -221,14 +233,16 @@ publicRouter.get("/xhs/image-proxy", async (req, res): Promise<void> => {
       return;
     }
 
-    const allowed = ["xhscdn.com", "xiaohongshu.com", "sns-webpic", "sns-img"];
+    const allowed = ["xhscdn.com", "xiaohongshu.com", "sns-webpic", "sns-img", "sns-na-", "sns-avatar"];
     const isAllowed = allowed.some((d) => url.includes(d));
     if (!isAllowed) {
       res.status(403).json({ error: "URL not allowed" });
       return;
     }
 
-    const fetchUrl = url.startsWith("//") ? `https:${url}` : url;
+    // 小红书 CDN 默认返回 HEIF，浏览器不认。改写为 webp。
+    const rewritten = url.replace(/format\/heif/gi, "format/webp");
+    const fetchUrl = rewritten.startsWith("//") ? `https:${rewritten}` : rewritten;
     const imgRes = await fetch(fetchUrl, {
       method: "GET",
       redirect: "follow",

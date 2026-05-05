@@ -33,7 +33,7 @@ const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "�
 function proxyXhsImage(url: string | undefined): string | undefined {
   if (!url) return undefined;
   if (url.includes("/api/xhs/image-proxy")) return url;
-  if (url.includes("xhscdn.com") || url.includes("xiaohongshu.com") || url.includes("sns-webpic") || url.includes("sns-img")) {
+  if (url.includes("xhscdn.com") || url.includes("xiaohongshu.com") || url.includes("sns-webpic") || url.includes("sns-img") || url.includes("sns-na-")) {
     const base = import.meta.env.BASE_URL || "/";
     const normalizedUrl = url.startsWith("//") ? `https:${url}` : url;
     return `${base}api/xhs/image-proxy?url=${encodeURIComponent(normalizedUrl)}`;
