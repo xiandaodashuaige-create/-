@@ -10,9 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Wand2, ShieldCheck, Hash, Type, Loader2, ArrowLeft, Sparkles, ImagePlus, Upload, X, Trash2 } from "lucide-react";
+import { Save, Wand2, ShieldCheck, Hash, Type, Loader2, ArrowLeft, Sparkles, ImagePlus, Upload, X, Trash2, Send, Calendar, Clock } from "lucide-react";
 import { ObjectUploader } from "@workspace/object-storage-web";
 import { usePlatform } from "@/lib/platform-context";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { PLATFORMS } from "@/lib/platform-meta";
 
 export default function ContentEditor() {
   const params = useParams<{ id: string }>();
@@ -36,6 +38,14 @@ export default function ContentEditor() {
   const [sensitivityResult, setSensitivityResult] = useState<any>(null);
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageSize, setImageSize] = useState("1024x1024");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  // 默认建议时间：当前 + 1 小时（取整到下一刻钟，本地时区）
+  const defaultScheduleAt = (() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  })();
+  const [scheduleAt, setScheduleAt] = useState(defaultScheduleAt);
 
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts", activePlatform],
@@ -73,6 +83,54 @@ export default function ContentEditor() {
     onError: (e: Error) => toast({ title: "保存失败", description: e.message, variant: "destructive" }),
   });
 
+  // 保存 + 立即发布（手动平台 = XHS 时仅标记，自动平台 = TT/IG/FB 调度器立刻投递）
+  const publishMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const saved = isNew
+        ? await api.content.create(data)
+        : await api.content.update(Number(params.id), data);
+      const id = saved?.id ?? Number(params.id);
+      const result = await api.content.publish(id);
+      return { ...result, _id: id };
+    },
+    onSuccess: (result: any) => {
+      qc.invalidateQueries({ queryKey: ["content"] });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      const meta = PLATFORMS[activePlatform];
+      toast({
+        title: meta.publishMode === "manual" ? "已标记为已发布" : "发布请求已提交",
+        description: meta.publishMode === "manual"
+          ? `${meta.name} 需手动复制内容/素材后到 App 端发布`
+          : `已交给 ${meta.name} 平台投递（结果在「发布计划」查看）`,
+      });
+      if (isNew && result?._id) setLocation(`/content/${result._id}`);
+    },
+    onError: (e: Error) => toast({ title: "发布失败", description: e.message, variant: "destructive" }),
+  });
+
+  // 保存 + 定时发布
+  const scheduleMutation = useMutation({
+    mutationFn: async (data: { form: any; scheduledAt: string }) => {
+      const saved = isNew
+        ? await api.content.create(data.form)
+        : await api.content.update(Number(params.id), data.form);
+      const id = saved?.id ?? Number(params.id);
+      const result = await api.content.schedule(id, data.scheduledAt);
+      return { ...result, _id: id };
+    },
+    onSuccess: (result: any) => {
+      qc.invalidateQueries({ queryKey: ["content"] });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      setScheduleOpen(false);
+      toast({
+        title: "定时发布已建立",
+        description: `到时系统会自动投递 · ${new Date(scheduleAt).toLocaleString("zh-CN")}`,
+      });
+      if (isNew && result?._id) setLocation(`/content/${result._id}`);
+    },
+    onError: (e: Error) => toast({ title: "定时失败", description: e.message, variant: "destructive" }),
+  });
+
   const rewriteMutation = useMutation({
     mutationFn: (data: any) => api.ai.rewrite({ platform: activePlatform, ...data }),
     onSuccess: (result) => setAiResult(result),
@@ -103,22 +161,57 @@ export default function ContentEditor() {
     onError: (e: Error) => toast({ title: "图片生成失败", description: e.message, variant: "destructive" }),
   });
 
-  function handleSave() {
-    if (!form.accountId) {
-      toast({ title: "请选择账号", variant: "destructive" });
-      return;
-    }
-    if (!form.title.trim()) {
-      toast({ title: "请输入标题", variant: "destructive" });
-      return;
-    }
-    saveMutation.mutate({
+  function buildPayload() {
+    return {
       accountId: form.accountId,
       title: form.title,
       body: form.body,
       originalReference: form.originalReference || undefined,
       tags: form.tags,
       imageUrls: form.imageUrls,
+    };
+  }
+
+  function preflight(): boolean {
+    if (!form.accountId) {
+      toast({ title: "请选择账号", variant: "destructive" });
+      return false;
+    }
+    if (!form.title.trim()) {
+      toast({ title: "请输入标题", variant: "destructive" });
+      return false;
+    }
+    return true;
+  }
+
+  function handleSave() {
+    if (!preflight()) return;
+    saveMutation.mutate(buildPayload());
+  }
+
+  function handlePublishNow() {
+    if (!preflight()) return;
+    const meta = PLATFORMS[activePlatform];
+    if (meta.publishMode !== "manual" && form.imageUrls.length === 0) {
+      if (!confirm(`${meta.name} 自动发布需要至少 1 张图片或视频，仍要继续？`)) return;
+    }
+    publishMutation.mutate(buildPayload());
+  }
+
+  function handleConfirmSchedule() {
+    if (!preflight()) return;
+    const t = new Date(scheduleAt).getTime();
+    if (isNaN(t) || t < Date.now()) {
+      toast({ title: "时间无效", description: "请选择未来的时间点", variant: "destructive" });
+      return;
+    }
+    const meta = PLATFORMS[activePlatform];
+    if (meta.publishMode !== "manual" && form.imageUrls.length === 0) {
+      if (!confirm(`${meta.name} 自动发布需要至少 1 张图片或视频，到时投递会失败。仍要建立定时计划吗？`)) return;
+    }
+    scheduleMutation.mutate({
+      form: buildPayload(),
+      scheduledAt: new Date(scheduleAt).toISOString(),
     });
   }
 
@@ -391,12 +484,102 @@ export default function ContentEditor() {
             </CardContent>
           </Card>
 
-          <div className="flex gap-3">
-            <Button onClick={handleSave} disabled={saveMutation.isPending}>
+          <div className="flex flex-wrap gap-3 items-center">
+            <Button variant="outline" onClick={handleSave} disabled={saveMutation.isPending}>
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-              保存
+              保存草稿
             </Button>
-            <Button variant="outline" onClick={() => setLocation("/content")}>取消</Button>
+
+            <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+              <DialogTrigger asChild>
+                <Button variant="default" className="bg-amber-500 hover:bg-amber-600 text-white">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  定时发布
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Clock className="h-4 w-4" />
+                    设置定时发布
+                  </DialogTitle>
+                  <DialogDescription>
+                    {PLATFORMS[activePlatform].publishMode === "manual"
+                      ? `${PLATFORMS[activePlatform].name} 是手动平台，到时会在「发布计划」中提醒你手动发布。`
+                      : `${PLATFORMS[activePlatform].name} 到点后系统会自动调用 API 投递（每分钟扫描一次）。`}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-2">
+                    <Label>发布时间</Label>
+                    <Input
+                      type="datetime-local"
+                      value={scheduleAt}
+                      onChange={(e) => setScheduleAt(e.target.value)}
+                      min={new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: "1 小时后", min: 60 },
+                      { label: "3 小时后", min: 180 },
+                      { label: "今晚 20:00", min: -1 },
+                      { label: "明早 9:00", min: -2 },
+                    ].map((p) => (
+                      <Badge
+                        key={p.label}
+                        variant="outline"
+                        className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                        onClick={() => {
+                          const d = new Date();
+                          if (p.min === -1) {
+                            d.setHours(20, 0, 0, 0);
+                            if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+                          } else if (p.min === -2) {
+                            d.setDate(d.getDate() + 1);
+                            d.setHours(9, 0, 0, 0);
+                          } else {
+                            d.setTime(Date.now() + p.min * 60 * 1000);
+                          }
+                          // Convert to local-tz datetime-local string
+                          const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+                            .toISOString()
+                            .slice(0, 16);
+                          setScheduleAt(local);
+                        }}
+                      >
+                        {p.label}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    选定后会先保存内容，再创建发布计划。可在「发布计划」页随时取消。
+                  </p>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setScheduleOpen(false)}>取消</Button>
+                  <Button onClick={handleConfirmSchedule} disabled={scheduleMutation.isPending}>
+                    {scheduleMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Calendar className="h-4 w-4 mr-2" />
+                    )}
+                    确认定时
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Button
+              className="bg-red-500 hover:bg-red-600 text-white"
+              onClick={handlePublishNow}
+              disabled={publishMutation.isPending}
+            >
+              {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+              立即发布
+            </Button>
+
+            <Button variant="ghost" onClick={() => setLocation("/content")}>取消</Button>
           </div>
         </div>
 
