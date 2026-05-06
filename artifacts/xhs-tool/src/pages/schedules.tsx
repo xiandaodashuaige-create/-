@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
@@ -142,9 +142,62 @@ export default function Schedules() {
       toast({ title: `已采用 ${res.created} 条计划`, description: "可在下方查看 / 进一步「复制到整月」" });
       setAiOpen(false);
       setPlanItems([]);
+      autoTriedRef.current = `done:${activePlatform}`;
     },
     onError: (e: Error) => toast({ title: "采用失败", description: e.message, variant: "destructive" }),
   });
+
+  // ----- 进入空状态时，自动预生成 7 天计划草案，让用户直接确认/编辑 -----
+  // 触发条件：当前平台已无排程、已无草案、已有账号；
+  // 每个平台**每会话只自动跑一次**（用 sessionStorage 持久化，避免：
+  //   (a) 用户手动删完所有计划后被 AI 立刻重新生成
+  //   (b) 用户切走再切回 /schedules 页面时被反复自动生成）
+  const autoTriedRef = useRef<string | null>(null);
+  const SESSION_KEY = `schedules:autoGen:${activePlatform}`;
+  useEffect(() => {
+    if (isLoading) return;
+    if (accountsQ.isLoading) return; // 防止账号还在加载就误判 length=0
+    if (schedules.length > 0) return;
+    if (accounts.length === 0) return;
+    if (planItems.length > 0) return;
+    if (generateMutation.isPending) return;
+
+    // 本会话已经为这个平台自动跑过 → 不再自动触发，由用户主动点"立即生成"
+    try {
+      if (typeof window !== "undefined" && sessionStorage.getItem(SESSION_KEY)) return;
+    } catch { /* sessionStorage 不可用就忽略 */ }
+
+    const key = `tried:${activePlatform}`;
+    if (autoTriedRef.current === key) return;
+
+    // 第一遍把账号 / niche 默认值灌进去，等 state 更新后下一轮 effect 再真正触发生成
+    if (!planAccountId) {
+      setPlanAccountId(accounts[0].id);
+      return;
+    }
+    if (!planNiche) {
+      const a: any = accounts.find((x: any) => x.id === planAccountId) ?? accounts[0];
+      const fallback = a?.notes || a?.nickname || PLATFORMS[activePlatform]?.name || "lifestyle";
+      setPlanNiche(String(fallback || "lifestyle").slice(0, 60) || "lifestyle");
+      return;
+    }
+    autoTriedRef.current = key;
+    try {
+      if (typeof window !== "undefined") sessionStorage.setItem(SESSION_KEY, "1");
+    } catch { /* 忽略 */ }
+    generateMutation.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, accountsQ.isLoading, schedules.length, accounts.length, planItems.length, planAccountId, planNiche, activePlatform]);
+
+  // 切换平台时重置触发标记 + 清空草案，让新平台也能自动跑一次（受 sessionStorage 控制）
+  useEffect(() => {
+    autoTriedRef.current = null;
+    setPlanItems([]);
+    setPlanNiche("");
+    setPlanAccountId(null);
+    setViralMeta(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePlatform]);
 
   // ----- 复制到整月 -----
   const recentWeekRange = useMemo(() => {
@@ -365,7 +418,8 @@ export default function Schedules() {
                   共 {planItems.length} 条 · 可微调标题/正文/时间，删除不要的
                 </p>
                 {planItems.map((it, i) => {
-                  const dt = addDays(new Date(planStartDate), it.dayOffset);
+                  // 用 "T00:00:00" 强制按本地时区解析，避免 UTC 偏差导致显示前一天
+                  const dt = addDays(new Date(planStartDate + "T00:00:00"), it.dayOffset);
                   const dateStr = dt.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", weekday: "short" });
                   return (
                     <Card key={i} className="border-l-4" style={{ borderLeftColor: "hsl(var(--platform-primary))" }}>
@@ -496,10 +550,28 @@ export default function Schedules() {
           ))}
         </div>
       ) : schedules.length === 0 ? (
-        <EmptyScheduleWithRecommendation
+        <AutoPlanReview
           platform={activePlatform}
           platformName={platformMeta.name}
-          onOpenAi={() => setAiOpen(true)}
+          accounts={accounts}
+          planAccountId={planAccountId}
+          setPlanAccountId={setPlanAccountId}
+          planStartDate={planStartDate}
+          setPlanStartDate={setPlanStartDate}
+          planItems={planItems}
+          updatePlanItem={updatePlanItem}
+          removePlanItem={removePlanItem}
+          isGenerating={generateMutation.isPending}
+          isCreating={bulkCreateMutation.isPending}
+          onRegenerate={() => {
+            autoTriedRef.current = null;
+            try { if (typeof window !== "undefined") sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+            setPlanItems([]);
+            generateMutation.mutate();
+          }}
+          onConfirmAll={() => bulkCreateMutation.mutate()}
+          onCustomize={() => setAiOpen(true)}
+          viralMeta={viralMeta}
         />
       ) : (
         <div className="space-y-6">
@@ -663,103 +735,227 @@ export default function Schedules() {
 }
 
 // ── 空状态：基于市场数据展示 AI 推荐发布时段 ──
-// 不再是干巴巴一句"暂无发布计划"，而是直接告诉用户：
-// "根据同行/市场分析，你这个平台最佳时段是 X、Y、Z" + 一键打开 AI 排程
-function EmptyScheduleWithRecommendation({
+// 自动预生成 7 天计划草案 — 用户只需"全部确认"就批量入排程，
+// 或对每条单独编辑/删除；不再要求用户先开 dialog 填表
+function AutoPlanReview({
   platform,
   platformName,
-  onOpenAi,
+  accounts,
+  planAccountId,
+  setPlanAccountId,
+  planStartDate,
+  setPlanStartDate,
+  planItems,
+  updatePlanItem,
+  removePlanItem,
+  isGenerating,
+  isCreating,
+  onRegenerate,
+  onConfirmAll,
+  onCustomize,
+  viralMeta,
 }: {
   platform: string;
   platformName: string;
-  onOpenAi: () => void;
+  accounts: any[];
+  planAccountId: number | null;
+  setPlanAccountId: (id: number) => void;
+  planStartDate: string;
+  setPlanStartDate: (d: string) => void;
+  planItems: PlanItem[];
+  updatePlanItem: (i: number, patch: Partial<PlanItem>) => void;
+  removePlanItem: (i: number) => void;
+  isGenerating: boolean;
+  isCreating: boolean;
+  onRegenerate: () => void;
+  onConfirmAll: () => void;
+  onCustomize: () => void;
+  viralMeta: { sampleCount: number; hasViralData: boolean; warning: string | null; topHashtags: string[] } | null;
 }) {
-  const btQ = useQuery({
-    queryKey: ["market-best-times"],
-    queryFn: () => api.marketData.bestTimes(),
-    staleTime: 30 * 60 * 1000,
-  });
-  const bt = (btQ.data as any)?.[platform] as
-    | { bestDays: string[]; bestHours: number[]; insight: string }
-    | undefined;
-
-  const dayLabel: Record<string, string> = {
-    Monday: "周一", Tuesday: "周二", Wednesday: "周三", Thursday: "周四",
-    Friday: "周五", Saturday: "周六", Sunday: "周日",
-  };
-
-  return (
-    <Card>
-      <CardContent className="pt-6 pb-6 space-y-5">
-        <div className="text-center">
-          <Calendar className="h-10 w-10 mx-auto mb-3 opacity-40" />
-          <p className="font-medium">暂无发布计划</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            AI 已根据同行 + 市场数据为你算好了最佳发布时段，参考下方 ↓
+  // 没有账号 → 引导先建账号
+  if (accounts.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-10 pb-10 text-center space-y-3">
+          <Calendar className="h-10 w-10 mx-auto opacity-40" />
+          <p className="font-medium">还没有 {platformName} 账号</p>
+          <p className="text-xs text-muted-foreground">
+            先到「账号管理」绑定一个 {platformName} 账号，AI 才能为你预生成发布计划
           </p>
-        </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
-        {btQ.isLoading ? (
-          <div className="text-center text-xs text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin inline mr-1" />
-            正在分析 {platformName} 市场数据…
-          </div>
-        ) : bt ? (
-          <div className="max-w-xl mx-auto space-y-3">
-            {/* 推荐时段大字 */}
-            <div className="rounded-lg border-2 border-dashed p-4 bg-gradient-to-br from-primary/5 to-purple-500/5">
-              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 flex items-center justify-center gap-1">
-                <Sparkles className="h-3 w-3" />
-                {platformName} · AI 推荐发布时段
+  // 生成中 → 友好等待状态
+  if (isGenerating && planItems.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-10 pb-10 text-center space-y-3">
+          <Loader2 className="h-10 w-10 mx-auto animate-spin text-primary" />
+          <p className="font-medium">AI 正在为你生成 7 天发布计划…</p>
+          <p className="text-xs text-muted-foreground">
+            正在分析 {platformName} 同行爆款 + 最佳发布时段，约需 10-30 秒
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // 还没开始且没有草案（账号刚切换的瞬间）
+  if (planItems.length === 0) {
+    return (
+      <Card>
+        <CardContent className="pt-10 pb-10 text-center space-y-3">
+          <Calendar className="h-10 w-10 mx-auto opacity-40" />
+          <p className="font-medium">暂无发布计划</p>
+          <p className="text-xs text-muted-foreground">
+            AI 草案准备中，请稍候。如果长时间未出现，点下方按钮重试。
+          </p>
+          <Button onClick={onRegenerate} variant="outline" size="sm">
+            <Wand2 className="h-4 w-4 mr-2" />立即生成 7 天计划
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // 主流程：草案已生成，展示可编辑列表 + 一键全部确认
+  return (
+    <div className="space-y-4">
+      {/* 顶部说明 + 全部确认大按钮 */}
+      <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-purple-500/5">
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-[260px]">
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <p className="font-semibold">AI 已为你生成 {planItems.length} 条 {platformName} 发布计划</p>
               </div>
-              <div className="flex items-center justify-center gap-2 flex-wrap">
-                {bt.bestHours.map((h) => (
-                  <Badge
-                    key={h}
-                    className="text-base px-3 py-1.5 font-mono bg-primary/10 text-primary border border-primary/20"
-                  >
-                    {String(h).padStart(2, "0")}:00
-                  </Badge>
-                ))}
-              </div>
-              <div className="text-xs text-center text-muted-foreground mt-3 flex items-center justify-center gap-1">
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-                {bt.insight}
-              </div>
+              <p className="text-xs text-muted-foreground">
+                每条都已配好时间 + 不同标题/正文/标签。
+                <strong className="text-foreground"> 点「全部确认」</strong>
+                后系统会到点自动发布；想改的话直接在下方卡片里编辑或删除。
+              </p>
+              {viralMeta && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {viralMeta.hasViralData
+                    ? <>已基于 <strong className="text-foreground">{viralMeta.sampleCount}</strong> 条爆款样本训练</>
+                    : "暂无爆款样本，建议在「同行库」抓取后重新生成以提升质量"}
+                </p>
+              )}
             </div>
-
-            {/* 推荐发布日 */}
-            <div className="text-xs text-center text-muted-foreground">
-              建议发布日：
-              {bt.bestDays.map((d, i) => (
-                <span key={d}>
-                  <strong className="text-foreground">{dayLabel[d] ?? d}</strong>
-                  {i < bt.bestDays.length - 1 ? "、" : ""}
-                </span>
-              ))}
-            </div>
-
-            {/* CTA */}
-            <div className="flex justify-center pt-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={onRegenerate} disabled={isGenerating || isCreating}>
+                {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCw className="h-4 w-4 mr-2" />}
+                重新生成
+              </Button>
+              <Button variant="outline" size="sm" onClick={onCustomize} disabled={isCreating}>
+                <Pencil className="h-4 w-4 mr-2" />详细自定义
+              </Button>
               <Button
-                onClick={onOpenAi}
+                onClick={onConfirmAll}
+                disabled={isCreating || isGenerating || !planAccountId}
                 className="text-white shadow"
                 style={{ background: "linear-gradient(135deg, hsl(var(--platform-from)), hsl(var(--platform-to)))" }}
               >
-                <Wand2 className="h-4 w-4 mr-2" />
-                按推荐时段一键生成 7 天计划
+                {isCreating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                全部确认（{planItems.length} 条）
               </Button>
             </div>
-            <p className="text-[11px] text-center text-muted-foreground">
-              也可在内容编辑器里手动设置任意时间
-            </p>
           </div>
-        ) : (
-          <p className="text-xs text-center text-muted-foreground">
-            暂无 {platformName} 时段数据，点右上角「AI 排程规划」让 AI 直接生成 7 天计划
+
+          {/* 账号 + 起始日期（轻量行内编辑） */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-4 border-t">
+            <div className="space-y-1">
+              <Label className="text-xs">发布账号</Label>
+              <Select value={planAccountId ? String(planAccountId) : ""} onValueChange={(v) => setPlanAccountId(Number(v))}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="选择账号" /></SelectTrigger>
+                <SelectContent>
+                  {accounts.map((a: any) => (
+                    <SelectItem key={a.id} value={String(a.id)}>{a.nickname} · {a.region}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">起始日期</Label>
+              <Input type="date" value={planStartDate} onChange={(e) => setPlanStartDate(e.target.value)} className="h-8 text-xs" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 草案逐条卡片：时间 / 标题 / 正文 / 标签 / 配图提示 / 删除 */}
+      <div className="space-y-3">
+        {planItems.map((it, i) => {
+          // 用 "T00:00:00" 强制按本地时区解析，避免 UTC 偏差导致显示前一天
+          const dt = addDays(new Date(planStartDate + "T00:00:00"), it.dayOffset);
+          const dateStr = dt.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", weekday: "short" });
+          return (
+            <Card key={i} className="border-l-4" style={{ borderLeftColor: "hsl(var(--platform-primary))" }}>
+              <CardContent className="pt-4 pb-4 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-xs flex-wrap">
+                    <Badge variant="outline">第 {it.dayOffset + 1} 天 · {dateStr}</Badge>
+                    <Input
+                      type="time"
+                      value={it.time}
+                      onChange={(e) => updatePlanItem(i, { time: e.target.value })}
+                      className="h-7 w-24 text-xs"
+                    />
+                    {it.topic && <Badge variant="secondary" className="text-[10px]">{it.topic}</Badge>}
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removePlanItem(i)} title="删除这条">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <Input
+                  value={it.title}
+                  onChange={(e) => updatePlanItem(i, { title: e.target.value })}
+                  className="font-medium"
+                  placeholder="标题"
+                />
+                <Textarea
+                  value={it.body}
+                  onChange={(e) => updatePlanItem(i, { body: e.target.value })}
+                  rows={3}
+                  className="text-sm"
+                  placeholder="正文"
+                />
+                {it.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {it.tags.map((t, ti) => <Badge key={ti} variant="outline" className="text-[10px]">#{t}</Badge>)}
+                  </div>
+                )}
+                {it.imagePrompt && (
+                  <p className="text-[11px] text-muted-foreground italic">
+                    配图提示：{it.imagePrompt}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* 底部再放一次确认按钮，长列表也方便操作 */}
+      <Card className="bg-muted/30">
+        <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-xs text-muted-foreground">
+            确认后这 {planItems.length} 条草稿会立刻生效，到点自动发布。
           </p>
-        )}
-      </CardContent>
-    </Card>
+          <Button
+            onClick={onConfirmAll}
+            disabled={isCreating || isGenerating || !planAccountId}
+            className="text-white"
+            style={{ background: "linear-gradient(135deg, hsl(var(--platform-from)), hsl(var(--platform-to)))" }}
+          >
+            {isCreating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+            全部确认并排入发布
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

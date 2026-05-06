@@ -69,7 +69,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Strategy Generation:** The strategy generator uses `gpt-5-mini` (minimal reasoning) and performs niche-relevance scoring; irrelevant samples are ignored, and users are warned.
 - **XHS Quick Add:** For XHS, users provide account details (nickname, region, persona) directly within the `PlatformGuard` card instead of OAuth, as XHS does not support OAuth.
 - **XHS uses /workflow, not /autopilot:** XHS is the native platform with its own wizard at `/workflow` (xhs-only). `/autopilot` is the unified one-click pipeline for TikTok/IG/FB only. `AutopilotPage` auto-redirects to `/workflow` when `activePlatform === 'xhs'` (via `useEffect` + `setLocation` to keep React hooks order stable).
-- **Schedules empty state:** When no schedules exist, `EmptyScheduleWithRecommendation` shows AI-recommended posting times for the active platform (from `api.marketData.bestTimes()`), best days, and a one-click CTA to open the AI排程规划 dialog.
+- **Schedules empty state:** When no schedules exist for the active platform, `AutoPlanReview` **auto-fires** `api.ai.generateWeeklyPlan` (defaults: account[0], niche from account.notes/nickname, frequency=daily) and shows the 7-day draft inline as editable cards. User clicks「全部确认」→ `bulkCreate` → schedules go live. Per-platform auto-trigger is gated by `sessionStorage["schedules:autoGen:<platform>"]` so it never re-fires after a manual delete or page revisit; the explicit「重新生成」button clears that key. Date display uses `new Date(planStartDate + "T00:00:00")` to avoid UTC weekday off-by-one.
 
 ## Pointers
 
