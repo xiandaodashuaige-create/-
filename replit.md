@@ -86,6 +86,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **媒体 URL 必须是绝对 https：** `dispatchContentToProvider` 入口用 `toAbsoluteUrl()` 把 `/api/storage/objects/...` 这类相对路径补成 `https://${REPLIT_DOMAINS}{path}`，否则 TikTok / FB / IG 服务器拉不到媒体会报 "Media URLs invalid"。
 - **`/credits` 是普通用户的积分页：** `/admin` 只 admin 可见，`/credits` 给所有用户看自己的「余额 + 累计 + 套餐 + 最近 100 条流水（含操作类型 emoji + 金额涨跌）+ 顾问联系方式」。流水通过 `api.user.transactions(100)` 取，operationType 复用 `cost.*` i18n key 显示。Layout 侧边栏 system 组里在 settings 上方。
 - **设置页 5 模块：** `/settings` = 个人资料（nickname via `PATCH /user/me`）+ 创作偏好（默认平台/地区/行业，存 localStorage `pref.region`/`pref.niche`，平台直连 `setActivePlatform`）+ 积分速览（链接到 /credits）+ 语言（同步保存到后端 `user.language`）+ 退出登录二次确认。系统信息卡已迁移到 `/admin` 底部。
+- **autopilot.tsx 已全 i18n：** 所有 toast、step 标签、setup/running/review/edit/schedule/done 6 步的 UI 字符串、按钮、placeholder、STRATEGY_ANGLES 的 labelKey/hintKey 都走 `t()`。`i18n.tsx` 三语段（zh/en/zh-HK）加了 `autopilot.*` 165+ key。仅 pipeline `pushLog` 控制台中文日志（30+ 处）未改，作低优先（用户看的是结果不是 log 文本）。
 - **市场数据 trending 真接：** `/api/market-data/trending?platform=xhs` 已接 `hotTopics.searchXhsNotes`（TikHub 优先，RapidAPI 兜底，地区 SG/HK/MY→中文 region 词），返回 `source: "xhs"`。`platform=tiktok` 走 TikHub。FB/IG 仍 mock + 引导去同行库。前端按 `data.source === "mock"` 显示黄色提示横幅。
 
 ## Pointers

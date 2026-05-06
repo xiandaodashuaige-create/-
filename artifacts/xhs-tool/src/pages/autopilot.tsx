@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { setReturnToFlow } from "@/lib/return-to-flow";
+import { useI18n } from "@/lib/i18n";
 import {
   Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
   AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
@@ -28,10 +29,11 @@ import { ObjectUploader } from "@workspace/object-storage-web";
 type Step = "setup" | "running" | "review" | "edit" | "schedule" | "done";
 
 // 3 套生成 angle —— AI 同时跑 3 次，给用户选
-const STRATEGY_ANGLES: Array<{ key: string; label: string; hint: string; emoji: string }> = [
-  { key: "tutorial", emoji: "📚", label: "教学/科普", hint: "教学/科普角度：信息密度高、痛点直击、一图/一句记忆点。强调干货 + 实操步骤。" },
-  { key: "emotion", emoji: "💗", label: "情感共鸣", hint: "情感共鸣角度：故事化叙事、第一人称、生活场景代入感。强调情绪曲线 + 共鸣金句。" },
-  { key: "contrast", emoji: "⚡", label: "数据反差/争议", hint: "数据反差/争议角度：用对比数字或反常识结论开场，制造强 hook。强调好奇缺口 + 讨论欲。" },
+// label/hint 通过 i18n 在运行时查找（labelKey / hintKey）
+const STRATEGY_ANGLES: Array<{ key: string; emoji: string; labelKey: string; hintKey: string }> = [
+  { key: "tutorial", emoji: "📚", labelKey: "autopilot.angle.tutorial.label", hintKey: "autopilot.angle.tutorial.hint" },
+  { key: "emotion", emoji: "💗", labelKey: "autopilot.angle.emotion.label", hintKey: "autopilot.angle.emotion.hint" },
+  { key: "contrast", emoji: "⚡", labelKey: "autopilot.angle.contrast.label", hintKey: "autopilot.angle.contrast.hint" },
 ];
 type LogLine = { ts: number; text: string; status: "info" | "success" | "warn" | "error" | "running" };
 
@@ -42,6 +44,7 @@ export default function AutopilotPage() {
   const platform = activePlatform as PlatformId;
   const platformMeta = PLATFORMS[platform];
   const { toast } = useToast();
+  const { t } = useI18n();
   const qc = useQueryClient();
   const [, setLocation] = useLocation();
 
@@ -344,7 +347,7 @@ export default function AutopilotPage() {
       const enrichedRequirements = [extras, ...marketContext].filter(Boolean).join("\n\n");
 
       // ── Stage 3: AI 综合 —— 同时跑 3 个不同 angle ──
-      pushLog(`🧠 调用 GPT-5-mini × 3，从 ${STRATEGY_ANGLES.map(a => a.label).join("、")} 三个角度同时生成方案…`, "running");
+      pushLog(`🧠 调用 GPT-5-mini × 3，从 ${STRATEGY_ANGLES.map(a => t(a.labelKey)).join("、")} 三个角度同时生成方案…`, "running");
       pushLog(`  · 综合 ${competitorPool.length} 位同行 + ${trendingItems.length} 条市场样本 + 业务身份【${selectedAccount?.nickname ?? "(未选)"}】画像`, "info");
 
       // 视频脚本要求注入 customRequirements，让策略生成器把脚本字段一并产出
@@ -358,7 +361,7 @@ export default function AutopilotPage() {
           region: region || undefined,
           niche: niche || undefined,
           accountIds: selectedAccountId ? [selectedAccountId] : undefined,
-          customRequirements: `${baseReq}\n\n【本方案角度 - ${angle.label}】${angle.hint}`.trim(),
+          customRequirements: `${baseReq}\n\n【本方案角度 - ${t(angle.labelKey)}】${t(angle.hintKey)}`.trim(),
         }, { signal: sig }),
       );
       const stratSettled = await Promise.allSettled(stratPromises);
@@ -368,19 +371,19 @@ export default function AutopilotPage() {
         if (s.status === "fulfilled") {
           const v = s.value as any;
           v._angleKey = STRATEGY_ANGLES[i].key;
-          v._angleLabel = STRATEGY_ANGLES[i].label;
+          v._angleLabel = t(STRATEGY_ANGLES[i].labelKey);
           v._angleEmoji = STRATEGY_ANGLES[i].emoji;
-          pushLog(`  ✓ ${STRATEGY_ANGLES[i].emoji} ${STRATEGY_ANGLES[i].label}：${v.strategy.theme}`, "success");
+          pushLog(`  ✓ ${STRATEGY_ANGLES[i].emoji} ${t(STRATEGY_ANGLES[i].labelKey)}：${v.strategy.theme}`, "success");
           return v;
         } else {
-          pushLog(`  ⚠ ${STRATEGY_ANGLES[i].emoji} ${STRATEGY_ANGLES[i].label} 失败：${(s.reason as any)?.message ?? "skip"}`, "warn");
+          pushLog(`  ⚠ ${STRATEGY_ANGLES[i].emoji} ${t(STRATEGY_ANGLES[i].labelKey)} 失败：${(s.reason as any)?.message ?? "skip"}`, "warn");
           return null;
         }
       });
       const okCount = opts.filter(Boolean).length;
       if (okCount === 0) {
         pushLog(`❌ 全部 3 个方案均失败，请稍后重试`, "error");
-        toast({ title: "AI 生成失败", description: "3 个角度全军覆没，可能是 API 限流", variant: "destructive" });
+        toast({ title: t("autopilot.toast.aiFail"), description: t("autopilot.toast.aiFailDesc"), variant: "destructive" });
         setStep("setup");
         return;
       }
@@ -418,7 +421,7 @@ export default function AutopilotPage() {
         const firstIdx = opts.findIndex((o) => o);
         if (firstIdx >= 0) {
           setSelectedStrategyIdx(firstIdx);
-          pushLog(`🤖 一键模式：自动采用 ${STRATEGY_ANGLES[firstIdx].emoji} ${STRATEGY_ANGLES[firstIdx].label} 方案`, "info");
+          pushLog(`🤖 一键模式：自动采用 ${STRATEGY_ANGLES[firstIdx].emoji} ${t(STRATEGY_ANGLES[firstIdx].labelKey)} 方案`, "info");
           try {
             const approved = await api.strategy.approve(opts[firstIdx].id);
             if (isStale()) return;
@@ -434,7 +437,7 @@ export default function AutopilotPage() {
                 qc.invalidateQueries({ queryKey: ["schedules"] });
                 pushLog(`✓ 已排入计划`, "success");
                 setStep("done");
-                toast({ title: "一键完成", description: `草稿 #${approved.contentId} · 已排到 ${new Date(prefillIso).toLocaleString()}` });
+                toast({ title: t("autopilot.toast.oneClickDone"), description: `${t("autopilot.edit.draftReadyPrefix")}${approved.contentId} ${t("autopilot.toast.oneClickDoneMiddle")} ${new Date(prefillIso).toLocaleString()}` });
                 return;
               } catch (e: any) {
                 if (sig.aborted || isStale()) return;
@@ -458,7 +461,7 @@ export default function AutopilotPage() {
     } catch (err: any) {
       if (sig.aborted || isStale()) return;
       pushLog(`❌ 失败：${err?.message ?? "未知错误"}`, "error");
-      toast({ title: "自动驾驶中断", description: err?.message ?? "未知错误", variant: "destructive" });
+      toast({ title: t("autopilot.toast.pipelineAbort"), description: err?.message ?? t("common.error"), variant: "destructive" });
       setStep("setup");
     }
   }
@@ -487,14 +490,14 @@ export default function AutopilotPage() {
       try {
         await loadContentIntoEditForm(data.contentId);
         setStep("edit"); // 进就地编辑步骤，不再直接跳排期
-        toast({ title: "已采用", description: `草稿 #${data.contentId} 已生成，可以就地修改素材和文案` });
+        toast({ title: t("autopilot.toast.adopted"), description: `${t("autopilot.edit.draftReadyPrefix")}${data.contentId} ${t("autopilot.toast.adoptedDescSuffix")}` });
       } catch (e: any) {
         // 拉草稿失败：不进 edit 空表单，退回 schedule 兜底
-        toast({ title: "草稿加载失败", description: `${e?.message ?? "未知错误"} · 已直接进入排期，可去完整编辑器调整`, variant: "destructive" });
+        toast({ title: t("autopilot.toast.draftLoadFail"), description: `${e?.message ?? t("common.error")} ${t("autopilot.toast.draftLoadFailSuffix")}`, variant: "destructive" });
         setStep("schedule");
       }
     },
-    onError: (err: any) => toast({ title: "采用失败", description: err?.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("autopilot.toast.adoptFail"), description: err?.message, variant: "destructive" }),
   });
 
   // 保存就地修改 → 进排期
@@ -513,10 +516,10 @@ export default function AutopilotPage() {
       if (editForm.videoUrl) payload.videoUrl = editForm.videoUrl;
       await api.content.update(contentId, payload);
       qc.invalidateQueries({ queryKey: ["content"] });
-      toast({ title: "已保存", description: "进入排期步骤" });
+      toast({ title: t("autopilot.toast.saved"), description: t("autopilot.toast.savedDesc") });
       setStep("schedule");
     } catch (e: any) {
-      toast({ title: "保存失败", description: e?.message, variant: "destructive" });
+      toast({ title: t("autopilot.toast.saveFail"), description: e?.message, variant: "destructive" });
     } finally {
       setSavingEdit(false);
     }
@@ -532,10 +535,10 @@ export default function AutopilotPage() {
       const url = (r as any).storedUrl || (r as any).imageUrl;
       if (url) {
         setEditForm((p) => ({ ...p, imageUrls: [url, ...p.imageUrls].slice(0, 9) }));
-        toast({ title: "AI 配图已生成" });
+        toast({ title: t("autopilot.toast.imgGenerated") });
       }
     } catch (e: any) {
-      toast({ title: "AI 生成失败", description: e?.message, variant: "destructive" });
+      toast({ title: t("autopilot.toast.aiFail"), description: e?.message, variant: "destructive" });
     } finally {
       setRegeneratingImg(false);
     }
@@ -563,7 +566,7 @@ export default function AutopilotPage() {
         setEditForm((p) => ({ ...p, imageUrls: [...p.imageUrls, url].slice(0, 9) }));
       }
     }
-    if (files.length > 0) toast({ title: `上传 ${files.length} 张图片成功` });
+    if (files.length > 0) toast({ title: `${t("autopilot.toast.imgUploadDonePrefix")} ${files.length} ${t("autopilot.toast.imgUploadDoneSuffix")}` });
   }
   function handleVideoUploadComplete(result: any) {
     const files = result.successful || [];
@@ -572,7 +575,7 @@ export default function AutopilotPage() {
       const objectPath = (file as any)._objectPath;
       if (objectPath) {
         setEditForm((p) => ({ ...p, videoUrl: `/api/storage${objectPath}` }));
-        toast({ title: "视频上传成功" });
+        toast({ title: t("autopilot.toast.videoUploaded") });
       }
     }
   }
@@ -590,9 +593,9 @@ export default function AutopilotPage() {
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["content"] });
       setStep("done");
-      toast({ title: "已排入计划", description: "可在「排期表」查看与调整" });
+      toast({ title: t("autopilot.toast.scheduled"), description: t("autopilot.toast.scheduledDesc") });
     },
-    onError: (err: any) => toast({ title: "排期失败", description: err?.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: t("autopilot.toast.scheduleFail"), description: err?.message, variant: "destructive" }),
   });
 
   function handleAdoptStrategy(idx: number) {
@@ -606,13 +609,13 @@ export default function AutopilotPage() {
   function handleScheduleNow() {
     if (scheduling || scheduleMut.isPending) return; // 硬防抖：避免重复排期
     if (!contentId || !scheduledAt) {
-      toast({ title: "请选择发布时间", variant: "destructive" });
+      toast({ title: t("autopilot.toast.pickTime"), variant: "destructive" });
       return;
     }
     // datetime-local → ISO
     const d = new Date(scheduledAt);
     if (isNaN(d.getTime()) || d.getTime() <= Date.now() - 30_000) {
-      toast({ title: "时间必须在未来", variant: "destructive" });
+      toast({ title: t("autopilot.toast.timeMustFuture"), variant: "destructive" });
       return;
     }
     setScheduling(true);
@@ -722,8 +725,8 @@ export default function AutopilotPage() {
   async function handleStart() {
     if (!hasAccounts) {
       toast({
-        title: `请先添加 ${platformMeta.name} 账号`,
-        description: "AI 需要你的账号画像（地区 / 备注 / 受众）来定制策略",
+        title: `${t("autopilot.toast.needAccountPrefix")} ${platformMeta.name} ${t("autopilot.toast.needAccountSuffix")}`,
+        description: t("autopilot.toast.needAccountDesc"),
         variant: "destructive",
       });
       return;
@@ -731,14 +734,14 @@ export default function AutopilotPage() {
     // 显式校验：必须有效选定一个业务身份，避免账号 effect race 期间提交导致后端走"前 5 个全用"默认
     if (!selectedAccount) {
       toast({
-        title: "请先选定本次的业务身份",
-        description: "上方账号选择器还没就绪，请稍候或手动点选一个账号",
+        title: t("autopilot.toast.needIdentity"),
+        description: t("autopilot.toast.needIdentityDesc"),
         variant: "destructive",
       });
       return;
     }
     if (!niche.trim()) {
-      toast({ title: "请输入行业关键词", variant: "destructive" });
+      toast({ title: t("autopilot.toast.needNiche"), variant: "destructive" });
       return;
     }
 
@@ -774,9 +777,9 @@ export default function AutopilotPage() {
           <Rocket className="h-6 w-6 text-white" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">AI 自动驾驶 · {platformMeta.name}</h1>
+          <h1 className="text-2xl font-bold">{t("autopilot.header.title")} · {platformMeta.name}</h1>
           <p className="text-sm text-muted-foreground">
-            一句话告诉我你的行业，AI 自动 [发现同行 → 抓取爆款 → 生成策略 → 草稿入库]
+            {t("autopilot.header.desc")}
           </p>
         </div>
       </div>
@@ -785,11 +788,11 @@ export default function AutopilotPage() {
       <Card className="p-4">
         <div className="flex items-center justify-between gap-2">
           {[
-            { key: "setup", label: "1. 需求", icon: FileEdit },
-            { key: "running", label: "2. AI 跑数据", icon: Brain },
-            { key: "review", label: "3. 选方案", icon: Sparkles },
-            { key: "edit", label: "4. 编辑微调", icon: Wand2 },
-            { key: "schedule", label: "5. 排期发布", icon: Send },
+            { key: "setup", label: t("autopilot.step.setup"), icon: FileEdit },
+            { key: "running", label: t("autopilot.step.running"), icon: Brain },
+            { key: "review", label: t("autopilot.step.review"), icon: Sparkles },
+            { key: "edit", label: t("autopilot.step.edit"), icon: Wand2 },
+            { key: "schedule", label: t("autopilot.step.schedule"), icon: Send },
           ].map((s, i, arr) => {
             const order = ["setup", "running", "review", "edit", "schedule", "done"];
             const currentIdx = order.indexOf(step);
@@ -821,13 +824,13 @@ export default function AutopilotPage() {
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  还没有 {platformMeta.name} 账号。
+                  {t("autopilot.setup.noAccountPrefix")} {platformMeta.name} {t("autopilot.setup.noAccountSuffix")}
                   <Link
                     href="/accounts"
                     onClick={() => setReturnToFlow("/autopilot")}
                     className="underline ml-1 font-medium"
                   >
-                    去添加 / 授权 →
+                    {t("autopilot.setup.goAdd")}
                   </Link>
                 </div>
               </div>
@@ -838,9 +841,9 @@ export default function AutopilotPage() {
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  已绑定 <strong>1</strong> 个 {platformMeta.name} 账号
+                  {t("autopilot.setup.bound")} <strong>{t("autopilot.setup.boundOne")}</strong> {platformMeta.name} {t("autopilot.setup.account")}
                   {selectedAccount?.nickname && <>（<strong>{selectedAccount.nickname}</strong>）</>}
-                  · 已添加 <strong>{existingCompetitors.length}</strong> 位同行
+                  · {t("autopilot.setup.added")} <strong>{existingCompetitors.length}</strong> {t("autopilot.setup.competitorsUnit")}
                 </div>
               </div>
             </div>
@@ -849,9 +852,9 @@ export default function AutopilotPage() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-sm font-medium">
                   <Users2 className="h-4 w-4 text-primary" />
-                  本次以哪个业务身份执行？
+                  {t("autopilot.setup.whichIdentity")}
                   <span className="text-xs text-muted-foreground font-normal">
-                    （草稿、定时发布都会归到这个账号）
+                    {t("autopilot.setup.identityHint")}
                   </span>
                 </div>
                 <Link
@@ -859,7 +862,7 @@ export default function AutopilotPage() {
                   onClick={() => setReturnToFlow("/autopilot")}
                   className="text-xs text-muted-foreground hover:text-primary underline"
                 >
-                  + 新增账号
+                  {t("autopilot.setup.addAccount")}
                 </Link>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -908,7 +911,7 @@ export default function AutopilotPage() {
               </div>
               <div className="text-xs text-muted-foreground pt-1 flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                已添加 <strong className="text-foreground">{existingCompetitors.length}</strong> 位同行
+                {t("autopilot.setup.added")} <strong className="text-foreground">{existingCompetitors.length}</strong> {t("autopilot.setup.competitorsUnit")}
               </div>
             </div>
           )}
@@ -916,22 +919,22 @@ export default function AutopilotPage() {
           <div>
             <label className="text-sm font-medium mb-1 block">
               <Zap className="h-3.5 w-3.5 inline mr-1" />
-              行业 / 业务定位 <span className="text-red-500">*</span>
+              {t("autopilot.setup.nicheLabel")} <span className="text-red-500">*</span>
             </label>
             <Input
               value={niche}
               onChange={(e) => setNiche(e.target.value)}
-              placeholder="如：美容培训、本地餐饮、AI 工具评测、母婴用品"
+              placeholder={t("autopilot.setup.nichePlaceholder")}
               className="text-base"
             />
-            <div className="text-xs text-muted-foreground mt-1">越具体越好，AI 会用此关键词搜索同行 + 过滤无关数据</div>
+            <div className="text-xs text-muted-foreground mt-1">{t("autopilot.setup.nicheHint")}</div>
           </div>
 
           {/* 对标同行链接 / 账号 —— 跟 XHS workflow 对齐，让客户精准锚定参考对象 */}
           <div>
             <label className="text-sm font-medium mb-1 block">
               <Users2 className="h-3.5 w-3.5 inline mr-1 text-blue-500" />
-              对标同行链接 / 账号 <span className="text-muted-foreground text-xs font-normal">（可选，多个用逗号 / 换行分隔）</span>
+              {t("autopilot.setup.competitorsLabel")} <span className="text-muted-foreground text-xs font-normal">{t("autopilot.setup.competitorsOptional")}</span>
             </label>
             <Textarea
               value={customCompetitors}
@@ -947,9 +950,9 @@ export default function AutopilotPage() {
               className="text-sm font-mono"
             />
             <div className="text-xs text-muted-foreground mt-1">
-              填了的话 AI 会优先抓这些账号的最近爆款作为参考；留空则按关键词自动发现
+              {t("autopilot.setup.competitorsHint")}
               {existingCompetitors.length > 0 && (
-                <> · 当前同行库已有 <strong className="text-foreground">{existingCompetitors.length}</strong> 位会一并使用</>
+                <> · {t("autopilot.setup.poolHintPrefix")} <strong className="text-foreground">{existingCompetitors.length}</strong> {t("autopilot.setup.poolHintSuffix")}</>
               )}
             </div>
           </div>
@@ -964,13 +967,13 @@ export default function AutopilotPage() {
             <div className="flex-1">
               <div className="font-medium flex items-center gap-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-purple-500" />
-                生成视频脚本（hook + 分镜 + 字幕 + 封面字）
+                {t("autopilot.setup.videoLabel")}
                 {(platform === "tiktok" || platform === "instagram") && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">推荐</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">{t("autopilot.setup.recommended")}</span>
                 )}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                打开后 AI 在策略里附上"前 3 秒 hook 字幕 / 3-5 个分镜 / CTA / 封面文字"——可直接照拍照剪。关掉的话只产文案+封面图，视频你自己拍。
+                {t("autopilot.setup.videoHint")}
               </div>
             </div>
           </label>
@@ -980,7 +983,7 @@ export default function AutopilotPage() {
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-start gap-2">
               <Sparkles className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
               <div className="flex-1 text-foreground/80">
-                <strong className="text-primary">一键模式：</strong>AI 会自动 [发现同行 → 抓爆款 → 生成 3 个方案 → <strong>自动选最优</strong> → 草稿入库 → <strong>排到推荐发布时段</strong>]，全程无需你点确认。<span className="text-xs text-muted-foreground">（开自定义可手动审策略 + 自选时间）</span>
+                <strong className="text-primary">{t("autopilot.setup.oneClickTitle")}</strong>{t("autopilot.setup.oneClickDesc")}<span className="text-xs text-muted-foreground">{t("autopilot.setup.oneClickNote")}</span>
               </div>
             </div>
           )}
@@ -992,7 +995,7 @@ export default function AutopilotPage() {
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition"
           >
             <Settings2 className="h-3.5 w-3.5" />
-            {customMode ? "收起自定义" : "自定义（地区 / 额外要求 / 手动审核策略）"}
+            {customMode ? t("autopilot.setup.advancedCollapse") : t("autopilot.setup.advancedExpand")}
             <ChevronDown className={`h-3 w-3 transition-transform ${customMode ? "rotate-180" : ""}`} />
           </button>
 
@@ -1000,12 +1003,12 @@ export default function AutopilotPage() {
             <div className="space-y-4 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 p-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-sm font-medium mb-1 block">地区（可选）</label>
-                  <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder="如：马来西亚 / 上海" />
+                  <label className="text-sm font-medium mb-1 block">{t("autopilot.setup.region")}</label>
+                  <Input value={region} onChange={(e) => setRegion(e.target.value)} placeholder={t("autopilot.setup.regionPlaceholder")} />
                 </div>
                 <div>
-                  <label className="text-sm font-medium mb-1 block">额外要求（可选）</label>
-                  <Input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder="如：突出价格优势、目标客单 ¥99" />
+                  <label className="text-sm font-medium mb-1 block">{t("autopilot.setup.extras")}</label>
+                  <Input value={extras} onChange={(e) => setExtras(e.target.value)} placeholder={t("autopilot.setup.extrasPlaceholder")} />
                 </div>
               </div>
 
@@ -1015,15 +1018,15 @@ export default function AutopilotPage() {
                   <div>
                     <div className="font-medium flex items-center gap-1.5">
                       <Search className="h-3.5 w-3.5" />
-                      自动发现 3 位 TikTok 同行 KOL
+                      {t("autopilot.setup.autoDiscover")}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">基于行业关键词搜索 → 自动入库 → 抓取最近爆款 → 喂给 AI</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t("autopilot.setup.autoDiscoverHint")}</div>
                   </div>
                 </label>
               )}
 
               <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                ⚠ 自定义模式下，策略生成后会停在审核步骤，需你手动点击"批准"才会生成草稿。
+                {t("autopilot.setup.advancedWarning")}
               </div>
             </div>
           )}
@@ -1035,9 +1038,9 @@ export default function AutopilotPage() {
             disabled={!niche.trim() || !hasAccounts || !selectedAccount || checkingFit}
           >
             {checkingFit ? (
-              <><Loader2 className="h-5 w-5 mr-2 animate-spin" />正在校验账号画像…</>
+              <><Loader2 className="h-5 w-5 mr-2 animate-spin" />{t("autopilot.setup.checking")}</>
             ) : (
-              <><Rocket className="h-5 w-5 mr-2" />{customMode ? "启动 AI 自动驾驶（手动审核）" : "一键启动 AI 自动驾驶"}</>
+              <><Rocket className="h-5 w-5 mr-2" />{customMode ? t("autopilot.setup.startCustom") : t("autopilot.setup.startOneClick")}</>
             )}
           </Button>
         </Card>
@@ -1052,8 +1055,8 @@ export default function AutopilotPage() {
               <Loader2 className="h-4 w-4 text-primary animate-spin absolute -bottom-0.5 -right-0.5" />
             </div>
             <div className="flex-1">
-              <div className="font-semibold">流水线运行中…</div>
-              <div className="text-xs text-muted-foreground">大约需要 20–60 秒，请勿离开页面</div>
+              <div className="font-semibold">{t("autopilot.running.title")}</div>
+              <div className="text-xs text-muted-foreground">{t("autopilot.running.hint")}</div>
             </div>
             <Button
               variant="ghost"
@@ -1065,7 +1068,7 @@ export default function AutopilotPage() {
                 setStep("setup");
               }}
             >
-              取消
+              {t("autopilot.running.cancel")}
             </Button>
           </div>
 
@@ -1104,9 +1107,9 @@ export default function AutopilotPage() {
           <Card className="p-3 bg-emerald-50/50 border-emerald-200">
             <div className="flex items-center gap-2 text-sm text-emerald-800">
               <CheckCircle2 className="h-4 w-4" />
-              <span className="font-medium">流水线完成 · {okOpts.length}/3 个方案待选</span>
+              <span className="font-medium">{t("autopilot.review.pipelineDone")} {okOpts.length}/3 {t("autopilot.review.optionsReady")}</span>
               <span className="text-xs text-emerald-600/80">
-                · 同行 {refOpt.meta.competitorsAnalyzed} · 样本 {refOpt.meta.postsAnalyzed} · 模式 {refOpt.meta.dataMode}
+                · {t("autopilot.review.competitorsLabel")} {refOpt.meta.competitorsAnalyzed} · {t("autopilot.review.samplesLabel")} {refOpt.meta.postsAnalyzed} · {t("autopilot.review.modeLabel")} {refOpt.meta.dataMode}
               </span>
             </div>
           </Card>
@@ -1116,9 +1119,9 @@ export default function AutopilotPage() {
             <Card className="p-4 space-y-3">
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Search className="h-4 w-4 text-primary" />
-                AI 参考的市场数据 & 同行
+                {t("autopilot.review.marketRef")}
                 <Badge variant="outline" className="text-[10px] ml-auto">
-                  数据源：{marketInsights.trendingSource}
+                  {t("autopilot.review.dataSource")}{marketInsights.trendingSource}
                 </Badge>
               </div>
 
@@ -1126,7 +1129,7 @@ export default function AutopilotPage() {
               {marketInsights.competitors.length > 0 && (
                 <div>
                   <div className="text-xs text-muted-foreground mb-1.5">
-                    📁 同行（{marketInsights.competitors.length} 位 · 共 {marketInsights.totalSamples} 条样本）
+                    {t("autopilot.review.competitorsIcon")}（{marketInsights.competitors.length} · {marketInsights.totalSamples} {t("autopilot.review.samplesUnit")}）
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {marketInsights.competitors.slice(0, 8).map((c) => (
@@ -1145,7 +1148,7 @@ export default function AutopilotPage() {
               {marketInsights.trendingItems.length > 0 && (
                 <div>
                   <div className="text-xs text-muted-foreground mb-1.5">
-                    📊 行业热门内容（top {marketInsights.trendingItems.length}）
+                    {t("autopilot.review.trendingHead")} {marketInsights.trendingItems.length})
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {marketInsights.trendingItems.map((it) => (
@@ -1155,7 +1158,7 @@ export default function AutopilotPage() {
                             <img src={it.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                           </div>
                         )}
-                        <div className="line-clamp-2 font-medium">{it.title || "(无标题)"}</div>
+                        <div className="line-clamp-2 font-medium">{it.title || t("autopilot.review.noTitle")}</div>
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                           {typeof it.likes === "number" && <span>♥ {it.likes.toLocaleString()}</span>}
                           {typeof it.views === "number" && <span>👁 {it.views.toLocaleString()}</span>}
@@ -1170,10 +1173,10 @@ export default function AutopilotPage() {
               {marketInsights.bestTimes && (
                 <div className="rounded-md border bg-primary/5 p-2.5 text-xs">
                   <div className="font-medium mb-0.5 flex items-center gap-1">
-                    ⏰ {platformMeta.name} 最佳发布时段
+                    ⏰ {platformMeta.name} {t("autopilot.review.bestTime")}
                   </div>
                   <div className="text-muted-foreground">
-                    每天 <strong className="text-foreground">{marketInsights.bestTimes.bestHours.map((h) => `${h}:00`).join(" / ")}</strong>
+                    {t("autopilot.review.bestTimeDaily")} <strong className="text-foreground">{marketInsights.bestTimes.bestHours.map((h) => `${h}:00`).join(" / ")}</strong>
                     {" · "}
                     <span>{marketInsights.bestTimes.insight}</span>
                   </div>
@@ -1181,7 +1184,7 @@ export default function AutopilotPage() {
               )}
 
               <div className="text-[11px] text-muted-foreground pt-1 border-t">
-                以上数据已作为上下文喂给 AI，策略中的钩子、标签、发布时间会参考这些信号
+                {t("autopilot.review.contextHint")}
               </div>
             </Card>
           )}
@@ -1199,8 +1202,8 @@ export default function AutopilotPage() {
           <div>
             <div className="text-sm font-semibold mb-2 flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
-              选择内容方案
-              <span className="text-xs text-muted-foreground font-normal">— 三选一，AI 已从不同角度生成</span>
+              {t("autopilot.review.choose")}
+              <span className="text-xs text-muted-foreground font-normal">{t("autopilot.review.chooseHint")}</span>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               {strategyOptions.map((opt, idx) => {
@@ -1210,8 +1213,8 @@ export default function AutopilotPage() {
                   return (
                     <Card key={idx} className="p-4 border-dashed text-center text-xs text-muted-foreground bg-muted/20">
                       <div className="text-2xl mb-1">{angle.emoji}</div>
-                      <div className="font-medium mb-1">{angle.label}</div>
-                      <div>本路生成失败，可点「重生成」重试</div>
+                      <div className="font-medium mb-1">{t(angle.labelKey)}</div>
+                      <div>{t("autopilot.review.optionFailed")}</div>
                     </Card>
                   );
                 }
@@ -1226,13 +1229,13 @@ export default function AutopilotPage() {
                   >
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className="text-[10px] gap-1">
-                        <span>{angle.emoji}</span> 方案 {idx + 1}
+                        <span>{angle.emoji}</span> {t("autopilot.review.optionLabel")} {idx + 1}
                       </Badge>
-                      <span className="text-[10px] text-muted-foreground">{angle.label}</span>
+                      <span className="text-[10px] text-muted-foreground">{t(angle.labelKey)}</span>
                     </div>
                     <div className="font-bold text-sm leading-tight line-clamp-2">{s.theme}</div>
                     <div className="text-xs bg-primary/5 rounded p-2 italic line-clamp-3">
-                      <strong className="not-italic text-primary">钩子：</strong>{s.hookFormula}
+                      <strong className="not-italic text-primary">{t("autopilot.review.hook")}</strong>{s.hookFormula}
                     </div>
                     {Array.isArray(s.scriptOutline) && s.scriptOutline.length > 0 && (
                       <div className="text-[11px] text-muted-foreground line-clamp-3 leading-relaxed">
@@ -1259,8 +1262,8 @@ export default function AutopilotPage() {
                       onClick={(e) => { e.stopPropagation(); handleAdoptStrategy(idx); }}
                     >
                       {approveMut.isPending && isSelected
-                        ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />生成草稿中…</>
-                        : <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />采用此方案</>
+                        ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />{t("autopilot.review.generating")}</>
+                        : <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t("autopilot.review.adopt")}</>
                       }
                     </Button>
                   </Card>
@@ -1273,11 +1276,11 @@ export default function AutopilotPage() {
               <Card className="p-4 mt-3 bg-muted/10 space-y-3">
                 <div className="text-xs font-semibold text-primary flex items-center gap-1.5">
                   <Search className="h-3.5 w-3.5" />
-                  方案 {selectedStrategyIdx + 1} 详情预览（采用前可先看完整内容）
+                  {t("autopilot.review.optionLabel")} {selectedStrategyIdx + 1} {t("autopilot.review.detailSuffix")}
                 </div>
                 {strategyResult.strategy.scriptOutline?.length > 0 && (
                   <div>
-                    <div className="text-xs font-semibold mb-1">完整剧本 / 分镜</div>
+                    <div className="text-xs font-semibold mb-1">{t("autopilot.review.scriptOutline")}</div>
                     <ol className="space-y-1.5">
                       {strategyResult.strategy.scriptOutline.map((s: any) => (
                         <li key={s.order} className="flex gap-2 text-xs border-l-2 border-primary/30 pl-2">
@@ -1293,13 +1296,13 @@ export default function AutopilotPage() {
                 )}
                 {strategyResult.strategy.voiceoverScript && (
                   <div>
-                    <div className="text-xs font-semibold mb-1">完整旁白 / 正文</div>
+                    <div className="text-xs font-semibold mb-1">{t("autopilot.review.voiceover")}</div>
                     <Textarea value={strategyResult.strategy.voiceoverScript} readOnly rows={5} className="text-xs bg-background" />
                   </div>
                 )}
                 {strategyResult.strategy.referenceCompetitors?.length > 0 && (
                   <div>
-                    <div className="text-xs font-semibold mb-1">参考同行</div>
+                    <div className="text-xs font-semibold mb-1">{t("autopilot.review.refCompetitors")}</div>
                     <ul className="space-y-0.5 text-xs">
                       {strategyResult.strategy.referenceCompetitors.map((c: any, i: number) => (
                         <li key={i}><strong>@{c.handle}</strong> <span className="text-muted-foreground">— {c.why}</span></li>
@@ -1313,10 +1316,10 @@ export default function AutopilotPage() {
 
           <div className="flex gap-2 justify-center pt-2">
             <Button variant="outline" size="sm" onClick={resetAll}>
-              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 改需求重来
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> {t("autopilot.review.restart")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => runPipeline()}>
-              <Sparkles className="h-3.5 w-3.5 mr-1.5" /> 重新生成 3 个方案
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" /> {t("autopilot.review.regen3")}
             </Button>
           </div>
         </div>
@@ -1330,9 +1333,9 @@ export default function AutopilotPage() {
             <div className="flex items-start gap-3">
               <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
               <div className="flex-1 text-sm">
-                <div className="font-semibold text-emerald-800">草稿 #{contentId} 已生成 · 现在可以就地修改</div>
+                <div className="font-semibold text-emerald-800">{t("autopilot.edit.draftReadyPrefix")}{contentId} {t("autopilot.edit.draftReadySuffix")}</div>
                 <div className="text-xs text-emerald-700/80 mt-0.5">
-                  改标题/正文/标签都会即时预览。配图可以删/上传/AI 重新生成。视频可从素材库挑或直接上传。改完点最下方「保存并去排期」。
+                  {t("autopilot.edit.tip")}
                 </div>
               </div>
             </div>
@@ -1342,7 +1345,7 @@ export default function AutopilotPage() {
             {/* 左：实时预览 */}
             <Card className="p-4 space-y-3">
               <div className="text-sm font-semibold flex items-center gap-1.5">
-                <Search className="h-4 w-4 text-primary" /> 实时预览（{platformMeta.name}）
+                <Search className="h-4 w-4 text-primary" /> {t("autopilot.edit.preview")}（{platformMeta.name}）
               </div>
               <div className="rounded-xl border overflow-hidden bg-white">
                 {editForm.videoUrl ? (
@@ -1353,13 +1356,13 @@ export default function AutopilotPage() {
                   </div>
                 ) : (
                   <div className="aspect-[4/3] flex items-center justify-center bg-amber-50 text-amber-600 text-sm">
-                    <ImageIcon className="h-8 w-8 mr-2" /> 暂无封面
+                    <ImageIcon className="h-8 w-8 mr-2" /> {t("autopilot.edit.noCover")}
                   </div>
                 )}
                 <div className="p-3 space-y-1.5">
-                  <div className="font-bold text-base leading-tight">{editForm.title || "未输入标题"}</div>
+                  <div className="font-bold text-base leading-tight">{editForm.title || t("autopilot.edit.noTitle")}</div>
                   <div className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-6">
-                    {editForm.body || "未输入正文"}
+                    {editForm.body || t("autopilot.edit.noBody")}
                   </div>
                   {editForm.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 pt-1">
@@ -1372,7 +1375,7 @@ export default function AutopilotPage() {
               </div>
               {editForm.imageUrls.length > 1 && (
                 <div>
-                  <div className="text-[11px] text-muted-foreground mb-1">全部配图（{editForm.imageUrls.length} 张）</div>
+                  <div className="text-[11px] text-muted-foreground mb-1">{t("autopilot.edit.allImages")}（{editForm.imageUrls.length} {t("autopilot.edit.imagesCountUnit")}）</div>
                   <div className="grid grid-cols-4 gap-1">
                     {editForm.imageUrls.map((u, i) => (
                       <div key={i} className="aspect-square rounded overflow-hidden border bg-muted">
@@ -1387,28 +1390,28 @@ export default function AutopilotPage() {
             {/* 右：编辑表单 */}
             <Card className="p-4 space-y-4">
               <div>
-                <Label className="text-xs">标题（{editForm.title.length} 字）</Label>
+                <Label className="text-xs">{t("autopilot.edit.titleLabel")}（{editForm.title.length} {t("autopilot.edit.charsUnit")}）</Label>
                 <Input
                   value={editForm.title}
                   onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))}
-                  placeholder="一句话钩子标题"
+                  placeholder={t("autopilot.edit.titlePlaceholder")}
                   className="mt-1"
                 />
               </div>
 
               <div>
-                <Label className="text-xs">正文 / 脚本（{editForm.body.length} 字）</Label>
+                <Label className="text-xs">{t("autopilot.edit.bodyLabel")}（{editForm.body.length} {t("autopilot.edit.charsUnit")}）</Label>
                 <Textarea
                   value={editForm.body}
                   onChange={(e) => setEditForm((p) => ({ ...p, body: e.target.value }))}
                   rows={8}
                   className="mt-1 text-sm"
-                  placeholder="这里是 AI 生成的脚本/正文，可直接改"
+                  placeholder={t("autopilot.edit.bodyPlaceholder")}
                 />
               </div>
 
               <div>
-                <Label className="text-xs">标签（{editForm.tags.length} 个）</Label>
+                <Label className="text-xs">{t("autopilot.edit.tagsLabel")}（{editForm.tags.length} {t("autopilot.edit.tagsCountUnit")}）</Label>
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {editForm.tags.map((t) => (
                     <Badge key={t} variant="secondary" className="text-xs gap-1">
@@ -1425,10 +1428,10 @@ export default function AutopilotPage() {
                     value={editForm.tagInput}
                     onChange={(e) => setEditForm((p) => ({ ...p, tagInput: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                    placeholder="输入标签后回车"
+                    placeholder={t("autopilot.edit.tagPlaceholder")}
                     className="h-8 text-xs"
                   />
-                  <Button size="sm" variant="outline" onClick={addTag} className="h-8">+加</Button>
+                  <Button size="sm" variant="outline" onClick={addTag} className="h-8">{t("autopilot.edit.addTag")}</Button>
                 </div>
               </div>
 
@@ -1436,7 +1439,7 @@ export default function AutopilotPage() {
               <div className="space-y-2 pt-2 border-t">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs flex items-center gap-1">
-                    <ImageIcon className="h-3.5 w-3.5 text-purple-500" /> 配图（{editForm.imageUrls.length}/9）
+                    <ImageIcon className="h-3.5 w-3.5 text-purple-500" /> {t("autopilot.edit.imagesLabel")}（{editForm.imageUrls.length}/9）
                   </Label>
                   <div className="flex items-center gap-1.5">
                     <Button
@@ -1447,10 +1450,10 @@ export default function AutopilotPage() {
                       {regeneratingImg
                         ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                         : <Sparkles className="h-3 w-3 mr-1" />}
-                      AI 生成
+                      {t("autopilot.edit.aiGen")}
                     </Button>
                     <AssetPicker
-                      type="image" multiple triggerLabel="素材库" triggerSize="sm"
+                      type="image" multiple triggerLabel={t("autopilot.edit.assets")} triggerSize="sm"
                       onPick={(urls) => setEditForm((p) => {
                         const merged = [...p.imageUrls];
                         for (const u of urls) if (!merged.includes(u) && merged.length < 9) merged.push(u);
@@ -1488,15 +1491,15 @@ export default function AutopilotPage() {
               <div className="space-y-2 pt-2 border-t">
                 <div className="flex items-center justify-between">
                   <Label className="text-xs flex items-center gap-1">
-                    <VideoIcon className="h-3.5 w-3.5 text-blue-500" /> 视频
+                    <VideoIcon className="h-3.5 w-3.5 text-blue-500" /> {t("autopilot.edit.videoLabel")}
                     {(platform === "tiktok" || platform === "instagram") && (
-                      <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">推荐</span>
+                      <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">{t("autopilot.setup.recommended")}</span>
                     )}
                   </Label>
                   {!editForm.videoUrl && (
                     <div className="flex items-center gap-1.5">
                       <AssetPicker
-                        type="video" multiple={false} triggerLabel="素材库" triggerSize="sm"
+                        type="video" multiple={false} triggerLabel={t("autopilot.edit.assets")} triggerSize="sm"
                         onPick={(urls) => { if (urls[0]) setEditForm((p) => ({ ...p, videoUrl: urls[0] })); }}
                       />
                       <ObjectUploader
@@ -1506,7 +1509,7 @@ export default function AutopilotPage() {
                         onComplete={handleVideoUploadComplete}
                         buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-2 border border-input bg-background hover:bg-accent"
                       >
-                        <Upload className="h-3 w-3 mr-1" />上传
+                        <Upload className="h-3 w-3 mr-1" />{t("autopilot.edit.uploadShort")}
                       </ObjectUploader>
                     </div>
                   )}
@@ -1526,7 +1529,7 @@ export default function AutopilotPage() {
 
           <div className="flex gap-2 flex-wrap">
             <Button variant="ghost" size="sm" onClick={() => setStep("review")}>
-              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 返回重选方案
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> {t("autopilot.edit.back")}
             </Button>
             <Button
               className="flex-1 h-11 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90"
@@ -1534,7 +1537,7 @@ export default function AutopilotPage() {
               disabled={savingEdit}
             >
               {savingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-              保存并去排期
+              {t("autopilot.edit.saveAndProceed")}
             </Button>
           </div>
         </div>
@@ -1546,31 +1549,31 @@ export default function AutopilotPage() {
           <div className="flex items-center gap-3 pb-3 border-b">
             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
             <div className="flex-1">
-              <div className="font-bold">草稿 #{contentId} 已生成</div>
+              <div className="font-bold">{t("autopilot.edit.draftReadyPrefix")}{contentId} {t("autopilot.schedule.draftReadySuffix")}</div>
               <div className="text-xs text-muted-foreground">
-                {strategyResult?.strategy?.theme && <span>主题：{strategyResult.strategy.theme}</span>}
+                {strategyResult?.strategy?.theme && <span>{t("autopilot.schedule.themePrefix")}{strategyResult.strategy.theme}</span>}
               </div>
             </div>
             <Button size="sm" variant="outline" onClick={() => setStep("edit")}>
-              <FileEdit className="h-3.5 w-3.5 mr-1.5" />返回微调内容
+              <FileEdit className="h-3.5 w-3.5 mr-1.5" />{t("autopilot.schedule.editBack")}
             </Button>
           </div>
 
           {/* 推荐时段说明 */}
           <div className="rounded-md border bg-primary/5 p-3 text-sm">
             <div className="font-medium mb-1 flex items-center gap-1.5">
-              ⏰ 系统已根据 {marketInsights?.bestTimes
-                ? <>同行 <strong>{marketInsights.totalSamples}</strong> 条样本</>
-                : "通用流量曲线"} 推荐 {recommendedSlots.length} 个最佳发布时段
+              {t("autopilot.schedule.recHead1")} {marketInsights?.bestTimes
+                ? <>{t("autopilot.schedule.competitorsLabel")} <strong>{marketInsights.totalSamples}</strong> {t("autopilot.schedule.samplesUnit")}</>
+                : t("autopilot.schedule.fallbackSource")} {t("autopilot.schedule.recHead2")} {recommendedSlots.length} {t("autopilot.schedule.recHead3")}
             </div>
             <div className="text-xs text-muted-foreground">
-              {marketInsights?.bestTimes?.insight ?? "选一个最近的就行，到点系统自动投递。"}
+              {marketInsights?.bestTimes?.insight ?? t("autopilot.schedule.fallbackInsight")}
             </div>
           </div>
 
           {/* 推荐时段卡片 —— 用户挑一张就行，不用自己想时间 */}
           <div className="space-y-2">
-            <div className="text-sm font-semibold">挑一个时段</div>
+            <div className="text-sm font-semibold">{t("autopilot.schedule.pickSlot")}</div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {recommendedSlots.map((s) => {
                 const selected = scheduledAt === s.localInput;
@@ -1586,7 +1589,7 @@ export default function AutopilotPage() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-semibold text-sm">{s.primary}</div>
-                      {s.isPeak && <Badge variant="default" className="text-[10px] h-4 bg-rose-500 hover:bg-rose-500">🔥 高峰</Badge>}
+                      {s.isPeak && <Badge variant="default" className="text-[10px] h-4 bg-rose-500 hover:bg-rose-500">{t("autopilot.schedule.peak")}</Badge>}
                       {selected && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">{s.reason}</div>
@@ -1600,7 +1603,7 @@ export default function AutopilotPage() {
               onClick={() => setCustomTimeOpen((v) => !v)}
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 mt-2"
             >
-              {customTimeOpen ? "收起" : "想自己挑时间？"}
+              {customTimeOpen ? t("autopilot.schedule.collapseTime") : t("autopilot.schedule.expandTime")}
             </button>
             {customTimeOpen && (
               <input
@@ -1619,10 +1622,10 @@ export default function AutopilotPage() {
               disabled={strategyOptions.filter(Boolean).length === 0}
               onClick={() => setStep("review")}
             >
-              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 返回重选方案
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> {t("autopilot.edit.back")}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setStep("edit")}>
-              <FileEdit className="h-3.5 w-3.5 mr-1.5" />返回微调内容
+              <FileEdit className="h-3.5 w-3.5 mr-1.5" />{t("autopilot.schedule.editBack")}
             </Button>
             <Button
               className="flex-1 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90"
@@ -1630,7 +1633,7 @@ export default function AutopilotPage() {
               disabled={scheduling || scheduleMut.isPending || !scheduledAt}
             >
               {(scheduling || scheduleMut.isPending) ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-              确认排期发布
+              {t("autopilot.schedule.confirm")}
             </Button>
           </div>
         </Card>
@@ -1641,9 +1644,9 @@ export default function AutopilotPage() {
         <Card className="p-6 space-y-4">
           <div className="text-center space-y-2">
             <CheckCircle2 className="h-14 w-14 text-emerald-500 mx-auto" />
-            <div className="text-xl font-bold">已完成 ✨</div>
+            <div className="text-xl font-bold">{t("autopilot.done.title")}</div>
             <div className="text-sm text-muted-foreground">
-              草稿 #{contentId} 已就绪 · 可在排期表查看 / 调整发布时间
+              {t("autopilot.edit.draftReadyPrefix")}{contentId} {t("autopilot.done.descSuffix")}
             </div>
           </div>
 
