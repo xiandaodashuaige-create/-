@@ -291,6 +291,18 @@ export default function AutopilotPage() {
                 </div>
               </div>
             </div>
+          ) : (accountsQ.data?.length ?? 0) === 1 ? (
+            // 单账号：没的选，恢复原来的简洁绿色横幅，不强加"选业务身份"步骤
+            <div className="rounded-lg border p-3 text-sm bg-emerald-50 border-emerald-200 text-emerald-800">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  已绑定 <strong>1</strong> 个 {platformMeta.name} 账号
+                  {selectedAccount?.nickname && <>（<strong>{selectedAccount.nickname}</strong>）</>}
+                  · 已添加 <strong>{existingCompetitors.length}</strong> 位同行
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
               <div className="flex items-center justify-between">
