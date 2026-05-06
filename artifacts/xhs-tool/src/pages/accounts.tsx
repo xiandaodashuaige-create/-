@@ -14,6 +14,7 @@ import { Plus, Trash2, Edit, Users, Sparkles, ArrowRight } from "lucide-react";
 import { usePlatform } from "@/lib/platform-context";
 import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
 import { OAuthConnectPanel } from "@/components/OAuthConnectPanel";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useLocation } from "wouter";
 import { getReturnToFlow, clearReturnToFlow } from "@/lib/return-to-flow";
 
@@ -216,16 +217,18 @@ export default function Accounts() {
                       <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(account)}>
                         <Edit className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => {
-                          if (confirm("确定删除该账号？")) deleteMutation.mutate(account.id);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <ConfirmDialog
+                        title="删除账号绑定"
+                        description={<>确定删除 <strong>「{account.platformUsername || account.platform}」</strong>？此操作不可撤销，删除后该账号下的<strong>所有内容草稿、排期、追踪记录</strong>会保留但变成孤立状态。</>}
+                        confirmLabel="删除账号"
+                        destructive
+                        onConfirm={() => deleteMutation.mutate(account.id)}
+                        trigger={
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        }
+                      />
                     </div>
                   </div>
                   {account.notes && (

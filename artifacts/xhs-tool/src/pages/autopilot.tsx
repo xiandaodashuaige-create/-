@@ -99,7 +99,14 @@ function BulkCampaignCTA({
         startDate,
         items: draft,
       });
-      toast({ title: `已排期 ${r.created} 条`, description: "可在排期表查看与微调" });
+      const skipped = (r as any).skipped ?? 0;
+      toast({
+        title: `已排期 ${r.created} 条`,
+        description: skipped > 0
+          ? `⚠ ${skipped} 条因时间冲突被跳过；请到排期表手动改时间`
+          : "可在排期表查看与微调",
+        variant: skipped > 0 && r.created === 0 ? "destructive" : undefined,
+      });
       qc.invalidateQueries({ queryKey: ["schedules"] });
       setDraft(null);
     } catch (e: any) {

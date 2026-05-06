@@ -139,7 +139,14 @@ export default function Schedules() {
     }),
     onSuccess: (res) => {
       refreshAll();
-      toast({ title: `已采用 ${res.created} 条计划`, description: "可在下方查看 / 进一步「复制到整月」" });
+      const skipped = (res as any).skipped ?? 0;
+      toast({
+        title: `已采用 ${res.created} 条计划`,
+        description: skipped > 0
+          ? `⚠ ${skipped} 条因时间冲突被跳过（同账号同时间已有排程），请检查后调整`
+          : "可在下方查看 / 进一步「复制到整月」",
+        variant: skipped > 0 && res.created === 0 ? "destructive" : undefined,
+      });
       setAiOpen(false);
       setPlanItems([]);
       autoTriedRef.current = `done:${activePlatform}`;

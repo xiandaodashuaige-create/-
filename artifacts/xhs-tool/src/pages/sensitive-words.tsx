@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, ShieldAlert } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const categoryOptions = ["绝对化用语", "医疗违规", "虚假宣传", "营销违规", "资质违规", "政治敏感", "其他"];
 const severityLabels: Record<string, string> = { low: "低", medium: "中", high: "高" };
@@ -129,16 +130,18 @@ export default function SensitiveWords() {
                       {new Date(w.createdAt).toLocaleDateString("zh-CN")}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive"
-                        onClick={() => {
-                          if (confirm("确定删除？")) deleteMutation.mutate(w.id);
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <ConfirmDialog
+                        title="删除敏感词"
+                        description={<>确定删除 <strong>「{w.word}」</strong> 吗？删除后该词将不再被本地检测器拦截。</>}
+                        confirmLabel="删除"
+                        destructive
+                        onConfirm={() => deleteMutation.mutate(w.id)}
+                        trigger={
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        }
+                      />
                     </TableCell>
                   </TableRow>
                 ))}

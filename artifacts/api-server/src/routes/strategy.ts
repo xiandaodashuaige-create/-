@@ -202,7 +202,13 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
     return;
   }
 
-  const mediaType = s.platform === "tiktok" ? "video" : "image";
+  // 从 card 推断 mediaType：有视频脚本字段 → video；否则 image。
+  // （之前按 platform 硬编码导致 XHS 视频被存成 image、FB Reels 也被误判。）
+  const hasVideoScript =
+    !!card?.voiceoverScript ||
+    (Array.isArray(card?.scriptOutline) && card.scriptOutline.length > 0) ||
+    card?.mediaType === "video";
+  const mediaType: "image" | "video" = hasVideoScript ? "video" : "image";
   const title = card?.theme ?? `策略 #${s.id}`;
   // 兜底：剥掉 AI 偶尔回声 schema 描述写出来的开头标签
   // 比如「正文初稿（图文/FB 发布可直接用）：xxx」「正文：xxx」「Body Draft: xxx」

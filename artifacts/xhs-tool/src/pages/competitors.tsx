@@ -14,6 +14,7 @@ import { ToastAction } from "@/components/ui/toast";
 import { useLocation } from "wouter";
 import { setReturnToFlow } from "@/lib/return-to-flow";
 import { proxyXhsImage } from "@/lib/image-proxy";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   Users2, RefreshCw, Trash2, Search, Sparkles, Heart, MessageCircle, Eye, Plus, ExternalLink, Loader2,
   TrendingUp, Hash, Music, Clock, BarChart3, Star, Compass, Calendar, CheckCircle2, XCircle, FileText, Mic,
@@ -356,9 +357,18 @@ export default function CompetitorsPage() {
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 )}
-                <Button size="sm" variant="ghost" className="ml-auto text-destructive" onClick={() => delMut.mutate(c.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                <ConfirmDialog
+                  title="删除同行账号"
+                  description={<>确定删除 <strong>@{c.handle}</strong>？该账号下已抓取的 <strong>{c.postCount || 0}</strong> 条爆款样本会一并被删除，此操作不可撤销。</>}
+                  confirmLabel="删除"
+                  destructive
+                  onConfirm={() => delMut.mutate(c.id)}
+                  trigger={
+                    <Button size="sm" variant="ghost" className="ml-auto text-destructive">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  }
+                />
               </div>
             </Card>
           ))}

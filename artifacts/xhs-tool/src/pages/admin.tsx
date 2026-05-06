@@ -7,6 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
@@ -24,6 +28,12 @@ export default function AdminPage() {
   const [creditAmount, setCreditAmount] = useState("");
   const [creditDesc, setCreditDesc] = useState("");
   const [creditDialog, setCreditDialog] = useState<{ open: boolean; user: any | null; mode: "add" | "deduct" }>({ open: false, user: null, mode: "add" });
+  // 角色/套餐变更二次确认（admin 操作不可撤销，必须 gate）
+  const [pendingChange, setPendingChange] = useState<
+    | { kind: "role"; userId: number; userLabel: string; from: string; to: string }
+    | { kind: "plan"; userId: number; userLabel: string; from: string; to: string }
+    | null
+  >(null);
 
   function openCreditDialog(user: any, mode: "add" | "deduct") {
     setCreditDialog({ open: true, user, mode });
@@ -280,7 +290,10 @@ export default function AdminPage() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="space-y-2">
                           <Label className="text-xs">{t("admin.setRole")}</Label>
-                          <Select value={u.role} onValueChange={(v) => roleMutation.mutate({ userId: u.id, role: v })}>
+                          <Select value={u.role} onValueChange={(v) => {
+                            if (v === u.role) return;
+                            setPendingChange({ kind: "role", userId: u.id, userLabel: u.email || `#${u.id}`, from: u.role, to: v });
+                          }}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="user">{t("user.role.user")}</SelectItem>
@@ -290,7 +303,10 @@ export default function AdminPage() {
                         </div>
                         <div className="space-y-2">
                           <Label className="text-xs">{t("admin.setPlan")}</Label>
-                          <Select value={u.plan} onValueChange={(v) => planMutation.mutate({ userId: u.id, plan: v })}>
+                          <Select value={u.plan} onValueChange={(v) => {
+                            if (v === u.plan) return;
+                            setPendingChange({ kind: "plan", userId: u.id, userLabel: u.email || `#${u.id}`, from: u.plan, to: v });
+                          }}>
                             <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="free">{t("credits.free")}</SelectItem>
@@ -475,6 +491,44 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 角色/套餐变更二次确认 */}
+      <AlertDialog open={!!pendingChange} onOpenChange={(o) => { if (!o) setPendingChange(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingChange?.kind === "role" ? "确认变更角色" : "确认变更套餐"}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                即将把用户 <strong>{pendingChange?.userLabel}</strong> 的
+                {pendingChange?.kind === "role" ? "角色" : "套餐"}
+                由 <strong>{pendingChange?.from}</strong> 变更为 <strong>{pendingChange?.to}</strong>。
+                {pendingChange?.kind === "role" && pendingChange?.to === "admin" && (
+                  <div className="mt-2 text-destructive font-medium">⚠ 授予 admin 后该用户可访问所有用户数据与积分管理</div>
+                )}
+                <div className="mt-2 text-xs text-muted-foreground">该操作立即生效且不可自动回滚。</div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingChange) return;
+                if (pendingChange.kind === "role") {
+                  roleMutation.mutate({ userId: pendingChange.userId, role: pendingChange.to });
+                } else {
+                  planMutation.mutate({ userId: pendingChange.userId, plan: pendingChange.to });
+                }
+                setPendingChange(null);
+              }}
+            >
+              确认变更
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
