@@ -275,6 +275,7 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
         tier: "lite",
         burnSubtitles: true,
         brandBlock: brand.promptBlock || null,
+        forbiddenClaims: brand.forbiddenClaims,
       }, {
         amount: 0, // autopilot 自动驾驶免费送 Seedance Lite，不动用户积分
         opKey: "autopilot-auto-video",

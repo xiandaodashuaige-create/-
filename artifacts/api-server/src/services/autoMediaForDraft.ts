@@ -46,6 +46,8 @@ async function tryAdvancedPipeline(opts: {
   title?: string;
   competitorImageUrl: string;
   brandBlock?: string;
+  forbiddenClaims?: string[];
+  userId?: number;
 }): Promise<string | null> {
   try {
     const analysis = await analyzeCompetitorImage(opts.competitorImageUrl);
@@ -55,6 +57,8 @@ async function tryAdvancedPipeline(opts: {
       newTitle: opts.title,
       mimicStrength: "partial",
       brandBlock: opts.brandBlock,
+      forbiddenClaims: opts.forbiddenClaims ?? [],
+      userId: opts.userId,
     });
     const preset = PLATFORM_VISUAL_PRESET[opts.platform] || PLATFORM_VISUAL_PRESET.xhs;
     const finalPrompt = buildSeedreamPrompt(
@@ -106,10 +110,12 @@ export async function kickOffImageForDraft(opts: {
   // 加载品牌画像（失败/缺省直接跳过,不阻断主流程）
   let brandBlock = "";
   let brandHint = "";
+  let forbiddenClaims: string[] = [];
   if (opts.userId) {
     const brand = await loadBrandContext(opts.userId, opts.platform);
     brandBlock = brand.promptBlock;
     brandHint = brandStyleHint(brand.brand);
+    forbiddenClaims = brand.forbiddenClaims;
   }
   // 取第一张同行爆款图做 vision 参考
   let competitorImg: string | undefined;
@@ -138,6 +144,8 @@ export async function kickOffImageForDraft(opts: {
       title: opts.title,
       competitorImageUrl: competitorImg,
       brandBlock,
+      forbiddenClaims,
+      userId: opts.userId,
     });
   }
 
@@ -150,7 +158,10 @@ export async function kickOffImageForDraft(opts: {
         : opts.platform === "facebook"
           ? "Facebook 16:9 故事图配图风格"
           : "小红书 3:4 爆款封面，色彩饱满有冲击力";
-    const simplePrompt = `${opts.topic}${opts.title ? `，主题：${opts.title}` : ""}。${platformHint}，画面精致饱满、构图专业。${brandHint}no text, no words, no logo, no letters.`;
+    // brandHint 末尾无标点(brandStyleHint 用 "；" join 但末尾没补句号),
+    // 直接 `${brandHint}no text` 会粘成 "...偏好no text" 杂糅,所以这里显式带句号分隔
+    const brandHintBlock = brandHint ? `${brandHint}。` : "";
+    const simplePrompt = `${opts.topic}${opts.title ? `，主题：${opts.title}` : ""}。${platformHint}，画面精致饱满、构图专业。${brandHintBlock}no text, no words, no logo, no letters.`;
     const size: "1024x1024" | "1024x1536" | "1536x1024" = opts.platform === "instagram" ? "1024x1024" : opts.platform === "facebook" ? "1536x1024" : "1024x1536";
     url = await generateGptImage(simplePrompt, size);
   }

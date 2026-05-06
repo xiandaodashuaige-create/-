@@ -24,7 +24,7 @@ import { loadUserContentProfile, renderContentProfileForPrompt } from "../servic
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
 import { generateWeeklyPlan, type GenerateWeeklyPlanInput } from "../services/planGenerator.js";
 import { loadViralContext } from "../services/viralContext.js";
-import { loadBrandContext, brandStyleHint } from "../services/brandContext.js";
+import { loadBrandContext, brandStyleHint, checkForbidden, checkForbiddenMany } from "../services/brandContext.js";
 import { tryFetchXhsData } from "./xhs";
 import { getPlatformPromptContext, buildRegionContext } from "../lib/platformPrompts.js";
 
@@ -55,6 +55,7 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
     // 注入用户已收集的爆款上下文 + 品牌画像（失败不阻断主流程）
     let viralBlock = "";
     let brandBlock = "";
+    let forbiddenClaims: string[] = [];
     try {
       const u = await ensureUser(req);
       const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
@@ -65,6 +66,7 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
         ]);
         viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
         brandBlock = brand.promptBlock;
+        forbiddenClaims = brand.forbiddenClaims;
       }
     } catch (e: any) {
       req.log?.warn({ err: e?.message }, "loadViralContext/brand failed in /ai/rewrite, continuing without it");
@@ -110,13 +112,29 @@ Respond in JSON format:
     }
 
     await deductCredits(req, "ai-rewrite");
-    res.json(
-      AiRewriteContentResponse.parse({
-        rewrittenTitle: result.rewrittenTitle || "",
-        rewrittenBody: result.rewrittenBody || "",
-        suggestedTags: result.suggestedTags || [],
-      })
+
+    // ── 输出后置 forbiddenClaims 二次校验 ────────────────────────────
+    // brandContext promptBlock 是 "软" 约束,模型仍可能引用禁词反而把它写进结果。
+    // 这里扫描 LLM 返回的 title+body+tags,命中则:
+    //   1) server log warn (运营埋点 / 配额监控)
+    //   2) response 多附 `_brandWarning` 字段(zod parse 之后再 spread,不破坏既有 schema)
+    // 不阻断 / 不重写(那会再烧 1 次模型调用 = 双倍延迟+积分),让前端红字提示由用户决定改不改
+    const flag = checkForbiddenMany(
+      [result.rewrittenTitle, result.rewrittenBody, ...(Array.isArray(result.suggestedTags) ? result.suggestedTags : [])],
+      forbiddenClaims,
     );
+    if (flag.hit.length > 0) {
+      req.log.warn({ endpoint: "/ai/rewrite", platform, hit: flag.hit }, "[brand-guard] forbiddenClaims hit in LLM output");
+    }
+
+    const validated = AiRewriteContentResponse.parse({
+      rewrittenTitle: result.rewrittenTitle || "",
+      rewrittenBody: result.rewrittenBody || "",
+      suggestedTags: result.suggestedTags || [],
+    });
+    res.json(flag.hit.length > 0
+      ? { ...validated, _brandWarning: { forbiddenHit: flag.hit, message: "结果中疑似包含品牌禁用词,请人工复核或重写" } }
+      : validated);
   } catch (err) {
     req.log.error(err, "Failed to rewrite content");
     res.status(500).json({ error: "AI service error" });
@@ -274,6 +292,7 @@ router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (re
     let titlesHint = "";
     let viralBlock = "";
     let brandBlock = "";
+    let forbiddenClaims: string[] = [];
     try {
       const u = await ensureUser(req);
       const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
@@ -288,6 +307,7 @@ router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (re
         }
         viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
         brandBlock = brand.promptBlock;
+        forbiddenClaims = brand.forbiddenClaims;
       }
     } catch (e: any) {
       req.log?.warn({ err: e?.message }, "loadViralContext/brand failed in /ai/generate-title");
@@ -329,7 +349,15 @@ Respond in JSON format:
     }
 
     await deductCredits(req, "ai-generate-title");
-    res.json(AiGenerateTitleResponse.parse({ titles: result.titles || [] }));
+    const titlesArr = Array.isArray(result.titles) ? result.titles.filter((x: any) => typeof x === "string") : [];
+    const flag = checkForbiddenMany(titlesArr, forbiddenClaims);
+    if (flag.hit.length > 0) {
+      req.log.warn({ endpoint: "/ai/generate-title", platform, hit: flag.hit }, "[brand-guard] forbiddenClaims hit in LLM output");
+    }
+    const validated = AiGenerateTitleResponse.parse({ titles: titlesArr });
+    res.json(flag.hit.length > 0
+      ? { ...validated, _brandWarning: { forbiddenHit: flag.hit, message: "标题中疑似包含品牌禁用词,请人工复核" } }
+      : validated);
   } catch (err) {
     req.log.error(err, "Failed to generate titles");
     res.status(500).json({ error: "AI service error" });
@@ -351,6 +379,7 @@ router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), asy
     let hashtagSeed = "";
     let viralBlock = "";
     let brandBlock = "";
+    let forbiddenClaims: string[] = [];
     try {
       const u = await ensureUser(req);
       const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
@@ -365,6 +394,7 @@ router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), asy
         }
         viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
         brandBlock = brand.promptBlock;
+        forbiddenClaims = brand.forbiddenClaims;
       }
     } catch (e: any) {
       req.log?.warn({ err: e?.message }, "loadViralContext/brand failed in /ai/generate-hashtags");
@@ -407,7 +437,15 @@ Respond in JSON format:
     }
 
     await deductCredits(req, "ai-generate-hashtags");
-    res.json(AiGenerateHashtagsResponse.parse({ hashtags: result.hashtags || [] }));
+    const tagsArr = Array.isArray(result.hashtags) ? result.hashtags.filter((x: any) => typeof x === "string") : [];
+    const flag = checkForbiddenMany(tagsArr, forbiddenClaims);
+    if (flag.hit.length > 0) {
+      req.log.warn({ endpoint: "/ai/generate-hashtags", platform, hit: flag.hit }, "[brand-guard] forbiddenClaims hit in LLM output");
+    }
+    const validated = AiGenerateHashtagsResponse.parse({ hashtags: tagsArr });
+    res.json(flag.hit.length > 0
+      ? { ...validated, _brandWarning: { forbiddenHit: flag.hit, message: "hashtag 中疑似包含品牌禁用词,请人工复核" } }
+      : validated);
   } catch (err) {
     req.log.error(err, "Failed to generate hashtags");
     res.status(500).json({ error: "AI service error" });
@@ -741,6 +779,8 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
       styleProfile,
       extraInstructions: typeof extraInstructions === "string" ? extraInstructions : undefined,
       brandBlock: brandCtx?.promptBlock,
+      forbiddenClaims: brandCtx?.forbiddenClaims ?? [],
+      userId: userIdForLearning ?? undefined,
     });
 
     // 用户/助手指定的 emoji 优先于模型自动生成的
@@ -1633,11 +1673,13 @@ router.post("/ai/refine-schedule-item", requireCredits("ai-rewrite"), async (req
 
     // 注入品牌画像（per-platform）— 微调时也必须遵守禁用宣称/调性
     let brandBlock = "";
+    let forbiddenClaims: string[] = [];
     try {
       const u = await ensureUser(req);
       if (u && platform) {
         const brand = await loadBrandContext(u.id, platform);
         brandBlock = brand.promptBlock;
+        forbiddenClaims = brand.forbiddenClaims;
       }
     } catch (e: any) {
       req.log?.warn({ err: e?.message }, "loadBrandContext failed in /ai/refine-schedule-item");
@@ -1672,11 +1714,18 @@ ${current.body || ""}
     try { parsed = JSON.parse(text); } catch { parsed = {}; }
 
     await deductCredits(req, "ai-rewrite");
-    res.json({
+    const out = {
       title: (parsed.title || current.title || "").slice(0, 200),
       body: parsed.body || current.body || "",
       tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 10) : (current.tags || []),
-    });
+    };
+    const flag = checkForbiddenMany([out.title, out.body, ...out.tags], forbiddenClaims);
+    if (flag.hit.length > 0) {
+      req.log.warn({ endpoint: "/ai/refine-schedule-item", platform, hit: flag.hit }, "[brand-guard] forbiddenClaims hit in LLM output");
+    }
+    res.json(flag.hit.length > 0
+      ? { ...out, _brandWarning: { forbiddenHit: flag.hit, message: "微调结果中疑似包含品牌禁用词,请人工复核" } }
+      : out);
   } catch (err) {
     req.log.error(err, "Failed to refine schedule item");
     res.status(500).json({ error: "AI 微调失败，请重试" });

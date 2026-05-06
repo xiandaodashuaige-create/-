@@ -1,4 +1,5 @@
 import { pgTable, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { usersTable } from "./users";
 
 // 视频生成异步任务持久化（替代之前的进程内 Map + queue）
@@ -25,6 +26,15 @@ export const videoJobsTable = pgTable(
   (t) => [
     index("idx_video_jobs_status").on(t.status),
     index("idx_video_jobs_owner").on(t.ownerUserId),
+    // Sora 24h 滚动限额 (`/ai/generate-video-sora`) 计数 SQL：
+    //   WHERE owner_user_id=? AND input->>'provider'='sora-pro' AND created_at >= now()-24h
+    // 复合表达式索引 → 用户量上来后避免顺序扫 video_jobs(每用户每次都查,延迟敏感)。
+    // 注意 Drizzle 在 jsonb path 表达式用 sql 模板,migration 生成 expression index。
+    index("idx_video_jobs_owner_provider_created").on(
+      t.ownerUserId,
+      sql`(${t.input}->>'provider')`,
+      t.createdAt,
+    ),
   ],
 );
 

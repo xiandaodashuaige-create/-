@@ -1,5 +1,6 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger.js";
+import { checkForbiddenMany } from "./brandContext.js";
 
 export interface CompetitorImageAnalysis {
   layoutType: string;
@@ -119,6 +120,12 @@ export interface PromptGenerationInput {
   extraInstructions?: string;
   // 品牌画像 prompt 片段（已带 [品牌画像 — 必须严格遵守] 头）。由 brandContext.loadBrandContext() 生成。
   brandBlock?: string;
+  // 结构化禁用宣称列表 — 与 brandBlock 同源(brandContext.forbiddenClaims),
+  // 用于输出后置二次校验。**不要再从 brandBlock 字符串里 regex 反向解析**(architect Medium #2:
+  // 文案格式一变就静默失败)。调用方拿到 brand 后把 brand.forbiddenClaims 直接传进来即可。
+  forbiddenClaims?: string[];
+  // 调用方 userId,只用于 logger.warn 埋点排查(architect Low #4)
+  userId?: number;
 }
 
 export interface GeneratedImagePrompt {
@@ -286,6 +293,19 @@ ${input.brandBlock ?? ""}
 
   const parsed = JSON.parse(content) as GeneratedImagePrompt;
   parsed.textToOverlay = Array.isArray(parsed.textToOverlay) ? parsed.textToOverlay : [];
+
+  // ── brand-guard：扫描 textOverlay 内文本是否命中 forbiddenClaims ──
+  // observability,不重写避免双倍扣费。直接用调用方传进来的 forbiddenClaims 数组(避免 regex 反向解析)。
+  if (input.forbiddenClaims && input.forbiddenClaims.length > 0) {
+    const overlayTexts = parsed.textToOverlay.map((o) => o?.text ?? "");
+    const flag = checkForbiddenMany(overlayTexts, input.forbiddenClaims);
+    if (flag.hit.length > 0) {
+      logger.warn(
+        { stage: "imagePipeline.generateImagePrompt", userId: input.userId, hit: flag.hit },
+        "[brand-guard] forbiddenClaims hit in textOverlay",
+      );
+    }
+  }
   parsed.emojisToInclude = Array.isArray(parsed.emojisToInclude) ? parsed.emojisToInclude : [];
   parsed.recommendedSize = parsed.recommendedSize || "1024x1536";
   return parsed;

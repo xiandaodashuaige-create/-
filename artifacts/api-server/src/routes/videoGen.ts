@@ -24,6 +24,9 @@ router.post("/ai/generate-video-plan", requireCredits("ai-generate-video-plan"),
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
 
   try {
+    // 即便是 plan-only(同步、便宜)也注入 forbiddenClaims:plan 里的字幕/hook 一旦被前端"原样烧成视频"
+    // 也是禁用宣称违规,所以扫一道 warn 埋点(同 generate-video / sora 路径)。
+    const brand = await loadBrandContext(user.id, platform);
     const plan = await generateVideoCreativePlan({
       userId: user.id,
       platform,
@@ -40,6 +43,8 @@ router.post("/ai/generate-video-plan", requireCredits("ai-generate-video-plan"),
       preferredAspect: isAspect(b.aspect) ? b.aspect : null,
       preferredDurationSec: b.durationSec === 5 || b.durationSec === 10 ? b.durationSec : null,
       extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
+      brandBlock: brand.promptBlock || null,
+      forbiddenClaims: brand.forbiddenClaims,
     });
     await deductCredits(req, "ai-generate-video-plan");
     res.json(plan);
@@ -79,6 +84,7 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
       tier: b.tier === "pro" ? "pro" : "lite",
       burnSubtitles: b.burnSubtitles !== false,
       brandBlock: brand.promptBlock || null,
+      forbiddenClaims: brand.forbiddenClaims,
     }, {
       amount: req.creditCost ?? 0,
       opKey: "ai-generate-video",
@@ -173,6 +179,7 @@ router.post("/ai/generate-video-sora", proOnlyGate, requireCredits("ai-generate-
       provider: "sora-pro",
       burnSubtitles: b.burnSubtitles === true, // Sora 默认不烧字幕，保留电影感
       brandBlock: brand.promptBlock || null,
+      forbiddenClaims: brand.forbiddenClaims,
     }, {
       amount: req.creditCost ?? 0,
       opKey: "ai-generate-video-sora",

@@ -1,5 +1,6 @@
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger.js";
+import { checkForbiddenMany } from "./brandContext.js";
 import { loadViralContext } from "./viralContext.js";
 import { loadStyleProfileForPrompt } from "./styleProfile.js";
 import type { SeedanceAspect } from "./seedance.js";
@@ -74,6 +75,8 @@ export interface GenerateVideoPlanInput {
   // 由调用方 (videoGen.ts / autoMediaForDraft / strategy approve) 在 enqueue 前
   // await loadBrandContext() 拼好,序列化进 video_jobs.input,worker 跑 plan 时透传到 prompt。
   brandBlock?: string | null;
+  // 结构化禁用宣称(与 brandBlock 同源)— 输出后置二次校验直接用,不再 regex 反解 brandBlock
+  forbiddenClaims?: string[] | null;
 }
 
 const PLATFORM_VIDEO_PRESET: Record<string, { aspect: SeedanceAspect; defaultDur: 5 | 10; styleHint: string }> = {
@@ -209,7 +212,10 @@ export async function generateVideoCreativePlan(
     ? `\n【客户指定 BGM 风格】：${input.customBgmMood}`
     : "";
 
-  const brandBlock = input.brandBlock ?? "";
+  // BUG 修复：input.brandBlock 类型是 string | null | undefined。
+  // 之前用 `?? ""` 只对 undefined 兜底,**null ?? "" === null** → 拼到模板字符串就是 "null" 字面量串进 prompt,
+  // 直接污染 LLM 输入。这里改 `|| ""` 同时把 null 当 falsy 兜底。
+  const brandBlock = input.brandBlock || "";
 
   const userMsg = `${viral.promptBlock}
 ${refBlock}
@@ -242,6 +248,25 @@ ${input.extraInstructions ? `\n【额外指令】 ${input.extraInstructions}` : 
   const raw = response.choices[0]?.message?.content;
   if (!raw) throw new Error("Video plan generation returned empty");
   const parsed = JSON.parse(raw) as Partial<VideoCreativePlan>;
+
+  // ── brand-guard：扫描 hookText / subtitleSegments 命中 forbiddenClaims ──
+  // observability(字幕一旦烧进视频再撤回成本极高,但 worker 自动重写也会双倍扣费,
+  // 所以这里只 warn 让运营/后续上游决定)。直接用结构化 forbiddenClaims,告别 regex 反解。
+  const claims = input.forbiddenClaims ?? [];
+  if (claims.length > 0) {
+    const subTexts = Array.isArray(parsed.subtitleSegments)
+      ? parsed.subtitleSegments.map((s: any) => (s && typeof s.text === "string" ? s.text : ""))
+      : [];
+    // hookText 用 ?? "" 而不是 String() — 后者会把 null 转成字面量 "null"
+    const all = [typeof parsed.hookText === "string" ? parsed.hookText : "", ...subTexts];
+    const flag = checkForbiddenMany(all, claims);
+    if (flag.hit.length > 0) {
+      logger.warn(
+        { stage: "videoPipeline.generateVideoCreativePlan", userId: input.userId, platform: input.platform, hit: flag.hit },
+        "[brand-guard] forbiddenClaims hit in subtitle/hookText",
+      );
+    }
+  }
 
   // 兜底 + 类型清洗
   const segs: SubtitleSegment[] = Array.isArray(parsed.subtitleSegments)
