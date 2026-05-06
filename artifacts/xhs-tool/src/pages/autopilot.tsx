@@ -254,7 +254,16 @@ export default function AutopilotPage() {
                 ) : (
                   <>
                     还没有 {platformMeta.name} 账号。
-                    <Link href="/accounts" className="underline ml-1 font-medium">去添加 / 授权 →</Link>
+                    <Link
+                      href="/accounts"
+                      onClick={() => {
+                        // 让账号页授权完成后自动跳回这里继续 AI 流程
+                        sessionStorage.setItem("oauth_return_to", "/autopilot");
+                      }}
+                      className="underline ml-1 font-medium"
+                    >
+                      去添加 / 授权 →
+                    </Link>
                   </>
                 )}
               </div>

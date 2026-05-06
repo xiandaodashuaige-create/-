@@ -21,12 +21,22 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
   });
 
   // 监听 OAuth 弹窗发回的完成消息
+  // 如果用户是从「AI 自动驾驶」等页面被引流过来授权的（sessionStorage.oauth_return_to 有值），
+  // 授权完后自动跳回原页面继续 AI 流程，避免"断流"体验。
   useEffect(() => {
     function onMsg(e: MessageEvent) {
       if (e.data?.type === "oauth-done") {
         refetch();
         qc.invalidateQueries({ queryKey: ["accounts"] });
-        toast({ title: "授权完成，账号已同步" });
+        const returnTo = sessionStorage.getItem("oauth_return_to");
+        if (returnTo) {
+          sessionStorage.removeItem("oauth_return_to");
+          toast({ title: "授权完成 ✓ 正在返回 AI 自动驾驶…" });
+          // 给 invalidate 一点时间刷数据再跳
+          setTimeout(() => { window.location.href = returnTo; }, 600);
+        } else {
+          toast({ title: "授权完成，账号已同步" });
+        }
       }
     }
     window.addEventListener("message", onMsg);

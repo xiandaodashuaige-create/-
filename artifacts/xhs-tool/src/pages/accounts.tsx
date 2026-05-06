@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit, Users } from "lucide-react";
+import { Plus, Trash2, Edit, Users, Sparkles, ArrowRight } from "lucide-react";
 import { usePlatform } from "@/lib/platform-context";
 import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
 import { OAuthConnectPanel } from "@/components/OAuthConnectPanel";
@@ -151,6 +151,10 @@ export default function Accounts() {
           手动添加
         </Button>
       </div>
+
+      {/* 「从 AI 自动驾驶被引导过来」的返回横幅
+          —— 解决断流：用户授权/添加完账号后能一键回到 AI 流程，而不用自己摸路径回去 */}
+      <ReturnToFlowBanner hasAccount={accounts.length > 0} />
 
       {/* OAuth 授权入口（非小红书平台） */}
       <OAuthConnectPanel platform={activePlatform} />
@@ -317,5 +321,50 @@ export default function Accounts() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// 「从 AI 自动驾驶被引导过来」的返回横幅
+// 触发条件：sessionStorage.oauth_return_to 有值（autopilot 在跳到这里之前会种下）
+// 显示状态：1) 还没账号 → 提示"完成添加后会自动跳回"；2) 有账号了 → 大按钮"返回 AI 自动驾驶"
+function ReturnToFlowBanner({ hasAccount }: { hasAccount: boolean }) {
+  const [returnTo, setReturnTo] = useState<string | null>(null);
+  useEffect(() => {
+    setReturnTo(sessionStorage.getItem("oauth_return_to"));
+  }, []);
+  if (!returnTo) return null;
+
+  const goBack = () => {
+    sessionStorage.removeItem("oauth_return_to");
+    window.location.href = returnTo;
+  };
+
+  return (
+    <Card className={hasAccount
+      ? "border-emerald-300 bg-gradient-to-r from-emerald-50 to-teal-50"
+      : "border-amber-300 bg-amber-50/60"}>
+      <CardContent className="pt-5 pb-5 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasAccount ? "bg-emerald-500" : "bg-amber-500"}`}>
+            <Sparkles className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <div className="font-semibold text-sm">
+              {hasAccount ? "✓ 账号已就绪 — 可以回 AI 自动驾驶继续了" : "你正在 AI 自动驾驶流程中"}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {hasAccount
+                ? "AI 已经能读到你的账号画像，点右边按钮回到刚才中断的 AI 流程。"
+                : "完成下面的授权 / 手动添加后，会自动跳回 AI 自动驾驶继续生成策略。"}
+            </div>
+          </div>
+        </div>
+        {hasAccount && (
+          <Button onClick={goBack} className="bg-emerald-600 hover:bg-emerald-700">
+            返回 AI 自动驾驶 <ArrowRight className="h-4 w-4 ml-1.5" />
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
