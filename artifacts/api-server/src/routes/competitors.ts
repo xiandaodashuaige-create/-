@@ -9,6 +9,7 @@ import {
 import { ensureUser, requireCredits, deductCredits } from "../middlewares/creditSystem";
 import { logger } from "../lib/logger";
 import { transcribeVideoUrl } from "../services/whisperTranscribe.js";
+import { decryptToken } from "../lib/crypto.js";
 import {
   fetchTikTokProfile,
   fetchTikTokUserVideos,
@@ -61,13 +62,16 @@ function isValidPlatform(p: string): p is Platform {
 }
 
 // 找到当前用户在该平台已绑定的第一个有 token 的账号（用于 FB/IG Graph 调用）
+// 返回的 oauthAccessToken 已自动解密（如果 DB 里是密文，统一在这里 decrypt 一次）
 async function findUserMetaAccount(userId: number, platform: "facebook" | "instagram") {
   const rows = await db.select().from(accountsTable)
     .where(and(
       eq(accountsTable.ownerUserId, userId),
       eq(accountsTable.platform, platform),
     ));
-  return rows.find(r => !!r.oauthAccessToken) ?? null;
+  const found = rows.find(r => !!r.oauthAccessToken) ?? null;
+  if (!found) return null;
+  return { ...found, oauthAccessToken: decryptToken(found.oauthAccessToken) };
 }
 
 // ── GET /api/competitors?platform=tiktok ─────────────────────────────

@@ -16,8 +16,14 @@ function deriveKey(): Buffer | null {
 const KEY = deriveKey();
 
 if (!KEY) {
+  if (process.env.NODE_ENV === "production") {
+    // 生产 fail-closed：拒绝在无密钥的情况下启动，避免 token 静默落明文
+    throw new Error(
+      "OAUTH_TOKEN_ENCRYPTION_KEY 未配置 — 生产环境必须设置 32 字节 hex 密钥才能启动",
+    );
+  }
   logger.warn(
-    "OAUTH_TOKEN_ENCRYPTION_KEY 未配置或长度不足 32 字符 — OAuth token 将以明文存储（生产环境必须配置）",
+    "OAUTH_TOKEN_ENCRYPTION_KEY 未配置或长度不足 32 字符 — OAuth token 将以明文存储（仅 dev 允许）",
   );
 }
 

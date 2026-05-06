@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 
 export const CREDIT_COSTS: Record<string, number> = {
   "ai-rewrite": 3,
+  "ai-operations-rewrite": 1,
   "ai-competitor-research": 5,
   "ai-operations-strategy": 5,
   "ai-generate-title": 1,
@@ -50,8 +51,8 @@ export async function ensureUser(req: Request): Promise<any> {
     // 初始 admin 邮箱白名单 — 仅在新用户首次注册时生效（决定 role 字段初值）
     // 现有用户的管理员状态以 users.role 为准；env 变更不影响存量数据。
     // 修改方式：在 Replit Secrets / env 设置 INITIAL_ADMIN_EMAILS（逗号分隔）
-    const adminEmailsEnv = process.env.INITIAL_ADMIN_EMAILS
-      || "xiandao456@gmail.com,xiandaodashuaige@gmail.com";
+    // 安全默认：env 未设置时白名单为空，不再硬编码任何邮箱（避免特权升级风险）
+    const adminEmailsEnv = process.env.INITIAL_ADMIN_EMAILS || "";
     const adminEmails = adminEmailsEnv
       .split(",")
       .map((s) => s.trim().toLowerCase())

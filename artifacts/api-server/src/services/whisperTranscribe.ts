@@ -1,12 +1,9 @@
-import OpenAI from "openai";
+import { openai as client } from "@workspace/integrations-openai-ai-server";
 import { logger } from "../lib/logger.js";
-
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const MAX_BYTES = 25 * 1024 * 1024;
 
 export async function transcribeVideoUrl(videoUrl: string, opts?: { language?: string }): Promise<string> {
-  if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY 未配置 — 无法调用 Whisper");
   if (!videoUrl) throw new Error("videoUrl 必填");
 
   logger.info({ videoUrl: videoUrl.slice(0, 80) }, "Whisper: downloading video");
