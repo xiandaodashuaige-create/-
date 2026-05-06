@@ -1,0 +1,2174 @@
+第 1 步：三个仓库结构与功能清单
+1. 主仓库：鹿联 Viral Suite
+结构
+路径	作用
+replit.md	当前主仓库最权威产品/架构说明
+package.json	pnpm monorepo 根脚本
+artifacts/api-server	Express 5 API 后端
+artifacts/xhs-tool	当前主前端 React/Vite
+artifacts/mockup-sandbox	UI/组件沙箱，未接入主产品链路
+lib/db	Drizzle schema
+lib/api-spec	OpenAPI
+lib/api-zod	生成的 Zod schema
+lib/api-client-react	React Query 客户端
+lib/integrations-openai-ai-server	OpenAI 封装
+lib/integrations/openai_ai_integrations	孤立 OpenAI 集成副本，无 package.json，未被引用
+主仓库已实现的主要能力
+XHS 内容创作、AI 改写、敏感词、图片生成、工作流。
+PlatformProvider 统一平台维度：XHS / TikTok / Instagram / Facebook。
+Clerk 登录与后端 requireAuth。
+多平台账号表 accounts。
+Meta OAuth、TikTok OAuth、Ayrshare 同步。
+publishDispatcher 每分钟扫描 schedules 自动发布 TikTok / Instagram / Facebook。
+TikHub TikTok 竞品抓取、TikTok 关键词发现、TikTok 热门趋势。
+Facebook / Instagram 竞品抓取，基于 Meta Graph 和已授权 Page token。
+/competitors 多平台竞品库。
+/market-data，TikTok 为 TikHub，FB/IG/XHS trending 当前为 mock。
+/api/strategy/* 策略卡，使用 gpt-5-mini，批准后创建 content 草稿。
+Seedream / ComfyUI / Collage 图片链路。
+Seedance 视频生成链路：/api/ai/generate-video-plan、/api/ai/generate-video。
+XHS Note tracking、hot topics、category training、auto onboarding cron。
+积分系统和 admin 页面。
+2. 老系统 A：socialAuto
+路径：/tmp/viral-suite-review/socialAuto
+
+结构
+路径	作用
+replit.md	产品说明
+package.json	pnpm monorepo 根配置，依赖 axios、node-cron、openai
+artifacts/api-server	Express 后端
+artifacts/dashboard	React dashboard
+lib/db	Drizzle schema
+lib/api-spec / api-zod / api-client-react	OpenAPI 与生成客户端
+artifacts/mockup-sandbox	UI 沙箱
+完整功能清单
+中英双语 dashboard。
+AI 自动驾驶演示页：scan → analyze → generate → schedule → publish。
+账号管理：
+social_accounts
+手动添加账号
+OAuth 自动写入账号
+Ayrshare 同步账号
+Meta OAuth：
+Facebook OAuth
+拉取 Pages
+识别绑定的 Instagram Business account
+写入 Facebook / Instagram 账号
+TikTok OAuth：
+TikTok 授权
+token / refresh token 入库
+TikTok 直连发布库函数存在
+Ayrshare：
+查询连接状态
+同步已连接平台
+发布到 FB / IG / TikTok
+查询发布状态
+取消发布
+内容库：
+内容 CRUD
+AI caption generation，GPT-4o-mini
+帖子与排程：
+scheduled_posts
+创建 / 更新 / 删除
+手动发布 endpoint
+Ayrshare scheduleDate 支持
+但老系统没有真正自研 cron 到期扫描发布
+竞品：
+Facebook / TikTok competitor CRUD
+competitor posts 拉取
+市场数据：
+Meta Ad Library
+TikHub trending
+EchoTik 相关 route 在代码中存在
+Analytics：
+summary
+publish history
+Whisper 转录：
+/transcribe
+无 key 时 mock
+数据库：
+social_accounts
+competitors
+competitor_posts
+content_items
+scheduled_posts
+publish_logs
+3. 老系统 B：tiktok-ai
+路径：/tmp/viral-suite-review/tiktok-ai
+
+结构
+路径	作用
+replit.md	产品说明
+package.json	pnpm monorepo 根配置
+artifacts/tiktok-ai	React/Vite TikTok AI 前端
+artifacts/api-server	Express 后端
+gpu-server	Python GPU 视频生成服务
+lib/db	Drizzle schema
+lib/integrations-openai-ai-*	OpenAI / 转录等集成
+migration-social-auth	社交授权迁移草稿
+artifacts/mockup-sandbox	UI 沙箱
+完整功能清单
+TikTok AI 四步流水线：
+授权
+竞品分析
+AI 内容创作
+定时发布
+TikTok 账号管理与 Ayrshare 发布。
+竞品系统：
+/competitors
+/competitors/:id
+单视频分析
+关键词发现达人 /competitor-search
+TikTok 数据源：
+TikHub
+EchoTik
+Kalodata
+FastMoss
+tiktok-api-dl
+provider fallback / priority
+TikTok 爬取：
+用户画像
+视频列表
+趋势视频
+关键词发现
+OpenAI AI 能力：
+脚本
+caption
+标题
+hashtags
+音乐建议
+carousel
+最佳发布时间
+AI chat
+Whisper / 转录：
+实际实现为 OpenAI gpt-4o-mini-transcribe
+竞争视频转录
+写回 transcript 字段
+Gemini：
+AdForge 视觉分析
+文案生成
+行业洞察
+embedding / insights
+TTS：
+msedge-tts
+voice list
+语音生成
+合成视频旁白
+AdForge：
+projects
+materials
+segments
+generations
+compositions
+pipeline
+generate copy
+auto finish
+feedback
+templates
+insights
+clients
+upload
+Kling / 视频生成：
+Kling API
+图生视频 / 文生视频
+ffmpeg 合成
+字幕 / BGM / TTS
+GPU server：
+Wan2.1 等 GPU 管线
+多模型 video provider gateway：
+模型注册
+成本估算
+配额
+用量
+请求审计
+内容库 / 发布日历 / analytics。
+积分系统 / admin。
+多语言。
+Learning loop：
+customer style profile
+customer assets
+generation feedback
+category playbooks
+第 2 步：功能融合矩阵表
+老系统功能	来源仓库	在主仓库中是否存在	实现位置（文件路径）	完整度	备注
+中英 / 多语言 UI	socialAuto / tiktok-ai	是	artifacts/xhs-tool/src/lib/i18n*、artifacts/xhs-tool/src/App.tsx	部分	主仓库支持 zh / zh-HK / en，但老系统页面未逐项迁移
+统一平台维度	主仓库目标	是	artifacts/xhs-tool/src/lib/platform-context.tsx、platform-meta.ts	完整	XHS/TikTok/IG/FB 已统一
+账号管理	socialAuto	是	lib/db/src/schema/accounts.ts、artifacts/api-server/src/routes/accounts.ts	部分	已从 social_accounts 融合为 accounts；但 Ayrshare 多 profile 支持较弱
+Meta OAuth	socialAuto	是	artifacts/api-server/src/routes/oauth.ts、lib/oauth/meta.ts	部分	OAuth 主流程存在；Meta token refresh / 持久化 state 不足
+TikTok OAuth	socialAuto / tiktok-ai	是	artifacts/api-server/src/routes/oauth.ts、lib/oauth/tiktok.ts	部分	授权、refresh、直连发布存在；产品文档中又说 TikTok via Ayrshare，口径不一致
+Ayrshare 状态同步	socialAuto / tiktok-ai	是	artifacts/api-server/src/routes/oauth.ts、lib/oauth/ayrshare.ts	部分	只暴露 /oauth/ayrshare/sync；老系统的独立 publish/status/cancel API 未完整迁移
+Ayrshare 发布	socialAuto	是	artifacts/api-server/src/services/publishDispatcher.ts、lib/oauth/ayrshare.ts	部分	dispatcher 可走 Ayrshare，但未传 profileKey，状态查询/取消未进入主 API
+本地定时发布 cron	socialAuto 目标 / 主仓库增强	是	artifacts/api-server/src/services/publishDispatcher.ts、cron.ts	部分	分支覆盖三平台，但 retry 逻辑有 bug，多实例锁不足
+Facebook 图文发布	socialAuto	是	artifacts/api-server/src/lib/oauth/meta.ts、publishDispatcher.ts	部分	支持 feed/photo；缺发布日志与状态回查
+Instagram 媒体发布	socialAuto	是	artifacts/api-server/src/lib/oauth/meta.ts、publishDispatcher.ts	部分	支持 image/Reels 容器轮询；缺 carousel 和更多 IG 选项
+TikTok 视频发布	socialAuto / tiktok-ai	是	artifacts/api-server/src/lib/oauth/tiktok.ts、publishDispatcher.ts	部分	支持 direct / inbox fallback；缺状态轮询与发布结果同步
+内容库 CRUD	socialAuto / tiktok-ai	是	artifacts/api-server/src/routes/content.ts	部分	主仓库 content 强依赖 account；策略批准无账号时会产生不可见孤儿内容
+素材库	tiktok-ai	是	artifacts/api-server/src/routes/assets.ts	部分	基础素材存在，但未接 AdForge materials
+AI caption / 文案	socialAuto / tiktok-ai	是	artifacts/api-server/src/routes/ai.ts、strategyGenerator.ts	部分	主仓库主要 OpenAI；老系统 B 的多种 TikTok 创作 API 未全部迁移
+AI 自动驾驶 / Strategy	socialAuto / tiktok-ai	是	artifacts/api-server/src/routes/strategy.ts、services/strategyGenerator.ts、pages/autopilot.tsx	部分	策略卡完整，但老系统 B 的 Strategy → AdForge 自动成片未迁移
+Meta Ad Library	socialAuto	是	artifacts/api-server/src/routes/marketData.ts	部分	有 Graph 查询，无 token 时 mock
+TikHub trending	socialAuto / tiktok-ai	是	artifacts/api-server/src/services/tikhubScraper.ts、marketData.ts	部分	TikTok 有真实源，其他平台 trending 是 mock
+TikHub 用户画像 / 视频列表	tiktok-ai	是	artifacts/api-server/src/services/tikhubScraper.ts、routes/competitors.ts	部分	只接 TikHub，拉最近 12 条；缺老系统 B provider fallback
+TikTok 关键词发现达人	tiktok-ai	是	services/tikhubScraper.ts、routes/competitors.ts	部分	有 TikHub discover；缺 EchoTik/Kalodata/FastMoss
+EchoTik 数据源	socialAuto / tiktok-ai	否	无	缺失	主仓库未发现 EchoTik provider
+Kalodata 数据源	tiktok-ai	否	无	缺失	未迁移
+FastMoss 数据源	tiktok-ai	否	无	缺失	未迁移
+tiktok-api-dl fallback	tiktok-ai	否	无	缺失	未迁移
+TikTok 单视频分析	tiktok-ai	部分	competitor_posts.analysis_json 字段、strategyGenerator.ts	部分	字段存在，但缺视频级分析 endpoint / UI
+Whisper / 转录	socialAuto / tiktok-ai	部分字段	lib/integrations-openai-ai-server/src/audio/client.ts、competitor_posts.transcript	缺失	有库函数和字段，无主流程 route；老系统的 /transcribe、/competitors/:id/transcribe 未迁移
+TTS 语音合成	tiktok-ai	仅字段	lib/db/src/schema/content.ts	缺失	ttsAudioUrl 字段存在，但无 msedge-tts 路由和合成流程
+Gemini 分析	tiktok-ai	否	无	缺失	主仓库未发现 Gemini / Google generative 相关实现
+AdForge	tiktok-ai	否	无	缺失	主仓库没有 /api/adforge/*、projects/materials/segments/compositions 表
+Kling	tiktok-ai	否	无	缺失	主仓库改用 Seedance，不等价于老系统 B Kling/AdForge
+Seedance 视频生成	主仓库新增	是	services/seedance.ts、videoPipeline.ts、videoGen.ts	完整/另一路线	这是新能力，不是 AdForge 的完整迁移
+GPU server	tiktok-ai	否	无	缺失	主仓库无 gpu-server
+多模型 video provider gateway	tiktok-ai	否	无	缺失	无 provider registry / estimate / usage / request audit
+发布日历 / schedules	socialAuto / tiktok-ai	是	routes/schedules.ts、pages/schedules.tsx	部分	主流程有；老系统 publish_jobs / publish_logs 未完整映射
+Analytics / publish history	socialAuto / tiktok-ai	部分	routes/dashboard.ts	部分	dashboard 有统计；老系统 publish history/log 维度不足
+竞品库 /competitors	socialAuto / tiktok-ai	是	routes/competitors.ts、pages/competitors.tsx	部分	多平台统一较好，但 TikTok 深度分析能力缺失
+XHS Note tracking	主仓库新增/原 xhs-tool	是	services/noteTracking.ts、routes/tracking.ts	完整	这是主仓库强项
+Credit system / admin	tiktok-ai	是	middlewares/creditSystem.ts、routes/admin.ts	部分	主系统有积分与 admin，但老系统 B 视频 provider 计费闸未迁移
+Learning loop	tiktok-ai	部分	services/styleProfile.ts、contentProfile.ts、categoryTraining.ts	部分	有平台画像训练，但 customer assets / feedback / playbooks 不完整
+OpenAPI 契约	三仓共同	是	lib/api-spec/openapi.yaml	部分	主仓库部分新路由可能未完全进入契约，需二次核对
+第 3 步：8 个维度融合质量评估
+维度 1：功能完整性
+严重程度：🔴 阻塞
+
+现状
+主仓库完成了：
+
+XHS 主流程。
+多平台账号 / OAuth / 发布调度基础。
+TikHub 竞品基础抓取。
+多平台 UI 框架。
+OpenAI / Seedream / Seedance 自有 AI 链路。
+但老系统 B 的核心能力大面积缺失：
+
+Gemini
+TTS
+Whisper / 转录 route
+AdForge
+Kling
+GPU server
+多 TikTok 数据 provider fallback
+TikTok 单视频深度分析
+主仓库 replit.md 也存在内部矛盾：
+
+第 5 行说已合并 tiktok-ai (Gemini/TTS/Whisper/AdForge)。
+第 46 行又说 no AdForge/Kling video pipeline (deferred)。
+死代码 / 未接主流程
+lib/integrations/openai_ai_integrations 无 package.json，且未被主仓库引用。
+lib/db/src/schema/content.ts 有 ttsAudioUrl，但无 TTS route。
+competitor_posts.transcript 字段存在，但无转录流程。
+OpenAI speech-to-text 库存在，但没有被 API route 使用。
+修复建议
+明确产品口径：AdForge/Gemini/TTS/Whisper 是“必须迁移”还是“明确延期”。
+如果必须迁移：
+从老系统 B 迁移 /api/adforge/* 到 artifacts/api-server/src/routes/adforge/*。
+迁移 AdForge schema 到 lib/db/src/schema/adforge*.ts。
+增加 /api/transcribe 或 /api/competitors/:id/transcribe。
+把 ttsAudioUrl 接入 msedge-tts 生成 route。
+在 strategy/:id/approve 后支持进入 AdForge 或 Seedance 两条视频链路。
+维度 2：UI/UX 统一性
+严重程度：🟡 待改进
+
+现状
+主仓库在 UI 统一方面做得较好：
+
+PlatformProvider 位于 artifacts/xhs-tool/src/lib/platform-context.tsx。
+platform-meta.ts 定义四平台主题、发布模式、媒体偏好。
+多个页面使用 activePlatform：
+pages/dashboard.tsx
+pages/accounts.tsx
+pages/workflow/index.tsx
+pages/competitors.tsx
+pages/market-data.tsx
+pages/schedules.tsx
+这说明当前不是简单三套 UI 拼接，已经向“单产品 + 平台维度”收敛。
+
+问题
+老系统 B 的 TikTok 专属页面没有完整融合：
+单视频分析页
+competitor search 深度页
+AdForge 项目页
+video provider usage 页
+XHS note tracking 是 XHS-only，通过 PlatformGuard 限制，合理；但 TikTok 的同等深度分析页面缺失。
+artifacts/mockup-sandbox 与主产品无运行时关系，属于开发沙箱。
+修复建议
+保留当前 PlatformProvider，不要恢复三套 UI。
+新增平台化入口：
+artifacts/xhs-tool/src/pages/competitors.tsx 增加“视频分析 / 转录 / 生成策略”动作。
+新增 pages/adforge/* 或把 AdForge 功能嵌入 /autopilot。
+pages/market-data.tsx 对 FB/IG/XHS mock 状态做明显标识。
+维度 3：数据库 schema 整合
+严重程度：🟡 待改进
+
+现状
+主仓库 schema 融合方向正确：
+
+accounts 替代老系统 A 的 social_accounts。
+content 融合平台、媒体类型、远端 post 字段。
+schedules 统一发布计划。
+competitor_profiles / competitor_posts 支持多平台。
+owner_user_id / user_id 基本覆盖多租户隔离。
+主要问题
+accounts.ownerUserId 可空：
+路径：lib/db/src/schema/accounts.ts
+
+ownerUserId: integer("owner_user_id").references(() => usersTable.id, { onDelete: "set null" })
+这对多租户系统不理想。账号被置空后会产生孤儿账号。
+
+content.accountId 可空，但多数查询通过 account join 做隔离。
+路径：artifacts/api-server/src/routes/content.ts
+
+list 使用 INNER JOIN accounts
+get / update / delete 也通过 account 验证归属
+因此如果内容没有 account，会变成不可访问孤儿内容。
+
+strategy/:id/approve 会在没有账号时创建 accountId: null 的 content。
+路径：artifacts/api-server/src/routes/strategy.ts
+
+accountId: acc?.id ?? null
+这会导致策略批准成功返回 contentId，但该内容无法被 /content 正常列出或编辑。
+
+老系统 B 的 AdForge 表完全缺失：
+projects
+materials
+segments
+generations
+compositions
+templates
+industry_insights
+video_provider_usage
+video_gen_requests
+修复建议
+增加 content.owner_user_id，不要只通过 account_id 间接隔离。
+accounts.owner_user_id 改为 not null，删除用户时 cascade 或软删除。
+修复 strategy/:id/approve：
+若无账号，先要求用户选择/创建账号；
+或创建 content 时写入 owner_user_id。
+如果迁移 AdForge，新增独立 schema 文件：
+lib/db/src/schema/adforgeProjects.ts
+adforgeMaterials.ts
+adforgeSegments.ts
+adforgeGenerations.ts
+adforgeCompositions.ts
+videoProviderUsage.ts
+维度 4：OAuth & 认证统一
+严重程度：🟡 待改进
+
+现状
+主仓库 OAuth 主流程存在：
+
+Clerk：
+artifacts/api-server/src/middlewares/requireAuth.ts
+artifacts/xhs-tool/src/App.tsx
+Meta OAuth：
+artifacts/api-server/src/lib/oauth/meta.ts
+routes/oauth.ts
+TikTok OAuth：
+artifacts/api-server/src/lib/oauth/tiktok.ts
+routes/oauth.ts
+Ayrshare：
+artifacts/api-server/src/lib/oauth/ayrshare.ts
+routes/oauth.ts
+OAuth callback 是 public，其余 OAuth route 在 requireAuth 后挂载，这一点正确。
+
+问题
+OAuth state 存在内存 Map：
+路径：
+
+artifacts/api-server/src/lib/oauth/meta.ts
+artifacts/api-server/src/lib/oauth/tiktok.ts
+这在单实例可以工作，但多实例、重启、serverless 冷启动会导致 callback state 丢失。
+
+Meta token refresh / 过期管理不足。
+TikTok 在发布前有 refresh，Meta Page token 没有同等级策略。
+
+Ayrshare profile key 支持不完整。
+Ayrshare.publishToSocial 支持 profileKey，但 publishDispatcher 调用时没有传入 row.ayrshare_profile_key。
+
+TikTok 发布口径不一致。
+replit.md 写 “TikTok via Ayrshare”，但代码在无 ayrshare_profile_key 时走 TikTok direct API。
+
+修复建议
+增加 oauth_states 表，字段：
+state
+owner_user_id
+platform
+expires_at
+consumed_at
+publishDispatcher.ts 调用 Ayrshare 时传入：
+profileKey: row.ayrshare_profile_key
+OAuth status API 返回 token 有效期和 refresh 风险。
+Meta token 增加过期检测和重新授权提示。
+维度 5：定时发布调度器
+严重程度：🔴 阻塞
+
+现状
+主仓库比老系统 A 更进一步，已经有本地 cron：
+
+artifacts/api-server/src/services/cron.ts
+artifacts/api-server/src/services/publishDispatcher.ts
+覆盖：
+
+TikTok 视频
+Facebook 图文
+Instagram 图片 / Reels
+Ayrshare 分支
+stale publishing recovery
+单进程 isRunning
+关键问题
+retry 逻辑实际跑不通。
+路径：artifacts/api-server/src/services/publishDispatcher.ts
+
+当前逻辑：
+
+WHEN COALESCE(error_message, '') LIKE ${'%retry=' + MAX_RETRIES + '%'} THEN 'failed'
+...
+error_message = ${errorMessage + ` | retry=${Date.now()}`}
+它检查的是 retry=3，但写入的是时间戳，所以失败任务可能一直回到 pending，无限重试。
+
+多实例锁不足。
+isRunning 只是进程内锁，部署多实例时仍会重复扫描。虽然 SQL 使用 FOR UPDATE SKIP LOCKED，但需要确认事务边界；当前 db.execute 单语句 claim 是好的，但 dispatcher 级别没有全局 advisory lock。
+
+Ayrshare profile key 没有传入。
+row.ayrshare_profile_key 只用于判断 useAyrshare，没有传给 publishToSocial。
+
+发布结果状态回查不足。
+TikTok direct 返回 publish_id 后没有持续 poll；Ayrshare 也没有定时 status reconcile。
+
+修复建议
+给 schedules 增加 retry_count integer，不要把 retry count 塞进 error_message。
+markFailed 改为：
+retry_count < MAX_RETRIES → pending
+retry_count >= MAX_RETRIES → failed
+publishDispatcher 调 Ayrshare 时传 profileKey。
+新增 publish_logs 或 schedule_publish_attempts 表。
+新增 status reconciler：
+Ayrshare：调用 /post/:id
+TikTok：调用 publish status API
+Meta：至少记录远端 ID 和错误详情
+维度 6：AI 能力整合
+严重程度：🔴 阻塞
+
+现状
+主仓库 AI 体系是：
+
+OpenAI：文案、策略、assistant、vision。
+Seedream：图片生成。
+ComfyUI：图片 fallback。
+Seedance：视频生成。
+Collage：图片布局。
+老系统 B 的 AI 核心没有完整迁移：
+
+能力	主仓库状态
+Gemini	缺失
+TTS / msedge-tts	缺失，仅 ttsAudioUrl 字段
+Whisper / gpt-4o-mini-transcribe route	缺失
+AdForge	缺失
+Kling	缺失
+Strategy → AdForge 自动成片	缺失
+视频 provider 成本闸	缺失
+修复建议
+把 AI 分成两层：
+services/ai/*：模型调用层。
+services/workflows/*：业务工作流。
+迁移老系统 B：
+adforge/copywriter.ts
+adforge/vision.ts
+adforge/insights.ts
+adforge/tts.ts
+adforge/composer.ts
+在主仓库保留 Seedance，但把它注册到统一 video provider，而不是替代 AdForge。
+维度 7：爬取与竞品分析
+严重程度：🟡 待改进
+
+现状
+主仓库已接入：
+
+TikHub TikTok：
+profile
+videos
+search user
+trending hashtag videos
+Meta：
+Facebook page posts
+Instagram business discovery
+XHS：
+workflow 内 TikHub / RapidAPI / AutoDL
+note tracking
+问题
+老系统 B 的 provider fallback 没有迁移：
+EchoTik
+Kalodata
+FastMoss
+tiktok-api-dl
+TikTok 单视频分析缺失。
+转录缺失，导致“爆款 hook / CTA”分析能力丢失。
+/market-data 非 TikTok trending 是 mock。
+/competitors 对 XHS 的策略是拒绝添加，提示去 workflow；这符合主仓库设计，但不等价于“完整多平台竞品库”。
+修复建议
+迁移 provider registry：
+services/tiktok-data/index.ts
+provider-tikhub.ts
+provider-echotik.ts
+provider-kalodata.ts
+provider-fastmoss.ts
+provider-tiktok-api-dl.ts
+给 competitor_posts 增加分析状态：
+analysis_status
+transcript_lang
+transcribed_at
+增加 route：
+POST /api/competitors/:id/transcribe
+POST /api/competitors/posts/:postId/analyze
+GET /api/competitors/discover?platform=tiktok
+维度 8：架构一致性
+严重程度：🟡 待改进
+
+现状
+主仓库架构方向较好：
+
+pnpm monorepo。
+artifacts/api-server / artifacts/xhs-tool 分层清晰。
+lib/db / lib/api-spec / lib/api-client-react 共享层合理。
+统一前端由 xhs-tool 承载，没有保留三套独立前端。
+问题
+lib/integrations/openai_ai_integrations 是明显孤岛。
+artifacts/mockup-sandbox 未进入主产品链路，需明确其用途。
+老系统 B 的核心代码不是“原样塞进 artifacts”，而是大部分没迁移。
+OpenAPI 是否覆盖所有新 route 需要再核对，尤其：
+/strategy/*
+/competitors/discover
+/ai/generate-video*
+OAuth / Ayrshare route
+根目录无产品 README，长期维护成本较高。
+修复建议
+删除或正式包化 lib/integrations/openai_ai_integrations。
+给 artifacts/mockup-sandbox 加说明，避免被误认为生产模块。
+统一 route → OpenAPI → client 的生成链路。
+新增根目录 README.md，明确：
+当前已迁移功能
+明确延期功能
+环境变量
+部署限制
+多实例风险
+第 4 步：未迁移或迁移不完整功能优先级
+P0：必须补齐，否则“完整合并版”核心场景无法走通
+修复发布 dispatcher retry bug
+
+文件：artifacts/api-server/src/services/publishDispatcher.ts
+否则失败发布可能无限重试。
+修复策略批准产生孤儿 content
+
+文件：artifacts/api-server/src/routes/strategy.ts
+当前无账号时 accountId: null，后续 /content 看不到。
+补齐 Whisper / 转录主流程
+
+文件建议：
+artifacts/api-server/src/routes/transcribe.ts
+artifacts/api-server/src/routes/competitors.ts
+lib/db/src/schema/competitorPosts.ts
+这是老系统 B “爆款 hook 分析”的核心。
+补齐 TTS 主流程
+
+文件建议：
+artifacts/api-server/src/routes/tts.ts
+artifacts/api-server/src/services/tts.ts
+当前只有字段，无生成能力。
+明确并迁移 AdForge / Gemini / Kling，或在产品文档中明确延期
+
+如果目标是“吸收老系统 B 全部能力”，这是 P0 缺失。
+OAuth state 持久化
+
+文件：
+lib/db/src/schema/oauthStates.ts
+artifacts/api-server/src/lib/oauth/*.ts
+多实例或重启时当前内存 state 不可靠。
+P1：强烈建议补齐
+Ayrshare publish status / cancel API。
+publish_logs / schedule_publish_attempts。
+TikTok provider registry：
+EchoTik
+Kalodata
+FastMoss
+tiktok-api-dl
+TikTok 单视频分析 endpoint / UI。
+Meta token 过期检测与重新授权提示。
+schedules.retry_count schema 化。
+AdForge schema namespace。
+/market-data 非 TikTok 真实数据源。
+OpenAPI 补全所有非契约 route。
+video provider gateway / 成本闸。
+P2：锦上添花
+根目录 README.md。
+mockup-sandbox 文档化或移出生产 workspace。
+清理孤立 lib/integrations/openai_ai_integrations。
+更完整的 analytics / publish history UI。
+XHS 竞品也纳入 /competitors，而不是仅 workflow 内分析。
+多平台 carousel / IG 多图 / FB 视频增强。
+更细的 platform capability matrix。
+e2e 测试脚本和 seed 数据。
+第 5 步：整改路线图
+估算为工程小时，不包含外部平台审核、API key 申请、Meta/TikTok 审核等待。
+
+顺序	任务	涉及文件	估算工作量	依赖
+1	修复发布调度器可靠性	services/publishDispatcher.ts、lib/db/src/schema/schedules.ts	8h	无
+2	修复策略批准孤儿 content	routes/strategy.ts、routes/content.ts、lib/db/src/schema/content.ts	6h	无
+3	OAuth state 持久化与 token 状态增强	lib/db/src/schema/oauthStates.ts、lib/oauth/meta.ts、lib/oauth/tiktok.ts、routes/oauth.ts	12h	1
+4	补齐 Ayrshare publish/status/cancel/logs	lib/oauth/ayrshare.ts、routes/oauth.ts 或 routes/publishing.ts、schema/publishLogs.ts	12h	1
+5	迁移转录能力	routes/transcribe.ts、routes/competitors.ts、lib/integrations-openai-ai-server、schema/competitorPosts.ts	14h	2
+6	迁移 TTS 能力	services/tts.ts、routes/tts.ts、routes/videoGen.ts、schema/content.ts	12h	5
+7	迁移 TikTok provider registry	services/tiktok-data/*、routes/competitors.ts、routes/marketData.ts	18h	5
+8	迁移 AdForge / Gemini / Kling 核心	routes/adforge/*、services/adforge/*、schema/adforge*.ts	36h	5,6
+9	UI 融合 AdForge / 转录 / 单视频分析	artifacts/xhs-tool/src/pages/competitors.tsx、pages/autopilot.tsx、新增 pages/adforge/*	24h	7,8
+10	OpenAPI / client / 测试 / 文档收口	lib/api-spec/openapi.yaml、lib/api-zod、lib/api-client-react、README.md	16h	1-9
+总计：约 158 工程小时。
+
+推荐执行顺序：
+
+先修可靠性 blocker：任务 1、2。
+再修 OAuth / 发布闭环：任务 3、4。
+再补老系统 B 的数据与 AI 基础：任务 5、6、7。
+再迁移重型 AdForge：任务 8。
+最后做 UI 融合、契约、测试和文档：任务 9、10。
+第 6 步：总评
+融合完成度
+约 58%。
+
+拆分看：
+
+模块	完成度
+XHS 原主流程	80%+
+平台维度统一	75%
+socialAuto 发布/OAuth 能力	65%
+tiktok-ai 爬取/竞品能力	45%
+tiktok-ai Gemini/TTS/Whisper/AdForge	15%
+schema 融合	60%
+生产可靠性	50%
+是否可以直接上生产环境？
+不建议直接上生产。
+
+如果只作为 XHS + 基础多平台账号 + 部分 TikTok/Meta 发布内测，可以小范围试运行；如果按“已完整融合 socialAuto + tiktok-ai 全部能力”的口径对外发布，目前不成立。
+
+最大 3 个风险点
+老系统 B 核心能力缺失
+
+Gemini / TTS / Whisper / AdForge / Kling 基本没有接入主流程。
+这是“声明了但实际没实现”的最大问题。
+发布调度可靠性风险
+
+retry 计数逻辑错误。
+Ayrshare profile key 未真正传入。
+多实例锁与状态回查不足。
+schema 与租户隔离边界不够稳
+
+content.accountId 可空但路由依赖 account join。
+strategy/:id/approve 可能创建不可访问孤儿 content。
+accounts.ownerUserId 可空，不适合多租户核心表。
+结论：当前主仓库不是“三个系统完整融合后的最终态”，而是“XHS 主产品 + socialAuto 发布能力部分迁入 + tiktok-ai 的 TikHub/策略部分迁入 + 新增 Seedance 视频能力”。如果目标是完整的「鹿联 Viral Suite」，还需要补齐老系统 B 的 AI 视频与分析闭环，并修复发布/认证/schema 的生产级问题。
+
+代码更新了  请你继续帮我审查下
+
+
+Worked for 3m 43s
+继续审查结论
+已拉取最新代码到 2f7d142。这次更新确实修复了不少上轮指出的问题，但仍有几个关键风险。
+
+主要问题 / Findings
+1. 🔴 Ayrshare "default" profileKey 可能导致自动发布失败
+/oauth/ayrshare/sync 会把 Ayrshare 账号写成：
+
+.set({ ayrshareProfileKey: "default" })
+路径：artifacts/api-server/src/routes/oauth.ts:257-260
+
+但新版 publishDispatcher 又会把它作为真实 profile key 传给 Ayrshare：
+
+profileKey: row.ayrshare_profile_key ?? undefined,
+路径：artifacts/api-server/src/services/publishDispatcher.ts:142-143
+
+而 Ayrshare client 会直接发 header：
+
+if (profileKey) headers["Profile-Key"] = profileKey;
+路径：artifacts/api-server/src/lib/oauth/ayrshare.ts:11-17
+
+风险： 如果 Ayrshare 主 profile 不接受 Profile-Key: default，原本能发布的默认 profile 会开始失败。
+
+建议：
+
+不要用 "default" 当真实 profile key。
+可改为：
+ayrshareProfileKey = null 表示默认 profile；
+新增 publishVia = "ayrshare" 或 authProvider = "ayrshare" 字段表示走 Ayrshare。
+临时修复：
+profileKey:
+  row.ayrshare_profile_key && row.ayrshare_profile_key !== "default"
+    ? row.ayrshare_profile_key
+    : undefined
+2. 🟡 TikTok Provider Switcher 只是脚手架，未真正接入主流程
+新增了：
+
+artifacts/api-server/src/services/tiktokProviders/index.ts
+artifacts/api-server/src/services/tiktokProviders/echotik.ts
+artifacts/api-server/src/services/tiktokProviders/fastmoss.ts
+artifacts/api-server/src/services/tiktokProviders/kalodata.ts
+但 routes/competitors.ts 仍然直接使用 TikHub：
+
+if (!isTikHubConfigured()) ...
+const p = await fetchTikTokProfile(handle);
+const vids = await fetchTikTokUserVideos(p.secUid, 12);
+路径：artifacts/api-server/src/routes/competitors.ts:117-129
+
+而 provider switcher 自己也写明“现有 routes 不强制改造”：
+
+// 已有 routes/competitors.ts 调用 tikhubScraper 的代码不强制改造
+路径：artifacts/api-server/src/services/tiktokProviders/index.ts:9-10
+
+结论： EchoTik / Kalodata / FastMoss 仍未迁移完成，只是占位。
+
+3. 🟡 Whisper 转录已加后端 route，但没有接入前端和策略主流程
+新增 route：
+
+POST /api/competitor-posts/:id/transcribe
+路径：artifacts/api-server/src/routes/competitors.ts:754-790
+
+但前端 API client 没有对应方法，搜索只看到：
+
+starPost: (postId, starred) => /competitor-posts/:id/star
+路径：artifacts/xhs-tool/src/lib/api.ts:282-330
+
+同时 transcript 在后端实际只被：
+
+写入 competitor_posts.transcript
+videoPipeline.ts 可读取
+但没有被 /competitors/strategy 或 /api/strategy/* 的策略生成显式使用。
+
+结论： “Whisper 能力”现在是后端半接入状态，不是完整工作流能力。
+
+4. 🟡 TTS / Gemini / AdForge / Kling 仍然缺失
+搜索结果显示主仓库仍只有：
+
+ttsAudioUrl 字段
+replit 文档描述
+没有实际：
+
+msedge-tts
+Gemini adapter
+/api/adforge/*
+Kling client
+AdForge projects/materials/segments/compositions schema
+所以老系统 B 的核心视频广告创意链路仍未迁移。
+
+5. 🟡 账号删除仍会产生隐藏内容
+content.accountId 仍是：
+
+accountId: integer("account_id").references(() => accountsTable.id, { onDelete: "set null" })
+路径：lib/db/src/schema/content.ts:8
+
+而 /content 列表依赖 INNER JOIN accounts 做租户过滤。删除账号后，内容会变成 account_id = null，从 UI/API 列表消失。
+
+虽然这次修复了 strategy/:id/approve 创建孤儿内容的问题，但账号删除路径仍可能制造孤儿内容。
+
+已修复 / 明显改善的点
+✅ 1. 发布重试 bug 已基本修复
+新增：
+
+retryCount: integer("retry_count").notNull().default(0)
+路径：lib/db/src/schema/schedules.ts:18-19
+
+markFailed 改为 DB 原子自增：
+
+retry_count = retry_count + 1
+status = CASE WHEN retry_count + 1 >= MAX_RETRIES THEN 'failed' ELSE 'pending' END
+路径：artifacts/api-server/src/services/publishDispatcher.ts:98-108
+
+这是重要修复。
+
+✅ 2. publish logs 已加入
+新增表：
+
+lib/db/src/schema/publishLogs.ts
+并在 dispatcher 中写入：
+
+writePublishLog(...)
+路径：artifacts/api-server/src/services/publishDispatcher.ts:59-86
+
+✅ 3. OAuth state 已持久化
+新增：
+
+lib/db/src/schema/oauthStates.ts
+artifacts/api-server/src/lib/oauth/state.ts
+并改 Meta / TikTok OAuth 使用 DB state。
+
+这比之前内存 Map 安全很多。
+
+✅ 4. OAuth token 加密已加入
+新增：
+
+artifacts/api-server/src/lib/crypto.ts
+OAuth token 写入前加密：
+
+const encAccess = encryptToken(args.accessToken);
+路径：artifacts/api-server/src/routes/oauth.ts:45-59
+
+发布时也做了解密。
+
+✅ 5. 策略批准孤儿 content 已修复
+现在如果用户没有绑定平台账号，直接返回：
+
+error: "no_account"
+路径：artifacts/api-server/src/routes/strategy.ts:153-167
+
+这解决了上轮 P0 问题。
+
+当前总体评价
+融合完成度从上轮约 58% 提升到约 66%。
+
+主要提升来自：
+
+OAuth state 持久化
+token 加密
+publish retry 修复
+publish logs
+Whisper route 初步加入
+策略孤儿内容修复
+但还不能算完整融合，因为：
+
+Ayrshare "default" profileKey 可能引入新发布故障。
+TikTok 多 provider 只是 scaffold。
+Whisper 没进 UI / 策略主流程。
+TTS / Gemini / AdForge / Kling 仍未迁移。
+账号删除仍可能制造隐藏内容。
+验证限制
+我尝试运行：
+
+pnpm run typecheck
+但当前云环境没有 pnpm / node / npm，所以无法完成编译验证。以上结论基于源码静态审查。
+
+你结合我得场景 需要实现 tk fb ig  授权账户后输入类目信息和需求 然后工具去市场分析 然后根据客户账户定位和市场数据  结合分析出新的策略 然后重新模仿生成伪原创的素材 素材包括可以是文案 视频  图片，这里客户可以再次自定义修改 然后给客户分析同行的发布时间  然后ai自动排版好一周要发布的内容给客户确定 。然后小红书不需要授权也不需要定时发布因为拿不到授权账户的功能，只需要同行分析和伪原创以及给推荐的排期表就可以 不需要发布功能 客户自己下载内容发布。然后你检查下我的代码 是否能实现这个功能 并且提出合理或者模型或者功能性体验性更好的方案
+
+
+Worked for 3m 10s
+已基于最新代码 5055e8c 重新审查。结论先说：
+
+你的目标场景现在“框架已经接近”，但还不能完整跑通成一个生产级闭环。
+目前更像是：
+
+TK/IG/FB：已有账号授权、同行库、市场数据、策略生成、草稿、排期、自动发布的基础模块。
+XHS：已有独立 workflow，比较符合“无需授权、下载素材手动发布”方向。
+但“市场分析 → 一周内容排版 → 自动生成文案/图片/视频素材 → 客户确认 → 自动发布/下载”还没有被真正串成一个完整产品流。
+1. 按你的业务流程逐项对照
+你的场景步骤	当前代码是否支持	主要路径	结论
+TK/FB/IG 授权账户	部分支持	routes/oauth.ts、OAuthConnectPanel.tsx、accounts.tsx	OAuth 有，但前端仍允许“手动添加”非授权账号，可能导致后续发布失败
+输入类目信息和需求	支持	pages/autopilot.tsx	niche、region、extras、手动同行都已支持
+工具做市场分析	部分支持	routes/marketData.ts、pages/market-data.tsx	TikTok 可用 TikHub；FB/IG trending 仍是 mock；Meta Ads 用 env token，不是客户 OAuth token
+根据客户账户定位 + 市场数据生成策略	部分支持	pages/autopilot.tsx、routes/strategy.ts、strategyGenerator.ts	Autopilot 会把市场样本注入 prompt；但账号定位只用了昵称/地区，没充分使用账号备注/目标客群/产品卖点
+结合同行分析出新策略	支持	routes/competitors.ts、viralContext.ts、strategyGenerator.ts	同行样本、热门标签、BGM、发布时间等已进入分析链路
+伪原创文案	支持	routes/ai.ts、strategyGenerator.ts	文案/脚本可生成
+伪原创图片	部分支持	workflow/index.tsx、imagePipeline.ts	XHS workflow 图片能力较强；TK/IG/FB Autopilot 没自动生成图片素材
+伪原创视频	部分支持	routes/videoGen.ts、videoPipeline.ts、videoJobs.ts	Seedance 视频生成 API 存在，但没接进 Autopilot / weekly plan 主流程
+客户可再次自定义修改	支持	content/editor.tsx、schedules.tsx	草稿、排期项可编辑
+分析同行发布时间	支持	routes/competitors.ts	bestPostingHoursLocal 基于同行 publishedAt 聚合
+AI 自动排版一周发布内容	部分支持	routes/ai.ts、planGenerator.ts、schedules.tsx	/schedules 可生成周计划，但它和 Autopilot 生成的策略/市场分析不是同一个闭环
+TK/IG/FB 自动发布	部分支持	publishDispatcher.ts	调度器存在；但必须确保账号真实授权、媒体素材齐全
+XHS 无需授权、无需自动发布	部分支持	workflow/index.tsx、PlatformGuard.tsx	XHS workflow 是手动下载发布；但 /competitors、/market-data 仍被 needs-auth guard 包住，会要求创建账号画像
+2. 最大的问题
+P0：TK/IG/FB 现在会把“手动添加账号”当成可用账号
+路径：
+
+artifacts/xhs-tool/src/pages/accounts.tsx
+artifacts/xhs-tool/src/components/PlatformGuard.tsx
+现在 PlatformGuard 只判断：
+
+accounts.length > 0
+但没有判断：
+
+authStatus === "authorized"
+所以客户可以手动添加一个 TikTok / IG / FB 占位账号，然后 Autopilot 允许继续跑，最后排期发布时因为没有 OAuth token 而失败。
+
+建议：
+
+XHS：允许手动账号画像。
+TK/IG/FB：必须要求 authStatus === "authorized" 或 ayrshareProfileKey 存在。
+非授权账号只能用于“策略草稿”，不能用于“排期自动发布”。
+P0：Autopilot 只生成“单条策略草稿”，不是“一周内容作战计划”
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+artifacts/api-server/src/routes/strategy.ts
+现在 Autopilot 流程是：
+
+市场数据 → 同行数据 → 生成 3 个策略 → 选一个 → approve → 创建 1 条 content → 选 1 个发布时间
+但你的目标是：
+
+市场分析 → 生成新策略 → 生成一周 7 条内容 → 每条有文案/图/视频 → 客户确认
+目前“一周计划”在另一个地方：
+
+artifacts/xhs-tool/src/pages/schedules.tsx
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/services/planGenerator.ts
+它可以生成周计划，但没有复用 Autopilot 刚生成的策略、市场洞察和客户需求上下文。
+
+建议：
+把 Autopilot 的最终输出从“1 条 content”改成：
+
+campaign
+  strategy
+  marketAnalysis
+  weeklyPlan[7]
+    copy
+    imagePrompt
+    videoScript
+    scheduledAt
+    approvalStatus
+P0：素材生成没有真正进入 TK/IG/FB 主流程
+当前能力：
+
+文案：有。
+图片：有 API 和 XHS workflow，但 Autopilot 没自动调用。
+视频：/api/ai/generate-video 存在，但 Autopilot / 周计划没接。
+路径：
+
+artifacts/api-server/src/routes/videoGen.ts
+artifacts/api-server/src/services/videoJobs.ts
+artifacts/api-server/src/services/videoPipeline.ts
+注意 videoJobs.ts 还是进程内队列：
+
+const jobs = new Map<string, VideoJob>();
+const queue: string[] = [];
+这意味着服务重启后视频任务状态会丢。
+
+建议：
+
+先生成视频脚本 / 分镜 / 字幕，不要默认直接生成成片。
+客户确认后再调用 Seedance/Kling。
+视频任务应入库，不能只存在内存。
+P1：FB/IG 市场数据还不够真实
+路径：
+
+artifacts/api-server/src/routes/marketData.ts
+当前：
+
+// FB/IG/XHS 走 mock
+res.json({ platform, keyword, region, source: "mock", items: getMockTrending(...) });
+Meta Ads Library 也用的是：
+
+const token = process.env.FACEBOOK_ACCESS_TOKEN;
+不是客户授权得到的 Page token。
+
+建议：
+
+FB/IG 市场分析主要基于：
+客户授权 Page / IG Business 的竞品抓取；
+Meta Ads Library；
+已添加同行库；
+用户手动输入的竞品链接。
+不要把 mock 数据混进 AI 决策，至少要加 sourceConfidence。
+P1：客户账户定位太弱
+路径：
+
+artifacts/api-server/src/services/strategyGenerator.ts
+现在账号定位主要是：
+
+@nickname（region）
+但你的场景需要更完整的客户定位：
+
+行业类目
+主营产品/服务
+目标客群
+价格带
+地区
+语言
+品牌调性
+禁止词
+竞品偏好
+促销/转化目标
+内容形式偏好：图文 / 视频 / Reels / 长文
+建议新增表或字段：
+
+brand_profiles
+- user_id
+- platform
+- account_id
+- category
+- products
+- target_audience
+- price_range
+- tone
+- region
+- language
+- conversion_goal
+- forbidden_claims
+然后所有策略、文案、图片、视频、周计划都引用这个 profile。
+
+3. XHS 路线基本对，但还要调整体验
+你的要求是：
+
+小红书不需要授权，也不需要定时发布，只需要同行分析、伪原创、推荐排期表、客户自己下载发布。
+
+当前 XHS：
+
+/workflow 基本符合：
+同行/灵感分析
+内容生成
+图片伪原创
+下载素材
+手动打开创作中心
+publishDispatcher 不处理 XHS，这点正确。
+但 /competitors、/market-data 被 guard="needs-auth" 包住，XHS 会要求创建账号画像。
+我建议把文案改清楚：
+
+不叫“授权小红书账号”
+叫“填写小红书账号画像”
+对 XHS 不应该出现“自动发布”“授权账号”措辞
+XHS 的 schedule 应叫“推荐发布日历”或“手动发布提醒”，不要叫“定时发布”
+4. 我建议的最终产品流程
+A. TK / IG / FB 流程
+1. 授权平台账号
+   - TikTok OAuth / Ayrshare
+   - Facebook Page OAuth
+   - Instagram Business OAuth
+2. 填写业务画像
+   - 类目
+   - 需求
+   - 目标客户
+   - 产品卖点
+   - 地区
+   - 风格
+3. 市场分析
+   - TikTok: TikHub / EchoTik / Kalodata / FastMoss
+   - IG/FB: Meta Graph + Ads Library + 手动竞品
+   - 输出：趋势、热门标签、发布时间、爆款结构、竞品样本
+4. 生成 3 套策略
+   - 教学型
+   - 情绪共鸣型
+   - 数据反差型
+5. 客户选策略
+6. AI 生成一周内容包
+   - 每天 1-2 条
+   - 每条包含：
+     - 标题 / hook
+     - 正文 / caption
+     - hashtag
+     - 图片 prompt
+     - 视频脚本
+     - 封面文案
+     - 推荐发布时间
+7. 客户逐条修改 / 批准
+8. 生成最终素材
+   - 图片
+   - 视频
+   - 字幕
+   - 封面
+9. 排期
+   - TK/IG/FB 自动发布
+   - 失败重试
+   - 发布日志
+B. XHS 流程
+1. 填写账号画像，不授权
+2. 输入类目/需求/竞品链接
+3. 抓取小红书公开同行数据
+4. AI 生成爆款策略
+5. 生成伪原创图文
+6. 客户修改
+7. AI 给一周推荐排期
+8. 客户下载素材包
+9. 客户手动发小红书
+XHS 不进入 publishDispatcher。
+
+5. 模型与能力建议
+功能	推荐模型/方案
+市场数据总结	gpt-5-mini，结构化 JSON
+策略生成	gpt-5-mini
+周计划生成	gpt-5-mini 或 gpt-4o-mini 降本
+文案伪原创	gpt-4o-mini
+高质量文案/品牌语气	gpt-4.1 / gpt-5-mini
+图片伪原创	Seedream 优先；英文/海外图可加 GPT Image / Flux
+视频脚本	gpt-5-mini
+视频成片	Seedance / Kling
+口播转录	gpt-4o-mini-transcribe 或 Whisper
+同行相似度匹配	embedding + rerank
+自动发布时间	真实同行发布时间 + 平台经验规则 + 历史账号数据
+6. 推荐下一步改造优先级
+P0
+TK/IG/FB 必须校验真实授权账号
+
+不允许手动占位账号进入自动发布链路。
+把 Autopilot 改成“一周 Campaign”
+
+不再只生成 1 条 content。
+生成 weeklyPlan，客户确认后批量创建 content + schedules。
+素材生成接入周计划
+
+每条计划至少生成文案 + 图片 prompt。
+视频平台生成视频脚本。
+最终图片/视频由客户确认后生成。
+XHS 改为纯手动发布体验
+
+不出现自动发布措辞。
+提供“下载素材包 + 推荐排期表”。
+P1
+FB/IG market data 去 mock 化。
+Meta Ads Library 改用用户 OAuth token 或明确配置系统 token。
+视频任务入库，不要只存在内存。
+建 brand_profiles。
+给每条内容加 approvalStatus。
+增加“数据可信度”：真实 / mock / 样本不足。
+总评
+当前代码已经能实现你目标的 60%-70% 基础框架，但还不是完整闭环。
+
+最关键的缺口是：
+
+TK/IG/FB 授权账号校验不严。
+Autopilot 生成的是单条策略草稿，不是一周内容计划。
+图片/视频素材生成没有接入自动流程。
+FB/IG 市场数据仍偏弱。
+XHS 的“无需授权、手动下载发布”体验还需要从文案和 guard 上彻底区分。
+另外我无法运行 pnpm run typecheck，因为当前环境没有 node / pnpm，所以这次是源码级审查，没有编译验证。
+
+代码更新了 请你再结合我前面的场景 检查下 是否符合要求 然后你测试下 走一下每个流程和功能做一个测试报告
+
+
+Worked for 3m 1s
+下面是基于最新代码 f398efb、结合你前面定义的业务场景做的复审 + 流程测试报告。
+
+重要说明：我尝试执行真实编译/启动测试，但当前 Cloud 环境仍没有 node / pnpm / npm，所以无法跑 pnpm run typecheck、无法启动前后端做浏览器/API 实测。
+我实际完成的是：
+
+拉取最新代码；
+检查运行工具环境；
+做源码级流程走查；
+做静态路由/关键字段扫描；
+按你的业务流程模拟每个功能链路。
+1. 总体结论
+当前版本相比上次有明显进步，已经更接近你要的业务闭环：
+
+TK / FB / IG:
+授权账号 → 输入类目/需求 → 市场/同行分析 → 生成策略 → 生成草稿 → 客户编辑素材 → 推荐发布时间 → 排期/发布
+XHS:
+无需授权 → 填账号画像 → 同行/市场分析 → 伪原创图文/素材 → 推荐排期 → 客户下载后手动发布
+但还不能说完全符合生产要求。当前状态我评估为：
+
+整体符合度：约 78%
+
+主要已经补齐：
+
+品牌画像表 brand_profiles
+品牌画像 API
+品牌画像注入策略生成
+FB/IG market data 从同行库聚合，不再完全 mock
+XHS market data 接入公开搜索
+Sora / Seedance 视频任务持久化
+Autopilot 新增“编辑素材”步骤
+非 XHS 平台新增授权校验
+一周排期 CTA 初步接入
+但仍有几个阻塞/高风险点：
+
+批量一周排期创建的 content 没写 ownerUserId，会导致内容列表不可见或后续内容归属异常。
+Autopilot 选账号时仍可能默认选中未授权账号，导致后续排期失败。
+Autopilot 的“一周内容”仍是后置 CTA，不是主流程默认完整 Campaign。
+图片/视频素材不是每条周计划自动生成，仍需要用户单条处理。
+XHS 的 /competitors、/market-data 仍走 needs-auth guard，本质是要求创建账号画像；文案可接受，但要避免让用户理解成授权。
+2. 按你的目标场景逐项测试
+场景 A：TK / FB / IG 授权账户
+目标
+客户先授权 TK / FB / IG 账号，然后系统基于授权账号做策略、市场分析、自动排期/发布。
+
+当前实现
+相关代码：
+
+artifacts/api-server/src/routes/oauth.ts
+artifacts/xhs-tool/src/components/PlatformGuard.tsx
+artifacts/api-server/src/services/publishDispatcher.ts
+artifacts/api-server/src/routes/content.ts
+artifacts/api-server/src/routes/schedules.ts
+这次新增了前端授权拦截：
+
+function isAccountReady(a: any): boolean {
+  if (!a) return false;
+  if (a.platform === "xhs") return true;
+  if (a.ayrshareProfileKey && String(a.ayrshareProfileKey).length > 0) return true;
+  return a.authStatus === "authorized";
+}
+后端排期也加了授权校验：
+
+if (!isAccountReadyToPublish(account)) {
+  res.status(400).json({
+    error: "account_not_authorized",
+    message: `${account.platform} 账号尚未授权，无法批量排期。请先到「账号管理」完成授权。`,
+  });
+  return;
+}
+测试结论
+部分通过。
+
+优点：
+
+如果没有授权账号，页面会引导去授权。
+如果排期时账号未授权，后端会拦截。
+立即发布和定时发布都调用统一 dispatchContentToProvider。
+风险：
+
+Autopilot 里仍然这样默认选账号：
+
+if (!stillExists) setSelectedAccountId(list[0].id);
+如果用户有两个账号：
+
+账号 A：手动添加，未授权
+账号 B：OAuth 授权成功
+NeedsAuthGate 只判断“是否存在任意 ready 账号”，会放行；但 Autopilot 可能默认选中账号 A。后面策略、草稿、排期会绑定 A，最终排期失败。
+
+建议
+Autopilot 应只展示/默认选择 ready accounts：
+
+const readyAccounts = accountsQ.data?.filter(isAccountReady) ?? [];
+并且：
+
+TK / IG / FB 自动发布流只允许 ready account；
+手动添加的非授权账号只能用于“策略草稿”，不能进入发布排期。
+场景 B：输入类目信息和需求
+当前实现
+Autopilot 支持：
+
+const [niche, setNiche] = useState("");
+const [region, setRegion] = useState("");
+const [extras, setExtras] = useState("");
+const [customCompetitors, setCustomCompetitors] = useState("");
+并且有账号画像一致性检查：
+
+POST /api/ai/check-niche-fit
+路径：
+
+artifacts/api-server/src/routes/ai.ts
+artifacts/xhs-tool/src/pages/autopilot.tsx
+测试结论
+通过。
+
+当前已支持：
+
+输入类目；
+输入地区；
+输入额外需求；
+输入指定同行链接；
+检查账号过往内容和本次类目是否冲突。
+场景 C：客户账户定位 / 品牌画像
+当前实现
+新增表：
+
+lib/db/src/schema/brandProfiles.ts
+字段包括：
+
+category
+products
+targetAudience
+priceRange
+tone
+forbiddenClaims
+conversionGoal
+region
+language
+extras
+新增 API：
+
+GET /api/brand-profile?platform=xhs
+PUT /api/brand-profile
+DELETE /api/brand-profile?platform=xhs
+前端入口在：
+
+artifacts/xhs-tool/src/pages/settings.tsx
+策略生成时会加载品牌画像：
+
+const [brandProfile] = await db
+  .select()
+  .from(brandProfilesTable)
+  .where(...)
+并注入 prompt：
+
+【品牌画像 — 必须严格遵循】
+- 类目
+- 主推产品/服务
+- 目标受众
+- 价位区间
+- 品牌调性
+- 转化目标
+- 禁用宣称
+路径：
+
+artifacts/api-server/src/routes/strategy.ts
+artifacts/api-server/src/services/strategyGenerator.ts
+测试结论
+基本通过。
+
+这是非常重要的补齐，已经符合“根据客户账户定位生成策略”的方向。
+
+不足：
+
+品牌画像在 Settings 页面，不在 Autopilot 首次流程里。
+新用户可能不知道要先填品牌画像。
+generate-weekly-plan 暂时没有直接读取 brand_profiles，主要策略生成用到了。
+建议
+在 Autopilot setup 阶段内嵌一个“快速品牌画像”卡片，至少采集：
+
+主推产品
+目标客户
+价格带
+转化目标
+禁用词
+品牌调性
+这样客户不用跳 Settings。
+
+场景 D：市场分析
+当前实现
+路径：
+
+artifacts/api-server/src/routes/marketData.ts
+当前逻辑：
+
+TikTok
+TikHub trending
+XHS
+searchXhsNotes(keyword, region, 20)
+FB / IG
+优先从用户已添加同行库聚合：
+
+fetchCompetitorTrending(user.id, platform, keyword)
+如果没有同行数据，再 fallback mock：
+
+source: "mock",
+sourceConfidence: "low"
+测试结论
+部分通过。
+
+优点：
+
+FB/IG 不再完全 mock，能从同行库真实数据聚合。
+XHS 已能走公开数据源。
+TikTok 走 TikHub。
+不足：
+
+FB/IG 没有同行时还是 mock。
+Meta Ads Library 仍使用系统环境变量 FACEBOOK_ACCESS_TOKEN，不是客户 OAuth token。
+TikTok 多 provider 仍不是完整实现，主流程还是 TikHub。
+建议
+把市场数据分级展示：
+
+sourceConfidence: "high" | "medium" | "low"
+并在 AI prompt 中明确：
+
+high：真实平台数据
+medium：同行库聚合
+low：mock / 平台经验
+低可信数据不要强影响策略，只做兜底参考。
+
+场景 E：同行分析
+当前实现
+路径：
+
+artifacts/api-server/src/routes/competitors.ts
+artifacts/api-server/src/services/viralContext.ts
+支持：
+
+添加同行账号；
+同步帖子；
+TikTok discover；
+FB/IG 基于 Graph；
+XHS 自动 onboarding / 公开搜索沉淀；
+聚合同行发布时间；
+聚合 hashtags；
+聚合 BGM；
+聚合平均时长；
+提取爆款公式；
+收藏 starred 作品；
+Whisper 转录视频口播。
+测试结论
+通过，但平台能力不完全一致。
+
+其中 TikTok 最完整；FB/IG 依赖授权和可访问权限；XHS 用公开数据，不需要授权。
+
+场景 F：生成新策略
+当前实现
+Autopilot 会生成 3 套角度：
+
+tutorial
+emotion
+contrast
+策略 API：
+
+POST /api/strategy/generate
+路径：
+
+artifacts/api-server/src/routes/strategy.ts
+artifacts/api-server/src/services/strategyGenerator.ts
+输入包含：
+
+platform
+region
+niche
+selected account
+competitor posts
+market context
+brand profile
+custom requirements
+测试结论
+通过。
+
+这块现在比较符合你的目标。
+
+场景 G：重新模仿生成伪原创素材
+当前实现
+现在 Autopilot 已有 edit 步骤：
+
+编辑标题；
+编辑正文；
+编辑标签；
+AI 生成配图；
+上传图片；
+选择素材库图片；
+上传视频；
+Pro 用户生成 Sora 高清视频；
+视频任务完成后自动填入 videoUrl。
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+artifacts/api-server/src/routes/videoGen.ts
+artifacts/api-server/src/services/videoJobs.ts
+测试结论
+部分通过。
+
+文案：通过。
+图片：基本通过。
+视频：部分通过。
+
+不足：
+
+默认只生成草稿文本，不会自动为每条内容生成图片/视频。
+Sora 是 Pro 功能，Seedance 生成接口存在，但 Autopilot 这次主要接了 Sora 按钮。
+视频任务虽然已持久化，这是进步，但自动成片仍不是周计划主流程的一部分。
+场景 H：客户再次自定义修改
+当前实现
+Autopilot 新增 edit step：
+
+Step = "setup" | "running" | "review" | "edit" | "schedule" | "done"
+编辑后保存：
+
+api.content.update(contentId, payload)
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+artifacts/api-server/src/routes/content.ts
+测试结论
+通过。
+
+这次比上一版明显好，客户无需跳出 Autopilot 就能修改内容和素材。
+
+场景 I：分析同行发布时间
+当前实现
+路径：
+
+artifacts/api-server/src/routes/competitors.ts
+代码聚合：
+
+const utcHour = new Date(v.publishedAt).getUTCHours();
+const localHour = (utcHour + tzOffset + 24) % 24;
+输出：
+
+bestPostingHoursLocal
+postingStrategy
+timezoneLabel
+Autopilot 排期页使用 marketInsights.bestTimes 生成推荐时段卡片。
+
+测试结论
+基本通过。
+
+不足：
+
+当前 Autopilot 的推荐时间主要来自：
+
+/api/market-data/best-times
+这仍是平台通用规则，不一定优先使用 /competitors/insights/aggregate 里的真实同行发布时间。
+
+建议
+Autopilot 应优先调用：
+
+GET /api/competitors/insights/aggregate?platform=...
+拿真实 bestPostingHoursLocal，再 fallback 到 /market-data/best-times。
+
+场景 J：AI 自动排版一周内容给客户确认
+当前实现
+现在有两个入口：
+
+1. Schedules 页面
+/api/ai/generate-weekly-plan
+/api/schedules/bulk-create
+2. Autopilot 完成后 CTA
+<BulkCampaignCTA />
+会生成后 6 条，和当前已排的 1 条组成 7 天闭环。
+
+测试结论
+部分通过，但有一个阻塞 bug。
+
+阻塞点：
+
+/schedules/bulk-create 创建 content 时没有写 ownerUserId：
+
+await tx
+  .insert(contentTable)
+  .values({
+    accountId: account.id,
+    platform: account.platform,
+    title: ...,
+    body: ...,
+    tags: ...,
+    imageUrls: [],
+    status: "scheduled",
+    scheduledAt,
+  })
+路径：
+
+artifacts/api-server/src/routes/schedules.ts:285
+但内容列表现在按：
+
+c.owner_user_id = 当前用户
+过滤：
+
+const conditions: SQL[] = [sql`c.owner_user_id = ${u.id}`];
+路径：
+
+artifacts/api-server/src/routes/content.ts
+所以批量生成的一周内容可能：
+
+在排期表里能看到；
+但在内容管理里看不到；
+后续内容画像、编辑、统计也可能异常。
+同样问题出现在复制周计划：
+
+artifacts/api-server/src/routes/schedules.ts:408
+也没有写 ownerUserId。
+
+必须修复
+在 bulk-create：
+
+.values({
+  ownerUserId: u.id,
+  accountId: account.id,
+  ...
+})
+在 duplicate-weeks：
+
+.values({
+  ownerUserId: u.id,
+  accountId: src.accountId,
+  ...
+})
+场景 K：XHS 不授权、不定时发布、客户自己下载发布
+当前实现
+XHS 仍走：
+
+/workflow
+并且 Autopilot 会把 XHS 重定向回 workflow：
+
+if (platform === "xhs") setLocation("/workflow");
+XHS 的平台配置：
+
+publishMode: "manual"
+Workflow 中有：
+
+下载图片；
+下载视频；
+复制文案；
+打开小红书创作中心；
+手动粘贴笔记链接做 tracking。
+测试结论
+基本通过。
+
+符合你的要求：
+
+不需要授权；
+不做自动发布；
+以公开数据、同行分析、伪原创、下载素材为主。
+需要注意：
+
+/competitors 和 /market-data 对 XHS 仍被 needs-auth gate 包住。它不会要求 OAuth，但会要求创建一个 XHS 账号画像。这个可以接受，但文案必须明确是“账号画像”，不是“授权”。
+
+3. 功能测试报告
+实际执行测试
+测试项	结果	说明
+拉取最新代码	通过	当前最新 f398efb
+检查 node	失败	node: command not found
+检查 pnpm	失败	pnpm: command not found
+检查 npm	失败	npm: command not found
+TypeScript typecheck	未执行	环境无 pnpm/node
+前后端启动测试	未执行	环境无 node
+浏览器 E2E	未执行	无可运行服务
+静态路由扫描	通过	已确认新 route 存在
+源码级流程走查	完成	见下方
+源码级流程测试矩阵
+流程	测试结果	结论
+TK 授权 → Autopilot	部分通过	有 OAuth/guard，但可能选中未授权账号
+FB 授权 → 同行抓取	通过	Graph route 和授权校验存在
+IG 授权 → 同行抓取	部分通过	依赖 FB Page + IG Business，逻辑存在
+XHS 账号画像 → workflow	通过	不需要 OAuth
+类目/需求输入	通过	Autopilot 支持
+账号画像一致性检查	通过	/ai/check-niche-fit
+品牌画像保存	通过	/brand-profile
+品牌画像进入策略	通过	strategyGenerator 已注入
+市场趋势 TikTok	通过	TikHub
+市场趋势 FB/IG	部分通过	有同行库聚合，无同行时 mock
+市场趋势 XHS	部分通过	公共搜索可用，依赖 API key
+同行发布时间分析	通过	bestPostingHoursLocal
+三套策略生成	通过	Autopilot 并发生成
+草稿生成	通过	strategy.approve
+就地编辑文案/标签	通过	Autopilot edit step
+图片生成/上传/选择	通过	Autopilot edit step
+Sora 视频生成	部分通过	代码存在，需真实环境验证
+Seedance 视频生成	部分通过	API 存在，但 Autopilot 主按钮偏 Sora
+单条排期	通过	/content/:id/schedule
+批量一周排期	失败/高风险	content 缺 ownerUserId
+自动发布 dispatcher	部分通过	逻辑完整，需真实 OAuth/API 验证
+XHS 手动下载发布	通过	workflow 支持
+4. 当前最需要修的 5 个问题
+P0-1：批量排期 content 缺 ownerUserId
+路径：
+
+artifacts/api-server/src/routes/schedules.ts
+需要修：
+
+ownerUserId: u.id
+位置：
+
+/schedules/bulk-create
+/schedules/duplicate-weeks
+这是当前“一周内容排版”闭环的最大 bug。
+
+P0-2：Autopilot 可能默认选中未授权账号
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+当前：
+
+setSelectedAccountId(list[0].id);
+建议：
+
+const readyAccounts = list.filter(isAccountReady);
+setSelectedAccountId(readyAccounts[0]?.id ?? null);
+并且账号选择 UI 对未授权账号加禁用状态。
+
+P1-1：Autopilot 的一周排期还是“完成后 CTA”，不是主流程
+现在主流程仍是：
+
+生成 1 条 → 排期 1 条 → 完成后再问要不要排 6 条
+你的目标更像：
+
+生成策略 → 生成完整 7 天内容包 → 客户一次确认
+建议把 BulkCampaignCTA 前置到策略批准后：
+
+策略确认 → 生成 7 条 → 编辑/确认 → 批量排期
+P1-2：周计划没有使用品牌画像
+strategyGenerator 用了 brand profile，但：
+
+/api/ai/generate-weekly-plan
+没有加载 brandProfilesTable。
+
+建议 generate-weekly-plan 也注入：
+
+products
+targetAudience
+tone
+forbiddenClaims
+conversionGoal
+否则一周内容会比第一条策略弱。
+
+P1-3：周计划只生成文案，不生成素材
+generateWeeklyPlan 输出：
+
+title
+body
+tags
+imagePrompt
+但没有自动生成图片或视频。
+
+建议分阶段：
+
+1. 先生成 7 条文案 + imagePrompt + videoScript
+2. 客户确认
+3. 再批量生成图片/视频
+避免成本过高，也更可控。
+
+5. 你的目标场景现在是否符合？
+TK / FB / IG
+接近符合，但还差“一周 campaign 主流程”和授权账号选择修复。
+
+当前能做到：
+
+授权账号
+输入类目和需求
+抓市场/同行
+生成策略
+生成草稿
+编辑素材
+推荐时间
+排期/发布
+但还没完全做到：
+
+一次性生成一周 7 条完整素材包并让客户确认
+XHS
+基本符合。
+
+当前 XHS 最接近你的需求：
+
+无需授权
+公开数据分析
+伪原创图文
+下载素材
+手动发布
+推荐排期
+需要优化的只是文案和入口：
+
+不要说“授权小红书”；
+统一叫“账号画像”；
+XHS 排期叫“手动发布提醒 / 推荐发布时间”。
+6. 建议的下一步改造顺序
+任务 1：修复批量排期 ownerUserId
+必须先做。
+
+涉及：
+
+artifacts/api-server/src/routes/schedules.ts
+任务 2：Autopilot 只选择可发布账号
+涉及：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+任务 3：把一周计划前置成主流程
+把流程改成：
+
+策略卡 → 7 天计划 → 用户确认 → 批量生成草稿/排期
+任务 4：weekly plan 注入 brand profile
+涉及：
+
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/services/planGenerator.ts
+任务 5：素材生成分层
+推荐：
+
+免费/低成本：文案 + prompt + 分镜
+客户确认后：图片生成
+Pro/高成本：Sora / Seedance 视频生成
+7. 最终评分
+模块	当前完成度
+TK/FB/IG 授权与账号体系	80%
+市场分析	70%
+同行分析	80%
+品牌画像	75%
+策略生成	85%
+伪原创文案	85%
+伪原创图片	70%
+伪原创视频	60%
+自定义修改	80%
+推荐发布时间	75%
+一周排期	60%，有 P0 bug
+自动发布	70%，需真实平台测试
+XHS 手动发布流	85%
+整体：78% 左右。
+
+结论：
+
+现在已经不是简单拼接工具，已经接近你要的“多平台社媒 AI 内容作战系统”。但要真正符合你的完整商业场景，还必须先修复批量排期 ownerUserId 和 Autopilot 账号授权选择问题，然后把一周内容包变成主流程，而不是完成后的附加 CTA。
+
+代码又更新了一遍 请你帮我跑一遍流程  然后做测试报告
+
+
+Worked for 2m 10s
+以下是基于最新代码 db915f7 的流程复测报告。
+
+0. 测试环境结论
+我已拉取最新代码，但当前机器仍然无法启动前后端：
+
+检查项	结果
+git pull	✅ 已更新到 db915f7
+node --version	❌ node: command not found
+pnpm --version	❌ pnpm: command not found
+npm --version	❌ npm: command not found
+Python	✅ Python 3.12.3
+所以本次不能做真实浏览器 E2E / API 启动测试，只能做：
+
+源码级流程走查；
+静态检查；
+关键链路模拟；
+业务场景符合度评估。
+我实际跑了一个 Python 静态检查，验证上次发现的 content.ownerUserId 漏写问题：
+
+content owner insert check: OK
+1. 总体结论
+最新代码明显修复了上次的关键问题，尤其是：
+
+✅ /schedules/bulk-create 已写入 ownerUserId
+✅ /schedules/duplicate-weeks 已写入 ownerUserId
+✅ schedules(account_id, scheduled_at) 增加唯一索引，避免重复排期
+✅ 新增 check-content-owner 静态守卫脚本
+✅ 一周计划生成已注入品牌画像
+✅ Autopilot 默认优先选授权账号
+✅ best-times 已能基于真实同行发布时间聚合
+✅ 视频任务扣费/入队/退款逻辑更完整
+当前业务场景符合度我评估为：
+
+约 84%
+
+比上次明显更接近你的完整产品闭环。
+
+2. 按你的目标流程测试
+A. TK / FB / IG 授权账号
+目标
+客户授权 TK / FB / IG 后，系统才能做自动发布和真实平台分析。
+
+当前代码结果
+✅ 基本符合。
+
+相关代码：
+
+artifacts/xhs-tool/src/components/PlatformGuard.tsx
+artifacts/api-server/src/routes/content.ts
+artifacts/api-server/src/routes/schedules.ts
+artifacts/api-server/src/services/publishDispatcher.ts
+现在前端会判断账号是否 ready：
+
+a.platform === "xhs" ||
+a.authStatus === "authorized" ||
+a.ayrshareProfileKey
+后端排期也会拦截未授权账号：
+
+error: "account_not_authorized"
+剩余风险
+如果用户有多个账号，Autopilot 默认会优先选择 ready 账号，这次已经修了：
+
+const ready = list.find(...)
+setSelectedAccountId((ready ?? list[0]).id)
+但 UI 里仍然可能手动点选未授权账号。后端会拦截，但体验会变差。
+
+建议
+账号选择卡片里把未授权账号置灰，并显示：
+
+未授权，不能用于自动发布
+B. 输入类目、需求、同行
+✅ 通过。
+
+Autopilot 支持：
+
+类目 niche
+地区 region
+额外要求 extras
+手动同行链接 customCompetitors
+账号画像一致性检查 /api/ai/check-niche-fit
+这块已符合你的场景。
+
+C. 客户品牌画像 / 账户定位
+✅ 通过。
+
+新增了：
+
+lib/db/src/schema/brandProfiles.ts
+artifacts/api-server/src/routes/brandProfile.ts
+artifacts/xhs-tool/src/pages/settings.tsx
+品牌画像字段包括：
+
+类目
+主推产品/服务
+目标受众
+价格带
+品牌调性
+转化目标
+禁用宣称
+地区
+语言
+策略生成会读取品牌画像：
+
+artifacts/api-server/src/routes/strategy.ts
+artifacts/api-server/src/services/strategyGenerator.ts
+周计划也已注入品牌画像：
+
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/services/planGenerator.ts
+这是本次很重要的改进。
+
+D. 市场分析
+✅ 部分通过，已明显增强。
+
+路径：
+
+artifacts/api-server/src/routes/marketData.ts
+当前支持：
+
+平台	数据源
+TikTok	TikHub trending
+XHS	小红书公开搜索
+FB / IG	用户已添加的同行库聚合
+无数据时	mock fallback + sourceConfidence
+/market-data/best-times 现在也支持真实同行发布时间聚合：
+
+source: "real" | "fallback" | "mock"
+并要求至少 10 条样本才认为可信。
+
+结论
+符合你的场景，但 FB/IG 需要先沉淀同行库，否则仍会 fallback。
+
+E. 同行分析
+✅ 通过。
+
+已有能力：
+
+添加同行
+同步同行内容
+聚合爆款内容
+分析发布时间
+分析 hashtags
+分析 BGM
+分析平均时长
+单条收藏
+视频口播转录
+相关路径：
+
+artifacts/api-server/src/routes/competitors.ts
+artifacts/api-server/src/services/viralContext.ts
+F. 新策略生成
+✅ 通过。
+
+Autopilot 仍然生成 3 套策略角度：
+
+教学/科普
+情绪共鸣
+数据反差/争议
+并综合：
+
+账号
+品牌画像
+类目
+用户需求
+市场数据
+同行样本
+高频标签
+发布时间
+这块符合你的目标。
+
+G. 伪原创素材生成
+文案
+✅ 通过。
+
+图片
+✅ 部分通过。
+
+Autopilot edit 步骤支持：
+
+AI 生成图片
+上传图片
+从素材库选择图片
+删除/替换图片
+视频
+✅ 部分通过。
+
+支持：
+
+上传视频
+选择视频素材
+Pro 用户 Sora 高清生成
+Seedance 视频任务 API 存在
+视频任务现在已持久化到 DB：
+
+lib/db/src/schema/videoJobs.ts
+并支持：
+
+chargedAmount
+failed refund
+refund reconcile
+cron 继续跑任务
+这是比之前强很多的改进。
+
+仍不足
+一周计划批量生成的后 6 条内容，目前主要是文案草稿 + tags，不会自动生成每条图片/视频素材。
+
+H. 客户自定义修改
+✅ 通过。
+
+Autopilot 新增 edit 步骤：
+
+Step = "setup" | "running" | "review" | "edit" | "schedule" | "done"
+客户可以在同一页修改：
+
+标题
+正文
+标签
+图片
+视频
+体验已经接近可用产品。
+
+I. 同行发布时间分析
+✅ 通过。
+
+现在发布时间推荐来源分级：
+
+real：真实同行发布时间聚合
+fallback：经验值
+mock：未登录或无数据
+路径：
+
+artifacts/api-server/src/routes/marketData.ts
+Autopilot 会展示来源：
+
+src === "real" ? "🟢 真实数据" : ...
+符合你的业务要求。
+
+J. AI 自动排版一周内容
+✅ 部分通过。
+
+这次修复了上次最大的 bug：
+
+ownerUserId: u.id
+已在：
+
+/schedules/bulk-create
+/schedules/duplicate-weeks
+里补上。
+
+还新增了：
+
+uniqueIndex("schedules_account_scheduled_at_uniq")
+并使用：
+
+onConflictDoNothing
+防止重复排期。
+
+当前体验
+Autopilot 当前是：
+
+先生成 1 条内容 → 排期 → done 页面提示“再生成下周 6 条”
+也就是说，它能组成 7 天闭环，但“一周内容包”不是主流程默认步骤，而是 done 后的 CTA。
+
+和你目标的差距
+你的目标更像：
+
+AI 一次排版好一周内容 → 客户确认 → 再生成/发布
+当前还是：
+
+先完成 1 条 → 再补 6 条
+建议后续把一周计划前置成主流程。
+
+K. XHS 无需授权、无需自动发布
+✅ 基本通过。
+
+XHS 逻辑：
+
+Autopilot 会跳转到 /workflow
+XHS 是 publishMode: "manual"
+workflow 支持下载图片/视频
+客户自己发布
+可手动粘贴笔记链接做追踪
+符合你说的：
+
+小红书不需要授权、不需要定时发布，客户自己下载内容发布。
+
+需要注意：
+
+/competitors、/market-data 仍走 needs-auth guard，但 XHS 只要求创建“账号画像”，不是 OAuth 授权。文案需要持续保持清晰。
+
+3. 本次实际测试结果表
+测试项	结果	说明
+拉取最新代码	✅ 通过	当前 db915f7
+Node 环境	❌ 失败	node: command not found
+pnpm 环境	❌ 失败	pnpm: command not found
+npm 环境	❌ 失败	npm: command not found
+TypeScript 编译	⚠️ 未执行	无 node/pnpm
+前后端启动	⚠️ 未执行	无 node/pnpm
+浏览器全流程	⚠️ 未执行	无服务可启动
+静态 ownerUserId 检查	✅ 通过	content owner insert check: OK
+业务流程源码走查	✅ 完成	见报告
+OAuth 真授权	⚠️ 未执行	需要真实平台配置
+TikHub / Meta / XHS API	⚠️ 未执行	需要真实 secrets
+Sora / Seedance 生成	⚠️ 未执行	需要 node + API key + 对象存储
+4. 当前剩余问题
+P1：一周 Campaign 仍不是主流程
+当前 Autopilot 是：
+
+单条内容完成后，再提示补 6 条
+建议改成：
+
+策略生成 → 生成 7 天内容包 → 客户统一确认 → 批量创建草稿和排期
+P1：一周计划没有自动生成每条素材
+当前一周计划主要生成：
+
+title
+body
+tags
+imagePrompt
+但没有自动生成每条图片/视频。
+
+建议采用两段式：
+
+第一步：生成 7 条文案 + imagePrompt + videoScript
+第二步：客户勾选需要生成素材的条目
+第三步：批量生成图片/视频
+这样更省积分，也更符合商业成本。
+
+P1：未授权账号仍可在 Autopilot 账号列表中手动选
+虽然默认选择已授权账号，但 UI 仍可能允许手动选择未授权账号。
+
+建议：
+
+未授权账号置灰；
+显示“未授权，不可用于排期发布”；
+点击时跳转 /accounts 授权。
+P2：Meta Ads Library 仍依赖系统 token
+/market-data/ads 仍使用：
+
+FACEBOOK_ACCESS_TOKEN
+不是客户自己的 OAuth token。
+
+短期可接受；长期建议：
+
+用户授权 Meta 后，优先用用户 token；
+没 token 再用系统 token；
+都没有才 mock。
+5. 最新版本是否符合你的场景？
+TK / FB / IG
+基本符合，但还不是最终形态。
+
+已经能覆盖：
+
+授权账户
+输入类目/需求
+市场分析
+同行分析
+生成策略
+生成文案/图片/视频草稿
+客户修改
+推荐发布时间
+排期自动发布
+但“一周内容包 + 全素材批量生成”仍需要进一步产品化。
+
+XHS
+基本符合。
+
+已符合：
+
+无需授权
+公开数据/同行分析
+伪原创内容
+下载素材
+推荐排期
+客户手动发布
+6. 评分
+模块	当前完成度
+TK/FB/IG 授权与账号校验	85%
+类目/需求输入	90%
+品牌画像	85%
+市场分析	78%
+同行分析	85%
+策略生成	88%
+文案伪原创	88%
+图片素材	75%
+视频素材	70%
+自定义修改	85%
+发布时间分析	85%
+一周排期	78%
+自动发布	75%
+XHS 手动发布流	88%
+综合：约 84%。
+
