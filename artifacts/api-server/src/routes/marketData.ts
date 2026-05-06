@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
 import { fetchTrendingHashtagVideos, isTikHubConfigured } from "../services/tikhubScraper";
+import { searchXhsNotes, isXhsHotTopicsConfigured } from "../services/hotTopics";
 
 // 市场数据探索：跨平台热门内容、广告库、最佳发布时间
 const router: IRouter = Router();
@@ -13,21 +14,60 @@ router.get("/market-data/trending", async (req, res): Promise<void> => {
 
   if (platform === "tiktok") {
     if (!isTikHubConfigured()) { res.json({ platform, source: "mock", items: getMockTrending(platform, keyword) }); return; }
-    const videos = await fetchTrendingHashtagVideos(keyword, region, 20);
-    res.json({
-      platform, keyword, region, source: "tikhub",
-      items: videos.map(v => ({
-        id: v.externalId, platform: "tiktok",
-        title: v.description, description: v.description,
-        thumbnailUrl: v.coverUrl, mediaUrl: v.videoUrl,
-        likes: v.likeCount, views: v.viewCount, comments: v.commentCount, shares: v.shareCount,
-        hashtags: v.hashtags, duration: v.duration,
-        musicName: v.musicName,
-      })),
-    });
+    try {
+      const videos = await fetchTrendingHashtagVideos(keyword, region, 20);
+      res.json({
+        platform, keyword, region, source: "tikhub",
+        items: videos.map(v => ({
+          id: v.externalId, platform: "tiktok",
+          title: v.description, description: v.description,
+          thumbnailUrl: v.coverUrl, mediaUrl: v.videoUrl,
+          likes: v.likeCount, views: v.viewCount, comments: v.commentCount, shares: v.shareCount,
+          hashtags: v.hashtags, duration: v.duration,
+          musicName: v.musicName,
+        })),
+      });
+    } catch (err: any) {
+      logger.error({ err: err.message, keyword, region }, "market-data/trending tiktok failed");
+      res.json({ platform, keyword, region, source: "mock", items: getMockTrending(platform, keyword) });
+    }
     return;
   }
-  // FB/IG/XHS 走 mock（XHS 在 workflow 内有专门的 RapidAPI 抓取）
+
+  if (platform === "xhs") {
+    if (!isXhsHotTopicsConfigured()) {
+      res.json({ platform, keyword, region, source: "mock", items: getMockTrending(platform, keyword) });
+      return;
+    }
+    try {
+      const notes = await searchXhsNotes(keyword, region, 20);
+      if (!notes.length) {
+        res.json({ platform, keyword, region, source: "xhs", items: [], note: "no_results" });
+        return;
+      }
+      res.json({
+        platform, keyword, region, source: "xhs",
+        items: notes.map(n => ({
+          id: n.id, platform: "xhs",
+          title: n.title || n.desc.slice(0, 60),
+          description: n.desc,
+          thumbnailUrl: n.cover_url,
+          mediaUrl: n.note_url || `https://www.xiaohongshu.com/explore/${n.id}`,
+          likes: n.liked_count,
+          views: 0,
+          comments: n.comment_count ?? 0,
+          shares: n.share_count ?? 0,
+          hashtags: n.tags,
+        })),
+      });
+    } catch (err: any) {
+      logger.error({ err: err.message, keyword, region }, "market-data/trending xhs failed");
+      res.json({ platform, keyword, region, source: "mock", items: getMockTrending(platform, keyword) });
+    }
+    return;
+  }
+
+  // FB/IG 暂无公开热门接口 → mock + 引导到「同行库」
   res.json({ platform, keyword, region, source: "mock", items: getMockTrending(platform, keyword) });
 });
 

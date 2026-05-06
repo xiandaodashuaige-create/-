@@ -84,6 +84,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **敏感词检查双层：** `POST /api/ai/check-sensitivity` 先走本地 DFA（`mint-filter` + `data/sensitive-words/{political,porn,general}.txt` + 内置广告法极限词列表 `services/sensitiveWordFilter.ts`）。命中高危直接返回不调 LLM、不扣积分；无高危才走 gpt-4o-mini。词库通过 esbuild `loader: { ".txt": "text" }` 打包进 dist。
 - **侧边栏 nonXhs / xhsOnly：** `Layout.tsx` NavItem 支持 `xhsOnly`（仅 XHS 显示，如 `/workflow` `/tracking` `/sensitive-words`）和 `nonXhs`（XHS 模式下隐藏，如 `/autopilot` `/quick-publish`）。
 - **媒体 URL 必须是绝对 https：** `dispatchContentToProvider` 入口用 `toAbsoluteUrl()` 把 `/api/storage/objects/...` 这类相对路径补成 `https://${REPLIT_DOMAINS}{path}`，否则 TikTok / FB / IG 服务器拉不到媒体会报 "Media URLs invalid"。
+- **市场数据 trending 真接：** `/api/market-data/trending?platform=xhs` 已接 `hotTopics.searchXhsNotes`（TikHub 优先，RapidAPI 兜底，地区 SG/HK/MY→中文 region 词），返回 `source: "xhs"`。`platform=tiktok` 走 TikHub。FB/IG 仍 mock + 引导去同行库。前端按 `data.source === "mock"` 显示黄色提示横幅。
 
 ## Pointers
 
