@@ -667,6 +667,15 @@ export default function AutopilotPage() {
     return slots;
   }, [marketInsights?.bestTimes]);
 
+  // 进入 done 步时，若 editForm 还没填（一键模式从没经过 edit 步），主动拉一次内容回填
+  // —— 否则 done 页只能看到干巴巴的策略文字，看不到真实标题/正文/封面/视频
+  useEffect(() => {
+    if (step === "done" && contentId && !editForm.title && !editForm.imageUrls.length && !editForm.videoUrl) {
+      loadContentIntoEditForm(contentId).catch(() => {/* 静默失败：done 页只少一块预览，不影响主流程 */});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, contentId]);
+
   // 进入 schedule 步时，无论 runPipeline 之前是否已 prefill，都强制重置为第一张推荐卡
   // —— 这样用户视觉上看到的「已选中卡片」和实际 scheduledAt 始终一致；
   // 用 ref 跟踪「上一帧 step」做单次触发，避免在 schedule 步内反复覆盖用户手选
