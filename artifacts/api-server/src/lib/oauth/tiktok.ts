@@ -2,28 +2,15 @@ const TIKTOK_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/";
 const TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/";
 const TIKTOK_SCOPES = ["user.info.basic", "video.publish", "video.upload"].join(",");
 
-type OAuthStateEntry = { userId: number; expiresAt: number };
-const oauthStateStore = new Map<string, OAuthStateEntry>();
+import { generateState, consumeState } from "./state.js";
 
-function cleanExpiredStates() {
-  const now = Date.now();
-  for (const [key, val] of oauthStateStore.entries()) {
-    if (val.expiresAt < now) oauthStateStore.delete(key);
-  }
+// state 持久化到 oauth_states 表 — 多实例 / 重启 / serverless 冷启不再丢失
+export async function generateOAuthState(userId: number): Promise<string> {
+  return generateState(userId, "tiktok");
 }
 
-export function generateOAuthState(userId: number): string {
-  cleanExpiredStates();
-  const state = crypto.randomUUID();
-  oauthStateStore.set(state, { userId, expiresAt: Date.now() + 10 * 60 * 1000 });
-  return state;
-}
-
-export function consumeOAuthState(state: string): number | null {
-  const entry = oauthStateStore.get(state);
-  if (!entry || entry.expiresAt < Date.now()) return null;
-  oauthStateStore.delete(state);
-  return entry.userId;
+export async function consumeOAuthState(state: string): Promise<number | null> {
+  return consumeState(state, "tiktok");
 }
 
 export function isConfigured(): boolean {

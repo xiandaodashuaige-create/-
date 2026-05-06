@@ -1,0 +1,537 @@
+1. 三个仓库功能清单
+主仓库：当前合并成果
+当前主仓库实际仍更像「鹿联 TK AI 爆款创作系统」，不是完整「鹿联 Viral Suite」。
+
+关键结构：
+
+前端：artifacts/tiktok-ai
+后端：artifacts/api-server
+DB：lib/db/src/schema
+API 契约：lib/api-spec/openapi.yaml
+AdForge：artifacts/api-server/src/routes/adforge/*、artifacts/api-server/src/lib/adforge/*
+社交迁移包：migration-social-auth/*，但没有接入主路由
+主仓库实际能力：
+
+TikTok 账号授权：Ayrshare Dashboard 跳转
+TikTok 竞品发现/分析：TikHub、EchoTik、Kalodata、FastMoss、tiktok-api-dl
+AI 内容生成：OpenAI gpt-5-mini
+Whisper 转录：竞品 Top 视频转写
+AdForge：Kling、Gemini、msedge-tts、ffmpeg
+发布计划：publish_jobs CRUD、周计划、日历
+TikTok 直接/定时发布：仅通过 /tiktok-accounts/publish 调 Ayrshare
+积分、Admin、学习闭环、视频模型网关
+多语言：简中/繁中/英文
+明显未统一：
+
+没有 PlatformProvider
+没有 XHS / Facebook / Instagram 的主流程页面
+没有主线 social_accounts
+没有 Meta OAuth 主线
+没有本地发布调度器 publishDispatcher
+migration-social-auth 是孤岛代码，没有挂到 artifacts/api-server/src/routes/index.ts
+老系统 A：socialAuto
+来源仓库：
+
+fbHe-insYi-Ji-tkDe-Zi-Dong-Fa-Bu-Nei-Rong
+
+完整功能：
+
+中英双语 Dashboard
+AI 自动驾驶页面：scan → analyze → generate → schedule → publish
+社交账号管理：Facebook / Instagram / TikTok
+Meta OAuth：
+/api/oauth/facebook/connect
+/api/oauth/facebook/callback
+保存 Facebook Page
+自动发现 IG Business Account
+TikTok 原生 OAuth：
+/api/oauth/tiktok/connect
+/api/oauth/tiktok/callback
+access token / refresh token
+Ayrshare：
+多平台状态查询
+多平台同步
+FB / IG / TikTok 一键发布
+查询/取消 Ayrshare post
+内容库：
+文本、图片、视频
+AI caption
+定时帖：
+scheduled_posts
+状态流转
+手动发布
+Ayrshare 云端 schedule
+竞品：
+Facebook / TikTok competitor
+competitor posts 表
+市场数据：
+Meta Ad Library
+TikHub trending
+EchoTik
+XHS / Douyin social crawl mock/live fallback
+best posting times
+Analytics：
+summary
+publish history
+Whisper 转录 route
+大量 mock fallback，方便无 key 演示
+核心路径：
+
+artifacts/api-server/src/routes/oauth.ts
+artifacts/api-server/src/lib/meta-oauth.ts
+artifacts/api-server/src/lib/tiktok-oauth.ts
+artifacts/api-server/src/lib/ayrshare.ts
+artifacts/api-server/src/routes/ayrshare.ts
+artifacts/api-server/src/routes/posts.ts
+artifacts/api-server/src/routes/market-data.ts
+lib/db/src/schema/social-accounts.ts
+lib/db/src/schema/scheduled-posts.ts
+lib/db/src/schema/publish-logs.ts
+老系统 B：tiktok-ai
+来源仓库：
+
+tkTong-Xing-Pa-Qu-He-Nei-Rong-Fen-Xi
+
+完整功能：
+
+TikTok AI 四步工作流：
+授权
+竞品分析
+AI 创作
+发布排期
+TikTok 账号管理：
+Ayrshare status
+Ayrshare sync
+TikTok publish
+竞品挖掘：
+TikHub
+EchoTik
+Kalodata
+FastMoss
+tiktok-api-dl
+竞品搜索、发现、抓取、分析、off-niche 清理
+Whisper / OpenAI speech-to-text 转录竞品视频
+OpenAI 内容生成：
+script
+caption
+music
+image carousel
+best publish time
+AI chat
+内容库：
+content
+video scripts
+发布：
+publish jobs
+weekly plan
+calendar
+AdForge：
+projects
+materials
+segments
+generations
+compositions
+TTS
+pipeline
+Kling
+Gemini vision / copy / insights
+ffmpeg composer
+GPU server：
+Wan2.1 / placeholder video generation
+多模型视频网关：
+Kling
+Sora / Veo / Runway / Hailuo / PixVerse 声明
+但非 Kling 只声明未接入
+积分系统
+Admin
+Learning loop：
+style profile
+assets
+feedback
+playbook
+多语言 UI
+核心路径：
+
+artifacts/api-server/src/routes/competitors.ts
+artifacts/api-server/src/services/tiktok-data/*
+artifacts/api-server/src/lib/transcription.ts
+artifacts/api-server/src/routes/ai-generate.ts
+artifacts/api-server/src/routes/adforge/*
+artifacts/api-server/src/lib/adforge/*
+artifacts/api-server/src/routes/video-providers.ts
+artifacts/api-server/src/routes/learning.ts
+lib/db/src/schema/*
+gpu-server/*
+2. 功能融合矩阵
+老系统功能	来源仓库	主仓库中是否存在	实现位置	完整度	备注
+Meta OAuth：Facebook Page 授权	socialAuto	否	无；仅老仓库 artifacts/api-server/src/routes/oauth.ts	缺失	主仓库没有 META_APP_ID / oauth/facebook 主线
+IG Business Account 自动绑定	socialAuto	否	无	缺失	主仓库只在 AdForge 素材里识别 instagram URL，不是授权
+TikTok 原生 OAuth	socialAuto	否	无	缺失	主仓库仅 Ayrshare Dashboard 跳转
+Ayrshare 多平台状态	socialAuto	部分	artifacts/api-server/src/services/ayrshare.ts、routes/tiktok-accounts.ts	部分	能返回 FB/IG 状态，但业务只同步 TikTok
+FB/IG/TikTok 一键发布	socialAuto	部分/孤岛	migration-social-auth/*	部分	迁移包未挂载，主线只 publishToTikTok
+/social-accounts/* API	socialAuto	否/孤岛	migration-social-auth/routes.ts	缺失	未接入 routes/index.ts
+social_accounts 表	socialAuto	否/孤岛	migration-social-auth/schema.ts	缺失	没有导出到 lib/db/src/schema/index.ts
+scheduled_posts / publish_logs	socialAuto	被替换	lib/db/src/schema/content.ts 的 publish_jobs	部分	主仓库只有 TikTok publish_jobs，没有多平台 logs
+定时发布调度器	socialAuto	否	无	缺失	没有 node-cron、队列、dispatcher
+Ayrshare 云端 schedule	socialAuto	部分	artifacts/api-server/src/services/ayrshare.ts	部分	/tiktok-accounts/publish 可传 scheduledAt，但 /publish/jobs 不会自动执行
+内容库：文本/图/视频	socialAuto	部分	artifacts/api-server/src/routes/content.ts、lib/db/src/schema/content.ts	部分	主仓库是 TikTok 内容结构，不是多平台 content_items
+AI caption	socialAuto	是	artifacts/api-server/src/routes/ai-generate.ts	部分	已有 caption，但不是 socialAuto 的 GPT-4o-mini content-library 形态
+Meta Ad Library	socialAuto	否	无	缺失	主仓库没有 /market-data/ads
+TikHub trending market data	socialAuto	部分	services/tiktok-data/provider-tikhub.ts、routes/competitors.ts	部分	接入在竞品分析，不是 market-data 页面
+EchoTik market data	socialAuto	部分	services/tiktok-data/provider-echotik.ts	部分	接入为 TikTok provider，不是原 /market-data/echotik
+XHS / Douyin social crawl	socialAuto	否	无	缺失	主仓库没有 XHS 主流程
+Best posting times by platform	socialAuto	部分	routes/ai-generate.ts、routes/publish.ts	部分	只偏 TikTok，非 FB/IG/TK 平台维度
+Analytics publish history	socialAuto	部分	routes/analytics.ts	部分	没有 publish_logs 多平台历史
+双语 Dashboard	socialAuto	部分	artifacts/tiktok-ai/src/lib/i18n.ts	部分	主仓库是 TK AI UI，不是 socialAuto dashboard
+AI Autopilot 页面	socialAuto	部分	artifacts/tiktok-ai/src/pages/pipeline.tsx	部分	有四步 Pipeline，但不是 socialAuto 五步自动驾驶
+TikHub 竞品抓取	tiktok-ai	是	services/tiktok-data/provider-tikhub.ts	完整	已接入 provider registry
+多数据源 fallback	tiktok-ai	是	services/tiktok-data/index.ts	完整	TikHub / EchoTik / Kalodata / FastMoss / tiktok-api-dl
+竞品发现 / 搜索 / 分析	tiktok-ai	是	routes/competitors.ts	完整	OpenAPI 未完全覆盖扩展端点
+off-niche 扫描/清理	tiktok-ai	是	routes/competitors.ts	完整	前端 Pipeline 也调用
+Whisper 竞品转录	tiktok-ai	是	lib/transcription.ts、routes/competitors.ts	完整	仅竞品视频，不是通用上传转录
+OpenAI script/caption/music/carousel	tiktok-ai	是	routes/ai-generate.ts	完整	使用 gpt-5-mini
+AI image generation	tiktok-ai	是但契约缺失	routes/ai-generate.ts	部分	/ai/generate/image 未进 OpenAPI
+TikTok 账号 Ayrshare sync	tiktok-ai	是	routes/tiktok-accounts.ts	完整	TikTok 单平台
+TikTok 发布	tiktok-ai	是	services/ayrshare.ts	部分	只 TikTok，无 dispatcher
+Publish jobs / weekly plan / calendar	tiktok-ai	是	routes/publish.ts	部分	只存任务，不自动到点发布
+AdForge 项目/素材/片段/合成	tiktok-ai	是	routes/adforge/*、lib/adforge/*	完整	已挂 /api/adforge
+Gemini vision/copy/insights	tiktok-ai	是	lib/adforge/vision.ts、copywriter.ts、insights.ts	完整	主要在 AdForge 内
+msedge-tts	tiktok-ai	是	routes/adforge/tts.ts	完整	可生成语音
+Kling 视频生成	tiktok-ai	是	lib/adforge/kling.ts、routes/video-providers.ts	部分	AdForge 直调 Kling 未进统一计费闸门
+Sora/Veo/Runway/Hailuo/PixVerse	tiktok-ai	声明存在	lib/providers/registry.ts	部分	lib/providers/index.ts 明确非 Kling “待接入”
+GPU server	tiktok-ai	是	gpu-server/*、services/gpu-client.ts	部分	无模型时 placeholder
+Credit system	tiktok-ai	是	users.ts、video-providers.ts、ai-generate.ts	部分	有扣费，但部分扣费非事务
+Admin	tiktok-ai	是	routes/admin.ts	完整	基础管理
+Learning loop	tiktok-ai	是	routes/learning.ts、lib/learning/*	部分	文档仍写 Future，实际部分接入
+PlatformProvider	目标架构	否	无	缺失	核心统一抽象未出现
+3. 8 个维度融合质量评估
+维度 1：功能完整性
+严重程度：🔴 阻塞
+
+现状：
+
+老系统 B 基本完整搬入主仓库。
+老系统 A 只零散留下了 migration-social-auth/*，但没有接进主 API、DB、前端、OpenAPI。
+主仓库声明是 TikTok AI，不是 XHS / TikTok / Instagram / Facebook 统一产品。
+存在明显死代码/孤岛代码：
+migration-social-auth/*
+lib/db/src/schema/conversations.ts
+lib/db/src/schema/messages.ts
+部分视频 provider 声明但未实现
+openapi.yaml 未覆盖大量已挂路由
+修复建议：
+
+把 migration-social-auth 正式迁入主线：
+新增 lib/db/src/schema/social-accounts.ts
+新增 artifacts/api-server/src/routes/social-accounts.ts
+更新 artifacts/api-server/src/routes/index.ts
+更新 lib/api-spec/openapi.yaml
+删除或重构孤岛代码，不要留“迁移包”状态。
+补齐 FB/IG/XHS 主流程，否则不要在产品层声明多平台统一。
+维度 2：UI/UX 统一性
+严重程度：🔴 阻塞
+
+现状：
+
+主前端入口是 artifacts/tiktok-ai/src/App.tsx
+Shell 品牌仍是 鹿联TK AI
+页面全部围绕 TikTok：
+/accounts
+/competitors
+/competitor-search
+/publish
+/analytics
+没有 PlatformProvider
+搜索结果中也没有 PlatformProvider / usePlatform
+前端没有 Facebook / Instagram / XHS 的平台切换、平台能力差异、平台账号视图
+修复建议：
+
+新增平台上下文：
+artifacts/tiktok-ai/src/contexts/PlatformProvider.tsx
+支持 xhs | tiktok | instagram | facebook
+改造 Shell：
+artifacts/tiktok-ai/src/components/layout/Shell.tsx
+增加平台切换器
+改造页面：
+/accounts 从 TikTok-only 改为平台账号列表
+/publish 从 tiktokAccountId 改为 socialAccountId/platforms
+/competitors 增加 platform filter
+品牌文案从 鹿联TK AI 改为 鹿联 Viral Suite
+维度 3：数据库 schema 整合
+严重程度：🔴 阻塞
+
+现状：
+
+主仓库实际 schema：
+
+tiktok_accounts
+competitor_profiles
+competitor_videos
+content
+publish_jobs
+post_analytics
+AdForge tables
+learning tables
+video provider tables
+老系统 A schema：
+
+social_accounts
+competitors
+competitor_posts
+content_items
+scheduled_posts
+publish_logs
+问题：
+
+主仓库没有真正融合 social_accounts
+publish_jobs 强绑定 tiktokAccountId
+content 强偏 TikTok 内容形态
+多租户模型混乱：
+主仓库用 userId
+socialAuto 用 customerId
+migration-social-auth 仍保留 customerId
+getUserId() 缺 Clerk 时 fallback 到第一位 DB user，有多租户泄漏风险
+tiktok_accounts 缺少 (user_id, tiktok_user_id) 唯一约束
+publish_jobs 没有多平台发布日志表
+修复建议：
+
+建统一账号表：
+lib/db/src/schema/social-accounts.ts
+字段：userId, platform, externalAccountId, displayName, accessToken, refreshToken, tokenExpiresAt, profileKey, metadata
+迁移 publish_jobs：
+从 tiktokAccountId 改为 socialAccountId 或 targetPlatforms[]
+新增：
+publish_attempts
+publish_logs
+platform_content
+删除 customerId 分支，统一为 userId
+禁止生产 fallback first user：
+修改 artifacts/api-server/src/routes/* 里的 getUserId()
+维度 4：OAuth & 认证统一
+严重程度：🔴 阻塞
+
+现状：
+
+主仓库没有 Meta OAuth。
+主仓库没有 TikTok 原生 OAuth。
+主仓库 TikTok 授权实际是 Ayrshare Dashboard 链接。
+routes/tiktok-accounts.ts 返回 facebookLinked / instagramLinked，但主流程不使用。
+replit.md 明确写 Clerk auth 仍是 dev fallback。
+socialAuto 的 state binding 是内存 Map，单实例可用，多实例/重启会失效。
+token refresh 在 socialAuto 老系统里有函数，但主仓库没有统一 token refresh worker。
+修复建议：
+
+正式接入 Clerk middleware：
+artifacts/api-server/src/app.ts
+统一 requireUser() helper
+新增 OAuth 模块：
+artifacts/api-server/src/routes/oauth.ts
+artifacts/api-server/src/services/oauth/meta.ts
+artifacts/api-server/src/services/oauth/tiktok.ts
+state 存 DB 或 Redis：
+表：oauth_states
+字段：stateHash, userId, platform, expiresAt, redirectUri
+token refresh：
+新增 artifacts/api-server/src/services/token-refresh.ts
+定期刷新 TikTok / Meta tokens
+Ayrshare profile key 要按用户隔离，不能只用全局 AYRSHARE_API_KEY
+维度 5：定时发布调度器
+严重程度：🔴 阻塞
+
+现状：
+
+主仓库有 publish_jobs CRUD：
+artifacts/api-server/src/routes/publish.ts
+但没有 publishDispatcher
+没有 node-cron
+没有队列
+没有到点扫描 pending jobs
+没有单实例锁
+没有 stale recovery
+没有 retry backoff
+/publish/jobs 创建的任务不会自动调用 Ayrshare
+/tiktok-accounts/publish 可直接传 scheduledAt 给 Ayrshare，但这和 publish_jobs 是两条割裂链路
+修复建议：
+
+新增：
+artifacts/api-server/src/services/publish-dispatcher.ts
+启动时挂载：
+artifacts/api-server/src/index.ts
+dispatcher 流程：
+查询 pending 且 scheduled_at <= now()
+DB 行锁 FOR UPDATE SKIP LOCKED
+状态改 processing
+调统一 publishService.publish(job)
+成功写 publish_logs
+失败写 retry 信息
+schema 增加：
+attemptCount
+nextRetryAt
+lockedAt
+lockedBy
+lastError
+平台分支：
+TikTok video
+Facebook text/image/video
+Instagram reel/media
+XHS 暂存/手动发布或第三方接口
+维度 6：AI 能力整合
+严重程度：🟡 待改进
+
+现状：
+
+OpenAI 内容生成已接主流程。
+Whisper 已接竞品转录。
+Gemini / TTS / Kling / ffmpeg 已在 AdForge 内完整存在。
+Strategy approve 会触发 AdForge auto-finish。
+但普通 /create → /publish 工作流和 AdForge 仍不是完全统一。
+AdForge 直调 Kling，绕过 video-providers 的统一计费/权限闸门。
+Sora / Veo / Runway 等只在 registry 声明，调用层明确抛“当前仅 Kling 已通线”。
+修复建议：
+
+把 AdForge 的 Kling 调用改为走：
+artifacts/api-server/src/lib/providers/index.ts
+artifacts/api-server/src/routes/video-providers.ts
+前端创作页接入 AdForge：
+artifacts/tiktok-ai/src/pages/create/index.tsx
+生成脚本后可一键生成 AdForge project
+OpenAPI 补齐：
+/api/adforge/*
+/strategy/*
+/video-providers/*
+/ai/generate/image
+明确非 Kling 模型为 disabled，不要展示成可用。
+维度 7：爬取与竞品分析
+严重程度：🟡 待改进
+
+现状：
+
+TikTok 竞品分析接得比较完整。
+TikHub / EchoTik / Kalodata / FastMoss / tiktok-api-dl 已接。
+RapidAPI 未看到接入。
+socialAuto 的 Meta Ad Library 没有迁入。
+XHS / Douyin social crawl 没有迁入。
+/competitors 只面向 TikTok 账号。
+没有跨平台 competitor model。
+修复建议：
+
+改造 competitor schema：
+platform
+externalProfileId
+handle
+profileUrl
+新增 provider：
+competitor-data/provider-meta-ad-library.ts
+competitor-data/provider-xhs.ts
+competitor-data/provider-instagram.ts
+将现有 services/tiktok-data/* 抽象为：
+services/platform-data/*
+前端 /competitors 增加平台 tab / filter。
+把 socialAuto 的 /market-data/ads、/market-data/social-crawl 迁入主线或等价重写。
+维度 8：架构一致性
+严重程度：🔴 阻塞
+
+现状：
+
+优点：
+
+pnpm monorepo 结构清晰
+artifacts/api-server / artifacts/tiktok-ai / lib/db 分层基本合理
+老系统 B 合并质量较高
+问题：
+
+老系统 A 没有真正融合，只留下 migration-social-auth 孤岛。
+openapi.yaml 与实际 Express 路由不同步。
+lib/integrations-openai-ai-* 与 lib/integrations/openai_ai_integrations/* 存在重复代码形态。
+mockup-sandbox 和主前端 UI 组件重复。
+migration-social-auth 仍是“拷贝说明包”，不是产品代码。
+部分配置文件里出现第三方账号变量值，应迁到 Secrets 并清理历史。
+修复建议：
+
+删除迁移包形态，重构为正式模块。
+OpenAPI 作为 source of truth，补齐所有实际路由。
+清理重复 integrations 目录。
+清理未导出的 conversations/messages schema，或接入 AI assistant。
+把多平台能力抽象到 lib/platforms 或 artifacts/api-server/src/services/platforms。
+4. 未迁移或迁移不完整功能优先级
+P0：必须补齐
+统一账号模型 social_accounts
+FB / IG / TikTok 多平台发布主流程
+Meta OAuth 或 Ayrshare 多平台授权正式接入
+publishDispatcher 定时发布执行器
+Clerk Auth 正式接入，删除 first-user fallback
+publish_jobs 从 TikTok-only 改为 platform-aware
+OpenAPI 补齐实际路由，避免客户端契约断裂
+前端平台切换 PlatformProvider
+XHS 平台如果是正式目标，需要至少有账号/内容/发布策略定义
+P1：强烈建议补齐
+Meta Ad Library
+XHS / Douyin social crawl 或替代数据源
+多平台 competitor schema
+publish logs / retry / stale recovery
+Ayrshare Profile-Key 按用户隔离
+AdForge 走 video-providers 统一计费
+token refresh worker
+AI workflow 与 AdForge 更深接入
+socialAuto Dashboard 的关键 UX 合并到统一 UI
+P2：锦上添花
+Sora / Veo / Runway / Hailuo / PixVerse 真正接入
+AI assistant conversations/messages 持久化
+更完整 analytics：
+各平台表现
+最佳发布时间回测
+内容 ROI
+多语言扩展到所有新页面
+webhook 代替 AdForge 轮询
+XHS 自动发布能力，如无法自动发布则设计人工审批/半自动流程
+5. 整改路线图
+总计建议拆成 12 个改造任务。
+
+顺序	任务	涉及文件	估算工作量	依赖
+1	接入正式 Clerk Auth，删除 first-user fallback	artifacts/api-server/src/app.ts、routes/*、新增 lib/auth.ts	6-10h	无
+2	设计统一平台模型	lib/db/src/schema/social-accounts.ts、content.ts、新增 migration	8-12h	1
+3	迁移 socialAuto 多平台 Ayrshare 到主线	services/ayrshare.ts、新增 routes/social-accounts.ts	8-12h	2
+4	改造 OpenAPI + codegen	lib/api-spec/openapi.yaml、lib/api-zod、lib/api-client-react	6-10h	3
+5	前端新增 PlatformProvider	artifacts/tiktok-ai/src/contexts/*、Shell.tsx	6-8h	4
+6	改造账号页为多平台账号中心	pages/accounts.tsx、API hooks	6-10h	5
+7	改造发布模型与发布页	routes/publish.ts、pages/publish.tsx、content.ts	10-16h	2,3,5
+8	实现 publishDispatcher	新增 services/publish-dispatcher.ts、index.ts、DB 字段	10-16h	7
+9	迁移 Meta Ad Library / social crawl	新增 routes/market-data.ts 或 services/platform-data/*	8-12h	2,4
+10	改造竞品系统为多平台	routes/competitors.ts、services/tiktok-data/*、前端 competitors	12-20h	2,5,9
+11	AdForge 接入 video-providers 计费闸门	lib/adforge/kling.ts、lib/providers/*、routes/adforge/*	8-14h	1
+12	架构清理	删除/迁移 migration-social-auth、重复 integrations、补齐 OpenAPI	6-10h	以上完成后
+推荐执行顺序：
+
+Auth
+DB 平台模型
+social accounts API
+OpenAPI/codegen
+PlatformProvider
+Accounts UI
+Publish model
+Dispatcher
+Market data
+Competitor multi-platform
+AdForge billing
+清理孤岛代码
+6. 总评
+融合完成度：55%
+
+结论：不建议直接上生产环境。
+
+原因：
+
+老系统 B 基本搬过来了，但老系统 A 的核心能力没有真正进入主流程。
+当前产品仍是 TikTok AI 系统，不是 XHS / TikTok / Instagram / Facebook 统一平台。
+多平台发布、账号、调度、认证、多租户隔离都还未达到生产标准。
+最大 3 个风险点：
+
+多平台发布链路不成立
+FB/IG/TikTok 一键发布只存在于 migration-social-auth 孤岛，主线仍是 TikTok-only。
+
+定时发布不可控
+/publish/jobs 只写 DB，不会自动到点执行；没有锁、重试、恢复机制。
+
+认证与租户隔离风险
+多处 getUserId() 在无 Clerk header 时取第一位 DB user，生产环境可能导致用户数据串号。
+

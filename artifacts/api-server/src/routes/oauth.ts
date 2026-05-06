@@ -116,7 +116,7 @@ router.get("/oauth/facebook/connect", async (req, res) => {
   if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const redirectUri = `${getBaseUrl(req)}/api/oauth/facebook/callback`;
-    const state = MetaOAuth.generateOAuthState(u.id);
+    const state = await MetaOAuth.generateOAuthState(u.id);
     const authUrl = MetaOAuth.buildAuthUrl(redirectUri, state);
     if (req.query["json"] === "1") { res.json({ authUrl, redirectUri }); return; }
     res.redirect(authUrl);
@@ -129,7 +129,7 @@ oauthPublicRouter.get("/oauth/facebook/callback", async (req, res) => {
   const { code, state, error } = req.query as { code?: string; state?: string; error?: string };
   if (error) { res.send(htmlClose("授权取消", `<h2>授权取消</h2><p>${error}</p>`)); return; }
   if (!code || !state) { res.status(400).send(htmlClose("缺参数", "<h2>缺少参数</h2>")); return; }
-  const userId = MetaOAuth.consumeOAuthState(state);
+  const userId = await MetaOAuth.consumeOAuthState(state);
   if (!userId) { res.status(400).send(htmlClose("过期", "<h2>授权已过期，请重新连接</h2>")); return; }
 
   try {
@@ -175,7 +175,7 @@ router.get("/oauth/tiktok/connect", async (req, res) => {
   if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
   try {
     const redirectUri = `${getBaseUrl(req)}/api/oauth/tiktok/callback`;
-    const state = TikTokOAuth.generateOAuthState(u.id);
+    const state = await TikTokOAuth.generateOAuthState(u.id);
     const authUrl = TikTokOAuth.buildAuthUrl(redirectUri, state);
     if (req.query["json"] === "1") { res.json({ authUrl, redirectUri }); return; }
     res.redirect(authUrl);
@@ -188,7 +188,7 @@ oauthPublicRouter.get("/oauth/tiktok/callback", async (req, res) => {
   const { code, state, error } = req.query as { code?: string; state?: string; error?: string };
   if (error) { res.send(htmlClose("取消", `<h2>授权取消</h2><p>${error}</p>`)); return; }
   if (!code || !state) { res.status(400).send(htmlClose("缺参数", "<h2>缺少参数</h2>")); return; }
-  const userId = TikTokOAuth.consumeOAuthState(state);
+  const userId = await TikTokOAuth.consumeOAuthState(state);
   if (!userId) { res.status(400).send(htmlClose("过期", "<h2>授权已过期，请重新连接</h2>")); return; }
 
   try {

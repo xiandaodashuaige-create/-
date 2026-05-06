@@ -485,9 +485,9 @@ router.post("/schedules/:id/retry", async (req, res): Promise<void> => {
     const owned = await loadOwnedSchedule(id, u.id);
     if (!owned) { res.status(404).json({ error: "Schedule not found" }); return; }
     if (owned.status !== "failed") { res.status(400).json({ error: `当前状态 ${owned.status} 不可重试` }); return; }
-    // 立即重发：scheduledAt 设为现在 - 5 秒，errorMessage 清空，下一次 cron tick (≤60s) 拾取
+    // 立即重发：scheduledAt 设为现在 - 5 秒，errorMessage 清空，retry_count 重置为 0（否则人工重试一两次又秒标 failed），下一次 cron tick (≤60s) 拾取
     await db.update(schedulesTable)
-      .set({ status: "pending", errorMessage: null, scheduledAt: new Date(Date.now() - 5_000) })
+      .set({ status: "pending", errorMessage: null, retryCount: 0, scheduledAt: new Date(Date.now() - 5_000) })
       .where(eq(schedulesTable.id, id));
     res.json({ ok: true, id, status: "pending" });
   } catch (err) {

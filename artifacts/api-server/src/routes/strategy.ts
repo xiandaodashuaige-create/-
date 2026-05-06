@@ -151,11 +151,20 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
   }
 
   const card: any = s.strategyJson;
-  // 选一个本平台账号作为绑定（若无则不绑）
+  // 选一个本平台账号作为绑定 — 必需。否则 content 会变成不可见孤儿（/content 用 INNER JOIN accounts）
   const [acc] = await db.select().from(accountsTable).where(and(
     eq(accountsTable.ownerUserId, user.id),
     eq(accountsTable.platform, s.platform),
   )).limit(1);
+
+  if (!acc) {
+    res.status(400).json({
+      error: "no_account",
+      message: `批准失败：当前用户尚未绑定任何 ${s.platform} 平台账号。请先到 /accounts 绑定账号后再批准策略。`,
+      platform: s.platform,
+    });
+    return;
+  }
 
   const mediaType = s.platform === "tiktok" ? "video" : "image";
   const title = card?.theme ?? `策略 #${s.id}`;
@@ -163,7 +172,7 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
   const tags = Array.isArray(card?.hashtags) ? card.hashtags.map((h: string) => h.replace(/^#/, "")) : [];
 
   const [content] = await db.insert(contentTable).values({
-    accountId: acc?.id ?? null,
+    accountId: acc.id,
     platform: s.platform,
     mediaType,
     title: title.slice(0, 200),
@@ -180,7 +189,7 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
     .set({ status: "approved", contentId: content.id, updatedAt: new Date() })
     .where(eq(strategiesTable.id, id)).returning();
 
-  await logActivity("strategy.approved", `批准策略 #${id} → 草稿 #${content.id}`, content.id, acc?.id);
+  await logActivity("strategy.approved", `批准策略 #${id} → 草稿 #${content.id}`, content.id, acc.id);
   res.json({ id: updated.id, status: updated.status, contentId: content.id });
 });
 

@@ -1,0 +1,370 @@
+鹿联 Viral Suite - 代码审查报告
+审查概述
+审查仓库: https://github.com/xiandaodashuaige-create/-
+项目描述: AI多平台社交内容创作 + 自动定时发布系统（小红书/TikTok/Instagram/Facebook）
+技术栈: TypeScript + React + Vite + Express 5 + PostgreSQL + Drizzle ORM + Clerk Auth
+审查日期: 2026-05-06
+审查重点: 安全、性能、OAuth规范、并发安全、代码组织
+一、安全问题 [HIGH]
+1.1 SQL 注入风险 [CRITICAL]
+文件: artifacts/api-server/src/services/publishDispatcher.ts
+问题描述: markPublished, markFailed, recoverStalePublishing 等函数直接使用字符串模板拼接SQL，存在SQL注入风险。
+TypeScript
+复制
+// 问题代码 (publishDispatcher.ts: markPublished)
+await db.execute(sql`
+  UPDATE schedules SET status='published', remote_post_id=${remotePostId}, error_message=NULL
+  WHERE id=${scheduleId}
+`);
+虽然使用了 sql 标签函数，但 remotePostId 和 scheduleId 是外部传入的参数。Drizzle 的 sql 模板标签确实会参数化处理，但需要确认是否所有地方都正确使用。更严重的是 db.execute(sql
+awSql
+awSql) 这种写法。
+建议: 使用 Drizzle ORM 的 type-safe update API 替代原始SQL：
+TypeScript
+复制
+await db.update(schedulesTable)
+  .set({ status: 'published', remotePostId, errorMessage: null })
+  .where(eq(schedulesTable.id, scheduleId));
+1.2 OAuth State 存储使用内存 Map - 多实例部署失效 [HIGH]
+文件:
+artifacts/api-server/src/lib/oauth/tiktok.ts
+artifacts/api-server/src/lib/oauth/meta.ts
+问题描述: OAuth state 使用 Map<string, OAuthStateEntry> 存储在内存中。当应用多实例部署时，实例A生成的state在实例B的回调中无法验证，导致OAuth流程失败。
+TypeScript
+复制
+// 问题代码 (tiktok.ts 和 meta.ts)
+const oauthStateStore = new Map<string, OAuthStateEntry>();
+建议: 使用 Redis 或数据库存储 OAuth state，设置 TTL（如10分钟过期）。
+1.3 Admin 权限硬编码 [HIGH]
+文件: artifacts/api-server/src/middlewares/creditSystem.ts
+问题描述: Admin 邮箱地址硬编码在代码中：
+TypeScript
+复制
+const adminEmails = ["xiandao456@gmail.com", "xiandaodashuaige@gmail.com"];
+风险:
+代码泄露即暴露管理员身份
+修改管理员需要重新部署
+无法动态添加/移除管理员
+建议: 使用数据库字段 users.role 配合环境变量配置初始管理员。
+1.4 CORS 配置过于宽松 [MEDIUM]
+文件: artifacts/api-server/src/app.ts
+问题描述:
+TypeScript
+复制
+app.use(cors({ credentials: true, origin: true }));
+origin: true 允许任何来源访问API，配合 credentials: true 可能导致安全风险（CSRF）。
+建议: 配置具体的允许域名白名单。
+1.5 认证中间件用户ID类型不一致 [MEDIUM]
+文件: artifacts/api-server/src/middlewares/requireAuth.ts
+问题描述:
+TypeScript
+复制
+const userId = auth?.sessionClaims?.userId || auth?.userId;
+auth.userId 是 Clerk 的用户ID（字符串），而 sessionClaims.userId 可能是应用层的用户ID。混合使用可能导致类型混乱。且 req.userId 被设为 any 类型，缺乏类型安全。
+1.6 OAuth Token 明文存储 [HIGH]
+文件: lib/db/src/schema/accounts.ts
+问题描述: OAuth 访问令牌和刷新令牌以明文形式存储在数据库：
+TypeScript
+复制
+oauthAccessToken: text("oauth_access_token"),
+oauthRefreshToken: text("oauth_refresh_token"),
+风险: 数据库泄露即导致所有用户社交媒体账号被盗。
+建议: 使用 AES-256 加密存储令牌，密钥通过环境变量注入。
+1.7 Tenant 隔离验证 [MEDIUM]
+文件: artifacts/api-server/src/routes/schedules.ts
+问题描述: loadOwnedSchedule 函数使用 JOIN 验证租户隔离，但部分查询使用原始SQL：
+TypeScript
+复制
+const conditions: SQL[] = [sql`a.owner_user_id = ${u.id}`];
+虽然Drizzle会参数化，但混合使用模式增加了出错风险。建议统一使用 Drizzle 的 eq() API。
+二、数据库查询性能与 N+1 问题 [MEDIUM]
+2.1 publishDispatcher 的查询优化
+文件: artifacts/api-server/src/services/publishDispatcher.ts
+当前实现: 使用单个复杂CTE查询一次性获取所有待发布内容，包括JOIN content和accounts表。这是正确的做法，避免了N+1问题。
+TypeScript
+复制
+// 良好的实现 - 一次性获取所有需要的数据
+const rows = await db.execute(sql`
+  WITH due AS (...),
+  claimed AS (...)
+  SELECT s.id AS schedule_id, s.platform, ...
+  FROM schedules s
+  INNER JOIN content c ON s.content_id = c.id
+  INNER JOIN accounts a ON s.account_id = a.id
+  WHERE s.id IN (SELECT id FROM claimed)
+`);
+建议: 已为良好实践，无需修改。但建议添加查询超时设置。
+2.2 schedules.ts 列表查询可能的全表扫描
+文件: artifacts/api-server/src/routes/schedules.ts
+问题描述:
+TypeScript
+复制
+router.get("/schedules", async (req, res) => {
+  // ...
+  const conditions: SQL[] = [sql`a.owner_user_id = ${u.id}`];
+  // 动态添加条件
+  if (query.data.status) conditions.push(eq(schedulesTable.status, query.data.status));
+  // ...
+});
+风险: 大量schedule数据时，缺少分页可能导致内存溢出。虽然代码中有LIMIT，但需要确认所有查询路径都有适当的索引。
+建议: 确保以下复合索引存在：
+sql
+复制
+CREATE INDEX idx_schedules_status_scheduled_at ON schedules(status, scheduled_at);
+CREATE INDEX idx_schedules_account_id ON schedules(account_id);
+2.3 竞争对手数据同步的批量操作
+问题描述: 从replit.md描述看，竞争对手帖子同步是逐条插入/更新的。大量数据时性能堪忧。
+建议: 使用 PostgreSQL 的 ON CONFLICT DO UPDATE 批量 upsert。
+三、OAuth 流程规范检查
+3.1 TikTok OAuth [NEEDS IMPROVEMENT]
+文件: artifacts/api-server/src/lib/oauth/tiktok.ts
+良好的实践:
+使用 PKCE（通过 code + client_key + client_secret 交换）
+10分钟state过期
+正确的scope定义
+问题:
+缺少 PKCE code_challenge: TikTok OAuth 2.0 推荐 PKCE 流程，当前实现使用传统授权码模式
+Token 刷新未验证返回值: 刷新token后直接更新数据库，未验证返回结构
+State 参数使用过期的 Map 存储（见1.2）
+3.2 Meta (Facebook/Instagram) OAuth [NEEDS IMPROVEMENT]
+文件: artifacts/api-server/src/lib/oauth/meta.ts
+良好的实践:
+使用正确的 Graph API v22.0
+正确的scope定义（包含instagram_content_publish）
+问题:
+缺少 PKCE: Meta 同样支持 PKCE，应启用
+缺少 state 参数验证日志: 难以调试OAuth失败
+Token 存储明文（见1.6）
+3.3 OAuth 回调路由安全 [GOOD]
+文件: artifacts/api-server/src/routes/oauth.ts
+良好的实践:
+回调路由公开（无 Clerk 认证），其他路由需要认证
+使用原子 UPSERT 防止并发重复插入
+一次性消费 state 参数
+TypeScript
+复制
+// routes/index.ts - 正确的路由分离
+router.use(oauthPublicRouter);  // 公开回调
+router.use(requireAuth);         // 此后需要认证
+router.use(oauthRouter);         // 管理路由需要认证
+四、定时发布调度器 (publishDispatcher) 分析
+4.1 并发安全 [GOOD]
+文件: artifacts/api-server/src/services/publishDispatcher.ts
+良好的实践:
+原子认领: 使用 FOR UPDATE SKIP LOCKED 防止多实例竞争
+进程内 isRunning 标志: 防止单实例内重叠执行
+Stale publishing 恢复: 15分钟后将卡住的 publishing 状态恢复为 pending
+TypeScript
+复制
+// 优秀的实现
+WITH due AS (
+  SELECT id FROM schedules
+  WHERE status = 'pending'
+  AND scheduled_at <= NOW()
+  AND platform IN ('tiktok','instagram','facebook')
+  ORDER BY scheduled_at ASC
+  LIMIT 20
+  FOR UPDATE SKIP LOCKED
+),
+claimed AS (
+  UPDATE schedules SET status = 'publishing'
+  WHERE id IN (SELECT id FROM due)
+  RETURNING id
+)
+4.2 错误恢复 [NEEDS IMPROVEMENT]
+问题:
+重试逻辑不完善: 当前在 error_message 中解析 retry=N 字符串来判断重试次数，这种方式脆弱
+缺少指数退避: 失败后立即重试可能导致API限流
+失败通知缺失: 用户无法感知发布失败
+建议: 添加 retry_count 和 next_retry_at 字段到 schedules 表。
+4.3 TikTok Token 刷新逻辑 [GOOD]
+TypeScript
+复制
+// 良好的实现 - 发布前自动刷新token
+if (row.oauth_expires_at && new Date(row.oauth_expires_at).getTime() - Date.now() < 5 * 60 * 1000) {
+  // token即将过期，先刷新
+}
+4.4 单实例限制 [DOCUMENTED]
+代码注释已明确指出：
+TypeScript
+复制
+/**
+ * 进程内单实例 cron。
+ * 限制：仅适用于单实例部署。多实例时会重复抓取（应改用 DB lock 或外部调度器）。
+ */
+建议: 在生产环境使用 PostgreSQL Advisory Lock 实现多实例安全。
+五、代码组织和潜在 Bug
+5.1 环境变量缺少验证
+文件: 多个文件
+问题: 直接使用 process.env.XXX 而不验证，可能在缺失时产生难以调试的错误。
+建议: 使用 envalid 或 zod 在启动时验证所有必需的环境变量。
+5.2 TypeScript 类型安全
+文件: artifacts/api-server/src/middlewares/requireAuth.ts
+问题: 使用 (req as any).userId = userId 破坏类型安全。
+建议: 扩展 Express Request 类型：
+TypeScript
+复制
+declare global {
+  namespace Express {
+    interface Request {
+      userId: string;
+    }
+  }
+}
+5.3 错误处理不一致
+问题: 部分路由使用 try-catch 返回 500，部分直接抛出。建议统一错误处理中间件。
+5.4 日志中的敏感信息
+风险: 需要确认日志不会记录 OAuth token、用户密码等敏感信息。
+5.5 时区处理
+文件: artifacts/api-server/src/routes/schedules.ts
+问题: combineDateTime 函数使用 new Date() 进行日期计算，可能在时区转换时出错。
+5.6 content.ts schema 缺少外键约束
+文件: lib/db/src/schema/content.ts
+问题: parentContentId 字段没有外键约束：
+TypeScript
+复制
+parentContentId: integer("parent_content_id"), // 缺少 .references(() => contentTable.id)
+5.7 schedules.ts 缺少 updated_at
+文件: lib/db/src/schema/schedules.ts
+问题: schedules 表没有 updated_at 字段，无法追踪状态变更时间。
+六、关键文件清单（按重要性排序）
+表格
+优先级	文件路径	说明
+P0	artifacts/api-server/src/services/publishDispatcher.ts	定时发布调度器 - 核心业务逻辑
+P0	artifacts/api-server/src/routes/oauth.ts	OAuth 路由
+P0	artifacts/api-server/src/lib/oauth/tiktok.ts	TikTok OAuth 实现
+P0	artifacts/api-server/src/lib/oauth/meta.ts	Meta OAuth 实现
+P0	artifacts/api-server/src/middlewares/requireAuth.ts	认证中间件
+P0	artifacts/api-server/src/middlewares/creditSystem.ts	积分系统 + 用户管理
+P1	artifacts/api-server/src/routes/schedules.ts	定时发布 API
+P1	artifacts/api-server/src/routes/content.ts	内容管理 API
+P1	lib/db/src/schema/accounts.ts	账户表结构
+P1	lib/db/src/schema/schedules.ts	定时发布表结构
+P1	lib/db/src/schema/content.ts	内容表结构
+P1	artifacts/api-server/src/app.ts	Express 应用配置
+P2	artifacts/api-server/src/services/cron.ts	Cron 任务管理
+P2	artifacts/api-server/src/routes/accounts.ts	账户管理 API
+P2	artifacts/api-server/src/routes/admin.ts	管理员 API
+七、AI 修改指令清单（按优先级排序）
+🔴 紧急 (P0) - 安全相关
+指令 1: 加密存储 OAuth Token
+目标: 将数据库中的 OAuth token 改为加密存储
+文件: lib/db/src/schema/accounts.ts, 相关路由文件
+具体修改:
+保持表结构不变（仍用 text 字段）
+创建 lib/api-server/src/lib/crypto.ts 工具模块，实现 AES-256-GCM 加密/解密
+环境变量 OAUTH_TOKEN_ENCRYPTION_KEY 作为密钥（32字节）
+在 upsertOAuthAccount 函数中，存储前加密 token，读取时解密
+加密密钥从环境变量读取，启动时验证存在
+指令 2: 修复 SQL 注入风险
+目标: 替换 publishDispatcher 中的所有原始 SQL 为 Drizzle ORM API
+文件: artifacts/api-server/src/services/publishDispatcher.ts
+具体修改:
+markPublished() 改用 db.update().set().where()
+markFailed() 改用 db.update().set().where()
+recoverStalePublishing() 改用 db.update().set().where() + lt(schedulesTable.scheduledAt, new Date(Date.now() - 15*60*1000))
+保持 findDueSchedules() 的 CTE 查询（已正确使用参数化）
+指令 3: 将 Admin 权限改为数据库配置
+目标: 移除硬编码的 admin 邮箱，改为数据库驱动
+文件: artifacts/api-server/src/middlewares/creditSystem.ts
+具体修改:
+删除 const adminEmails = [...] 硬编码数组
+新增环境变量 INITIAL_ADMIN_EMAILS（逗号分隔）用于首次启动
+ensureUser 函数中仅检查 users.role === 'admin'
+提供 admin API 用于动态设置/移除管理员
+指令 4: 使用 Redis/数据库存储 OAuth State
+目标: 替换内存 Map 存储，支持多实例部署
+文件:
+artifacts/api-server/src/lib/oauth/tiktok.ts
+artifacts/api-server/src/lib/oauth/meta.ts
+具体修改:
+创建新表 oauth_states (state: string, user_id: number, platform: string, expires_at: timestamp)
+generateOAuthState 改为 INSERT 新记录
+consumeOAuthState 改为 SELECT + DELETE（原子操作）
+添加过期清理 cron（或使用 PostgreSQL 行级 TTL）
+🟠 高优先级 (P1) - 稳定性
+指令 5: 为 publishDispatcher 添加正式的重试机制
+目标: 替换字符串解析 retry 计数的方式
+文件: artifacts/api-server/src/services/publishDispatcher.ts, lib/db/src/schema/schedules.ts
+具体修改:
+schedules 表新增字段: retry_count integer default 0, next_retry_at timestamp
+markFailed 函数递增 retry_count，设置 next_retry_at = NOW() + (2^retry_count * 间隔)
+findDueSchedules 查询添加条件 AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+超过 MAX_RETRIES 后状态改为 'failed'，不再重试
+指令 6: 添加多实例安全的分布式锁
+目标: 让 cron 任务在多实例部署时不会重复执行
+文件: artifacts/api-server/src/services/cron.ts, artifacts/api-server/src/services/publishDispatcher.ts
+具体修改:
+使用 PostgreSQL Advisory Lock (SELECT pg_try_advisory_lock(key))
+为每个 cron 任务分配唯一的 lock key
+safeRun 和 runPublishDispatcher 开头获取锁，结束释放锁
+获取锁失败则跳过本次执行
+指令 7: 严格化 CORS 配置
+目标: 只允许指定的前端域名访问 API
+文件: artifacts/api-server/src/app.ts
+具体修改:
+环境变量 ALLOWED_ORIGINS（逗号分隔，如 https://app.lulian.com,https://admin.lulian.com）
+CORS 中间件根据请求 origin 匹配白名单
+开发环境可设为 *（通过 NODE_ENV 判断）
+指令 8: 统一错误处理和响应格式
+目标: 全局错误处理，统一 API 响应
+文件: 新增 artifacts/api-server/src/middlewares/errorHandler.ts，修改 app.ts
+具体修改:
+创建 Express 错误处理中间件
+统一错误响应格式: { success: false, error: { code: string, message: string } }
+区分 400/401/403/404/500 状态码
+生产环境不返回堆栈信息
+🟡 中优先级 (P2) - 代码质量
+指令 9: 完善 TypeScript 类型定义
+目标: 移除 any 类型，增强类型安全
+文件:
+artifacts/api-server/src/middlewares/requireAuth.ts
+artifacts/api-server/src/middlewares/creditSystem.ts
+具体修改:
+扩展 Express Request 接口添加 userId: string
+扩展 Express Request 接口添加 auth: ClerkAuthObject
+所有 (req as any) 改为正确类型
+指令 10: 环境变量验证
+目标: 启动时验证所有必需环境变量
+文件: 新增 artifacts/api-server/src/config/env.ts
+具体修改:
+使用 zod 定义环境变量 schema
+分类：required（启动失败）/ optional（使用默认值）
+启动时验证，失败则打印缺失变量并退出进程
+指令 11: 为 content.ts 添加外键约束
+目标: 确保 parentContentId 的数据完整性
+文件: lib/db/src/schema/content.ts
+具体修改:
+parentContentId: integer("parent_content_id").references(() => contentTable.id, { onDelete: 'set null' })
+指令 12: schedules 表添加 updated_at 字段
+目标: 追踪状态变更时间
+文件: lib/db/src/schema/schedules.ts
+具体修改:
+添加 updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date())
+🟢 低优先级 (P3) - 优化
+指令 13: 为数据库查询添加超时
+目标: 防止慢查询阻塞
+文件: artifacts/api-server/src/services/publishDispatcher.ts
+具体修改:
+所有数据库查询添加 setTimeout 包装
+超时时间可配置（默认 30 秒）
+超时后记录错误日志
+指令 14: 添加发布失败用户通知机制
+目标: 发布失败时通知用户
+文件: artifacts/api-server/src/services/publishDispatcher.ts
+具体修改:
+发布失败时，向用户发送通知（可通过 WebSocket 或写入通知表）
+前端轮询或实时获取失败通知
+指令 15: 添加健康检查端点增强
+目标: 增加数据库连接、外部服务连通性检查
+文件: artifacts/api-server/src/routes/health.ts
+具体修改:
+/healthz 检查数据库连通性
+/healthz/deep 检查外部服务（TikHub, OpenAI, Meta API 等）
+返回各组件状态
+八、执行建议顺序
+第 1 批（安全根基）: 指令 1 + 指令 2 + 指令 3
+第 2 批（OAuth 修复）: 指令 4 + 指令 7
+第 3 批（调度器增强）: 指令 5 + 指令 6 + 指令 13
+第 4 批（代码质量）: 指令 8 + 指令 9 + 指令 10 + 指令 11 + 指令 12
+第 5 批（体验优化）: 指令 14 + 指令 15

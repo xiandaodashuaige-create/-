@@ -15,6 +15,8 @@ export const schedulesTable = pgTable("schedules", {
   // 第三方平台返回的远端 post id（如 ayrsharePostId / meta post id），cron 真发布后写回
   remotePostId: text("remote_post_id"),
   errorMessage: text("error_message"),
+  // 真正的重试计数（之前用 error_message LIKE 'retry=N' 比较，与写入的时间戳不匹配，会无限重试）
+  retryCount: integer("retry_count").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

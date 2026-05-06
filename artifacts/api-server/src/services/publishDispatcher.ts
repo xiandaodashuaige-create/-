@@ -19,6 +19,7 @@ interface DueRow {
   oauth_expires_at: string | null;
   platform_account_id: string | null;
   ayrshare_profile_key: string | null;
+  retry_count: number;
 }
 
 const MAX_RETRIES = 3;
@@ -41,7 +42,7 @@ async function findDueSchedules(): Promise<DueRow[]> {
       RETURNING id
     )
     SELECT
-      s.id AS schedule_id, s.platform, s.account_id, s.content_id,
+      s.id AS schedule_id, s.platform, s.account_id, s.content_id, s.retry_count,
       c.title, c.body, c.image_urls, c.video_url,
       a.oauth_access_token, a.oauth_refresh_token, a.oauth_expires_at,
       a.platform_account_id, a.ayrshare_profile_key
@@ -55,22 +56,25 @@ async function findDueSchedules(): Promise<DueRow[]> {
 }
 
 async function markPublished(scheduleId: number, contentId: number, remotePostId: string) {
+  // 状态护栏：只允许从 'publishing' 翻到 'published'。防止"远端已发成功 + content UPDATE 失败"
+  // 后被外层 catch → markFailed 覆盖回 pending 触发重复发布
   await db.execute(sql`
     UPDATE schedules SET status='published', remote_post_id=${remotePostId}, error_message=NULL
-    WHERE id=${scheduleId}
+    WHERE id=${scheduleId} AND status='publishing'
   `);
   await db.execute(sql`UPDATE content SET status='published' WHERE id=${contentId}`);
 }
 
-async function markFailed(scheduleId: number, errorMessage: string) {
+async function markFailed(scheduleId: number, _currentRetryCount: number, errorMessage: string) {
+  // 状态护栏 + 原子自增：retry_count = retry_count + 1，用 DB 端的 CASE 判定 failed/pending
+  // 不再依赖应用层读出的 currentRetryCount，避免多实例 / 重入时丢计数
+  // 状态护栏：只对 'publishing' 行回滚，防止覆盖已经被 markPublished 提升为 'published' 的行
   await db.execute(sql`
     UPDATE schedules
-    SET status = CASE
-      WHEN COALESCE(error_message, '') LIKE ${'%retry=' + MAX_RETRIES + '%'} THEN 'failed'
-      ELSE 'pending'
-    END,
-    error_message = ${errorMessage + ` | retry=${Date.now()}`}
-    WHERE id=${scheduleId}
+    SET retry_count = retry_count + 1,
+        status = CASE WHEN retry_count + 1 >= ${MAX_RETRIES} THEN 'failed' ELSE 'pending' END,
+        error_message = ${errorMessage}
+    WHERE id = ${scheduleId} AND status = 'publishing'
   `);
 }
 
@@ -90,6 +94,8 @@ async function publishOne(row: DueRow): Promise<void> {
         mediaUrls: [mediaUrl],
         caption,
         isVideo,
+        // 多账号场景必须透传 profileKey，否则 Ayrshare 会发到默认 profile
+        profileKey: row.ayrshare_profile_key ?? undefined,
       });
       if (!result.success) throw new Error(result.errorMessage || "Ayrshare publish failed");
       await markPublished(row.schedule_id, row.content_id, result.postId || "ayrshare");
@@ -155,8 +161,8 @@ async function publishOne(row: DueRow): Promise<void> {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err: msg, scheduleId: row.schedule_id, platform: row.platform }, "Publish failed");
-    await markFailed(row.schedule_id, msg);
+    logger.error({ err: msg, scheduleId: row.schedule_id, platform: row.platform, retryCount: row.retry_count }, "Publish failed");
+    await markFailed(row.schedule_id, row.retry_count ?? 0, msg);
   }
 }
 
