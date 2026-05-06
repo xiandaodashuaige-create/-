@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { db, sensitiveWordsTable, imageReferencesTable, usersTable } from "@workspace/db";
+import { db, sensitiveWordsTable, imageReferencesTable, usersTable, assetsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import {
   AiRewriteContentBody,
@@ -415,6 +415,25 @@ router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (re
     }
 
     await deductCredits(req, "ai-generate-image");
+
+    // 镜像写入素材库（assets），让用户后续在 /assets 能看到所有 AI 产出并复用
+    try {
+      const u = await ensureUser(req);
+      if (u && objectPath) {
+        await db.insert(assetsTable).values({
+          userId: u.id,
+          accountId: null,
+          type: "image",
+          filename: `ai-${Date.now()}.png`,
+          objectPath,
+          size: imageBuffer?.length ?? 0,
+          tags: ["ai-generated"],
+        } as any);
+      }
+    } catch (mirrorErr) {
+      req.log.warn(mirrorErr, "Failed to mirror AI image to assets library");
+    }
+
     res.json({
       imageUrl: storedUrl,
       objectPath,
@@ -811,6 +830,24 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
     }
 
     await deductCredits(req, "ai-generate-image");
+
+    // 镜像写入素材库（assets）—— 管线产出的图也进 /assets，用户能复用
+    try {
+      const u = await ensureUser(req);
+      if (u && objectPath) {
+        await db.insert(assetsTable).values({
+          userId: u.id,
+          accountId: null,
+          type: "image",
+          filename: `ai-pipeline-${Date.now()}.png`,
+          objectPath,
+          size: imageBuffer?.length ?? 0,
+          tags: ["ai-generated", "pipeline", strength],
+        } as any);
+      }
+    } catch (mirrorErr) {
+      req.log.warn(mirrorErr, "Failed to mirror pipeline image to assets library");
+    }
 
     let referenceId: number | null = null;
     if (userIdForLearning) {
