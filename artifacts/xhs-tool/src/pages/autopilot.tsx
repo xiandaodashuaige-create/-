@@ -41,6 +41,9 @@ export default function AutopilotPage() {
   const [niche, setNiche] = useState("");
   const [region, setRegion] = useState("");
   const [extras, setExtras] = useState("");
+  // 用户手动指定的同行账号 / 主页链接（一行一个或逗号分隔）
+  // —— 跟 XHS workflow 的 competitorLink 输入对齐，让客户能精准锚定要参考谁
+  const [customCompetitors, setCustomCompetitors] = useState("");
   const [autoDiscover, setAutoDiscover] = useState(true);
   const [customMode, setCustomMode] = useState(false);
   const customModeRef = useRef(false);
@@ -151,8 +154,45 @@ export default function AutopilotPage() {
 
       // ── Stage 2: 同行库 ──
       let competitorPool = [...existingCompetitors];
+
+      // (a) 优先处理用户手动填写的同行账号 / 主页链接
+      // 解析规则：按逗号 / 换行 / 空格切，去掉 @ 和 URL 前缀，剔除已存在
+      const manualHandles = customCompetitors
+        .split(/[\s,，\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((raw) => {
+          // 抽 URL 中的 handle：tiktok.com/@x、instagram.com/x、facebook.com/x
+          const urlMatch = raw.match(/(?:tiktok\.com\/@|instagram\.com\/|facebook\.com\/)([A-Za-z0-9._-]+)/i);
+          if (urlMatch) return urlMatch[1];
+          return raw.replace(/^@+/, "").replace(/[/?#].*$/, "");
+        })
+        .filter((h) => h && h.length <= 60)
+        .filter((h, i, arr) => arr.indexOf(h) === i)
+        .filter((h) => !competitorPool.some((c: any) => (c.handle || "").toLowerCase() === h.toLowerCase()));
+
+      if (manualHandles.length > 0) {
+        pushLog(`👤 你指定了 ${manualHandles.length} 位同行：${manualHandles.slice(0, 3).map((h) => "@" + h).join("、")}${manualHandles.length > 3 ? "…" : ""}`, "info");
+        for (const handle of manualHandles) {
+          if (isStale()) return;
+          try {
+            pushLog(`  ↳ 添加并抓取 @${handle} 最近爆款…`, "running");
+            const added = await api.competitors.add({ platform, handle, region: region || undefined }, { signal: sig });
+            if (isStale()) return;
+            competitorPool.push(added);
+            pushLog(`  ✓ @${handle} 已入库（${added.postCount ?? 0} 条样本）`, "success");
+          } catch (e: any) {
+            if (sig.aborted) return;
+            pushLog(`  ⚠ @${handle} 添加失败：${e?.message ?? "skip"}`, "warn");
+          }
+        }
+        qc.invalidateQueries({ queryKey: ["autopilot-competitors", platform] });
+        qc.invalidateQueries({ queryKey: ["competitors", platform] });
+      }
+
+      // (b) 已有同行（库存 + 手动指定）足够，跳过自动发现
       if (competitorPool.length > 0) {
-        pushLog(`✓ 已有 ${competitorPool.length} 位同行可用，跳过自动发现`, "success");
+        pushLog(`✓ 共 ${competitorPool.length} 位同行可用${manualHandles.length > 0 ? "（含你指定的）" : ""}，跳过自动发现`, "success");
       } else if (autoDiscover && platform === "tiktok") {
         pushLog(`🔍 调用 TikHub 搜索 ${platformMeta.name} 行业 KOL…`, "running");
         try {
@@ -480,6 +520,33 @@ export default function AutopilotPage() {
               className="text-base"
             />
             <div className="text-xs text-muted-foreground mt-1">越具体越好，AI 会用此关键词搜索同行 + 过滤无关数据</div>
+          </div>
+
+          {/* 对标同行链接 / 账号 —— 跟 XHS workflow 对齐，让客户精准锚定参考对象 */}
+          <div>
+            <label className="text-sm font-medium mb-1 block">
+              <Users2 className="h-3.5 w-3.5 inline mr-1 text-blue-500" />
+              对标同行链接 / 账号 <span className="text-muted-foreground text-xs font-normal">（可选，多个用逗号 / 换行分隔）</span>
+            </label>
+            <Textarea
+              value={customCompetitors}
+              onChange={(e) => setCustomCompetitors(e.target.value)}
+              placeholder={
+                platform === "tiktok"
+                  ? "@charlidamelio, https://tiktok.com/@mrbeast"
+                  : platform === "instagram"
+                  ? "@cristiano, https://instagram.com/zendaya"
+                  : "@TheRock, https://facebook.com/TastyOfficial"
+              }
+              rows={2}
+              className="text-sm font-mono"
+            />
+            <div className="text-xs text-muted-foreground mt-1">
+              填了的话 AI 会优先抓这些账号的最近爆款作为参考；留空则按关键词自动发现
+              {existingCompetitors.length > 0 && (
+                <> · 当前同行库已有 <strong className="text-foreground">{existingCompetitors.length}</strong> 位会一并使用</>
+              )}
+            </div>
           </div>
 
           {/* 一键模式说明 */}
