@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -15,13 +16,16 @@ import { setReturnToFlow } from "@/lib/return-to-flow";
 import {
   Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
   AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
+  Image as ImageIcon, Video as VideoIcon, X, Upload, Wand2, Save,
 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { AssetPicker } from "@/components/AssetPicker";
+import { ObjectUploader } from "@workspace/object-storage-web";
 
-type Step = "setup" | "running" | "review" | "schedule" | "done";
+type Step = "setup" | "running" | "review" | "edit" | "schedule" | "done";
 
 // 3 套生成 angle —— AI 同时跑 3 次，给用户选
 const STRATEGY_ANGLES: Array<{ key: string; label: string; hint: string; emoji: string }> = [
@@ -51,10 +55,18 @@ export default function AutopilotPage() {
   const [step, setStep] = useState<Step>("setup");
   // HMR 保护：旧版本可能残留 step="approved" 等已删除值，启动时归一化
   useEffect(() => {
-    const valid: Step[] = ["setup", "running", "review", "schedule", "done"];
+    const valid: Step[] = ["setup", "running", "review", "edit", "schedule", "done"];
     if (!valid.includes(step)) setStep("setup");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 草稿就地编辑表单（采用方案后从 content.get 拉一份填进来）
+  const [editForm, setEditForm] = useState<{
+    title: string; body: string; tags: string[]; tagInput: string;
+    imageUrls: string[]; videoUrl: string;
+  }>({ title: "", body: "", tags: [], tagInput: "", imageUrls: [], videoUrl: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [regeneratingImg, setRegeneratingImg] = useState(false);
   const [niche, setNiche] = useState("");
   const [region, setRegion] = useState("");
   const [extras, setExtras] = useState("");
@@ -454,16 +466,122 @@ export default function AutopilotPage() {
   // Cleanup: abort on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
+  // 把 contentId 对应的草稿拉下来灌进 editForm；失败抛错，由调用方决定是否继续
+  async function loadContentIntoEditForm(cid: number) {
+    const c = await api.content.get(cid);
+    setEditForm({
+      title: c.title || "",
+      body: c.body || "",
+      tags: Array.isArray(c.tags) ? c.tags : [],
+      tagInput: "",
+      imageUrls: Array.isArray(c.imageUrls) ? c.imageUrls : [],
+      videoUrl: c.videoUrl || "",
+    });
+  }
+
   const approveMut = useMutation({
     mutationFn: (stratId: number) => api.strategy.approve(stratId),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       setContentId(data.contentId);
-      setStep("schedule");
       qc.invalidateQueries({ queryKey: ["content"] });
-      toast({ title: "已采用", description: `草稿 #${data.contentId} 已生成，下一步选发布时间` });
+      try {
+        await loadContentIntoEditForm(data.contentId);
+        setStep("edit"); // 进就地编辑步骤，不再直接跳排期
+        toast({ title: "已采用", description: `草稿 #${data.contentId} 已生成，可以就地修改素材和文案` });
+      } catch (e: any) {
+        // 拉草稿失败：不进 edit 空表单，退回 schedule 兜底
+        toast({ title: "草稿加载失败", description: `${e?.message ?? "未知错误"} · 已直接进入排期，可去完整编辑器调整`, variant: "destructive" });
+        setStep("schedule");
+      }
     },
     onError: (err: any) => toast({ title: "采用失败", description: err?.message, variant: "destructive" }),
   });
+
+  // 保存就地修改 → 进排期
+  async function handleSaveEditAndProceed() {
+    if (!contentId) return;
+    if (savingEdit) return;
+    setSavingEdit(true);
+    try {
+      // 后端 UpdateContentBody 不接受 null —— videoUrl 为空时直接省略字段
+      const payload: any = {
+        title: editForm.title,
+        body: editForm.body,
+        tags: editForm.tags,
+        imageUrls: editForm.imageUrls,
+      };
+      if (editForm.videoUrl) payload.videoUrl = editForm.videoUrl;
+      await api.content.update(contentId, payload);
+      qc.invalidateQueries({ queryKey: ["content"] });
+      toast({ title: "已保存", description: "进入排期步骤" });
+      setStep("schedule");
+    } catch (e: any) {
+      toast({ title: "保存失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  // AI 重新生成一张配图，加到 imageUrls 头部
+  async function handleRegenImageInEdit() {
+    if (regeneratingImg) return;
+    setRegeneratingImg(true);
+    try {
+      const prompt = `${niche || ""} 平台 ${platformMeta.name} · 主题：${editForm.title || strategyResult?.strategy?.theme || ""}`;
+      const r = await api.ai.generateImage({ prompt });
+      const url = (r as any).storedUrl || (r as any).imageUrl;
+      if (url) {
+        setEditForm((p) => ({ ...p, imageUrls: [url, ...p.imageUrls].slice(0, 9) }));
+        toast({ title: "AI 配图已生成" });
+      }
+    } catch (e: any) {
+      toast({ title: "AI 生成失败", description: e?.message, variant: "destructive" });
+    } finally {
+      setRegeneratingImg(false);
+    }
+  }
+
+  // 上传素材：拿预签名 PUT URL
+  async function handleGetUploadParameters(file: any) {
+    const res = await fetch("/api/storage/uploads/request-url", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+    });
+    if (!res.ok) throw new Error("Failed to get upload URL");
+    const data = await res.json();
+    (file as any)._objectPath = data.objectPath;
+    return { method: "PUT" as const, url: data.uploadURL, headers: { "Content-Type": file.type } };
+  }
+  function handleImageUploadComplete(result: any) {
+    const files = result.successful || [];
+    for (const file of files) {
+      const objectPath = (file as any)._objectPath;
+      if (objectPath) {
+        const url = `/api/storage${objectPath}`;
+        setEditForm((p) => ({ ...p, imageUrls: [...p.imageUrls, url].slice(0, 9) }));
+      }
+    }
+    if (files.length > 0) toast({ title: `上传 ${files.length} 张图片成功` });
+  }
+  function handleVideoUploadComplete(result: any) {
+    const files = result.successful || [];
+    const file = files[0];
+    if (file) {
+      const objectPath = (file as any)._objectPath;
+      if (objectPath) {
+        setEditForm((p) => ({ ...p, videoUrl: `/api/storage${objectPath}` }));
+        toast({ title: "视频上传成功" });
+      }
+    }
+  }
+  function addTag() {
+    const t = editForm.tagInput.trim().replace(/^#/, "");
+    if (!t) return;
+    if (editForm.tags.includes(t)) { setEditForm((p) => ({ ...p, tagInput: "" })); return; }
+    setEditForm((p) => ({ ...p, tags: [...p.tags, t].slice(0, 12), tagInput: "" }));
+  }
 
   // 排期：把已生成的草稿挂到指定时间
   const scheduleMut = useMutation({
@@ -519,6 +637,7 @@ export default function AutopilotPage() {
     setContentId(null);
     setLogs([]);
     setScheduledAt("");
+    setEditForm({ title: "", body: "", tags: [], tagInput: "", imageUrls: [], videoUrl: "" });
   }
 
   // 账号画像 vs niche 一致性校验（弹窗状态）
@@ -610,9 +729,10 @@ export default function AutopilotPage() {
             { key: "setup", label: "1. 需求", icon: FileEdit },
             { key: "running", label: "2. AI 跑数据", icon: Brain },
             { key: "review", label: "3. 选方案", icon: Sparkles },
-            { key: "schedule", label: "4. 排期发布", icon: Send },
+            { key: "edit", label: "4. 编辑微调", icon: Wand2 },
+            { key: "schedule", label: "5. 排期发布", icon: Send },
           ].map((s, i, arr) => {
-            const order = ["setup", "running", "review", "schedule", "done"];
+            const order = ["setup", "running", "review", "edit", "schedule", "done"];
             const currentIdx = order.indexOf(step);
             const myIdx = order.indexOf(s.key);
             const done = myIdx < currentIdx;
@@ -1144,7 +1264,229 @@ export default function AutopilotPage() {
         );
       })()}
 
-      {/* Step 4: 排期发布 —— 草稿已生成，挑选发布时间 */}
+      {/* Step 4: 就地编辑 —— 改文案 / 换图 / 上传视频，全部不离开本页 */}
+      {step === "edit" && contentId && (
+        <div className="space-y-4">
+          <Card className="p-4 bg-emerald-50 border-emerald-200">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm">
+                <div className="font-semibold text-emerald-800">草稿 #{contentId} 已生成 · 现在可以就地修改</div>
+                <div className="text-xs text-emerald-700/80 mt-0.5">
+                  改标题/正文/标签都会即时预览。配图可以删/上传/AI 重新生成。视频可从素材库挑或直接上传。改完点最下方「保存并去排期」。
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* 左：实时预览 */}
+            <Card className="p-4 space-y-3">
+              <div className="text-sm font-semibold flex items-center gap-1.5">
+                <Search className="h-4 w-4 text-primary" /> 实时预览（{platformMeta.name}）
+              </div>
+              <div className="rounded-xl border overflow-hidden bg-white">
+                {editForm.videoUrl ? (
+                  <video src={editForm.videoUrl} controls className="w-full max-h-64 bg-black object-contain" />
+                ) : editForm.imageUrls[0] ? (
+                  <div className="aspect-[4/3] bg-muted overflow-hidden">
+                    <img src={editForm.imageUrls[0]} alt="封面" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="aspect-[4/3] flex items-center justify-center bg-amber-50 text-amber-600 text-sm">
+                    <ImageIcon className="h-8 w-8 mr-2" /> 暂无封面
+                  </div>
+                )}
+                <div className="p-3 space-y-1.5">
+                  <div className="font-bold text-base leading-tight">{editForm.title || "未输入标题"}</div>
+                  <div className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-6">
+                    {editForm.body || "未输入正文"}
+                  </div>
+                  {editForm.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {editForm.tags.map((t) => (
+                        <span key={t} className="text-xs text-primary">#{t}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {editForm.imageUrls.length > 1 && (
+                <div>
+                  <div className="text-[11px] text-muted-foreground mb-1">全部配图（{editForm.imageUrls.length} 张）</div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {editForm.imageUrls.map((u, i) => (
+                      <div key={i} className="aspect-square rounded overflow-hidden border bg-muted">
+                        <img src={u} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+
+            {/* 右：编辑表单 */}
+            <Card className="p-4 space-y-4">
+              <div>
+                <Label className="text-xs">标题（{editForm.title.length} 字）</Label>
+                <Input
+                  value={editForm.title}
+                  onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))}
+                  placeholder="一句话钩子标题"
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs">正文 / 脚本（{editForm.body.length} 字）</Label>
+                <Textarea
+                  value={editForm.body}
+                  onChange={(e) => setEditForm((p) => ({ ...p, body: e.target.value }))}
+                  rows={8}
+                  className="mt-1 text-sm"
+                  placeholder="这里是 AI 生成的脚本/正文，可直接改"
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs">标签（{editForm.tags.length} 个）</Label>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {editForm.tags.map((t) => (
+                    <Badge key={t} variant="secondary" className="text-xs gap-1">
+                      #{t}
+                      <button
+                        onClick={() => setEditForm((p) => ({ ...p, tags: p.tags.filter((x) => x !== t) }))}
+                        className="hover:text-destructive"
+                      ><X className="h-3 w-3" /></button>
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 mt-2">
+                  <Input
+                    value={editForm.tagInput}
+                    onChange={(e) => setEditForm((p) => ({ ...p, tagInput: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+                    placeholder="输入标签后回车"
+                    className="h-8 text-xs"
+                  />
+                  <Button size="sm" variant="outline" onClick={addTag} className="h-8">+加</Button>
+                </div>
+              </div>
+
+              {/* 配图管理 */}
+              <div className="space-y-2 pt-2 border-t">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs flex items-center gap-1">
+                    <ImageIcon className="h-3.5 w-3.5 text-purple-500" /> 配图（{editForm.imageUrls.length}/9）
+                  </Label>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm" variant="outline" className="h-7 text-xs"
+                      onClick={handleRegenImageInEdit}
+                      disabled={regeneratingImg || editForm.imageUrls.length >= 9}
+                    >
+                      {regeneratingImg
+                        ? <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        : <Sparkles className="h-3 w-3 mr-1" />}
+                      AI 生成
+                    </Button>
+                    <AssetPicker
+                      type="image" multiple triggerLabel="素材库" triggerSize="sm"
+                      onPick={(urls) => setEditForm((p) => {
+                        const merged = [...p.imageUrls];
+                        for (const u of urls) if (!merged.includes(u) && merged.length < 9) merged.push(u);
+                        return { ...p, imageUrls: merged };
+                      })}
+                    />
+                    <ObjectUploader
+                      maxNumberOfFiles={9 - editForm.imageUrls.length || 1}
+                      maxFileSize={10485760}
+                      allowedFileTypes={["image/*"]}
+                      onGetUploadParameters={handleGetUploadParameters}
+                      onComplete={handleImageUploadComplete}
+                      buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-2 border border-input bg-background hover:bg-accent"
+                    >
+                      <Upload className="h-3 w-3 mr-1" />上传
+                    </ObjectUploader>
+                  </div>
+                </div>
+                {editForm.imageUrls.length > 0 && (
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {editForm.imageUrls.map((url, i) => (
+                      <div key={i} className="relative group aspect-square rounded-md overflow-hidden border bg-muted">
+                        <img src={url} alt={`配图 ${i + 1}`} className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => setEditForm((p) => ({ ...p, imageUrls: p.imageUrls.filter((_, j) => j !== i) }))}
+                          className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        ><X className="h-3 w-3" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 视频（TT/IG 强烈建议） */}
+              <div className="space-y-2 pt-2 border-t">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs flex items-center gap-1">
+                    <VideoIcon className="h-3.5 w-3.5 text-blue-500" /> 视频
+                    {(platform === "tiktok" || platform === "instagram") && (
+                      <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">推荐</span>
+                    )}
+                  </Label>
+                  {!editForm.videoUrl && (
+                    <div className="flex items-center gap-1.5">
+                      <AssetPicker
+                        type="video" multiple={false} triggerLabel="素材库" triggerSize="sm"
+                        onPick={(urls) => { if (urls[0]) setEditForm((p) => ({ ...p, videoUrl: urls[0] })); }}
+                      />
+                      <ObjectUploader
+                        maxNumberOfFiles={1} maxFileSize={104857600}
+                        allowedFileTypes={["video/*"]}
+                        onGetUploadParameters={handleGetUploadParameters}
+                        onComplete={handleVideoUploadComplete}
+                        buttonClassName="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md text-xs font-medium h-7 px-2 border border-input bg-background hover:bg-accent"
+                      >
+                        <Upload className="h-3 w-3 mr-1" />上传
+                      </ObjectUploader>
+                    </div>
+                  )}
+                </div>
+                {editForm.videoUrl && (
+                  <div className="relative group rounded-md overflow-hidden border bg-muted">
+                    <video src={editForm.videoUrl} controls className="w-full max-h-40 object-contain" />
+                    <button
+                      onClick={() => setEditForm((p) => ({ ...p, videoUrl: "" }))}
+                      className="absolute top-1 right-1 bg-black/60 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    ><X className="h-3 w-3" /></button>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="ghost" size="sm" onClick={() => setStep("review")}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 返回重选方案
+            </Button>
+            <Link href={`/content/${contentId}`}>
+              <Button variant="ghost" size="sm">
+                <FileEdit className="h-3.5 w-3.5 mr-1.5" /> 去完整编辑器
+              </Button>
+            </Link>
+            <Button
+              className="flex-1 h-11 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90"
+              onClick={handleSaveEditAndProceed}
+              disabled={savingEdit}
+            >
+              {savingEdit ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              保存并去排期
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 5: 排期发布 —— 草稿已生成，挑选发布时间 */}
       {step === "schedule" && contentId && (
         <Card className="p-6 space-y-5">
           <div className="flex items-center gap-3 pb-3 border-b">
@@ -1214,29 +1556,52 @@ export default function AutopilotPage() {
         </Card>
       )}
 
-      {/* Step 5: 完成态 */}
+      {/* Step 6: 完成态 */}
       {step === "done" && contentId && (
-        <Card className="p-8 text-center space-y-4">
-          <CheckCircle2 className="h-16 w-16 text-emerald-500 mx-auto" />
-          <div>
+        <Card className="p-6 space-y-4">
+          <div className="text-center space-y-2">
+            <CheckCircle2 className="h-14 w-14 text-emerald-500 mx-auto" />
             <div className="text-xl font-bold">已完成 ✨</div>
-            <div className="text-sm text-muted-foreground mt-1">
+            <div className="text-sm text-muted-foreground">
               草稿 #{contentId} 已就绪 · 可在排期表查看 / 调整发布时间
             </div>
           </div>
+
+          {/* 真实素材预览（不再只是干巴巴的简报） */}
+          {(editForm.title || editForm.imageUrls.length > 0 || editForm.videoUrl) && (
+            <div className="rounded-xl border overflow-hidden bg-white">
+              {editForm.videoUrl ? (
+                <video src={editForm.videoUrl} controls className="w-full max-h-64 bg-black object-contain" />
+              ) : editForm.imageUrls[0] ? (
+                <div className="aspect-[4/3] bg-muted overflow-hidden">
+                  <img src={editForm.imageUrls[0]} alt="封面" className="w-full h-full object-cover" />
+                </div>
+              ) : null}
+              <div className="p-3 space-y-1.5">
+                <div className="font-bold text-base">{editForm.title}</div>
+                <div className="text-sm text-gray-700 whitespace-pre-wrap line-clamp-4">{editForm.body}</div>
+                {editForm.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {editForm.tags.slice(0, 8).map((t) => (
+                      <span key={t} className="text-xs text-primary">#{t}</span>
+                    ))}
+                  </div>
+                )}
+                {editForm.imageUrls.length > 1 && (
+                  <div className="text-[11px] text-muted-foreground pt-1">共 {editForm.imageUrls.length} 张配图</div>
+                )}
+              </div>
+            </div>
+          )}
+
           {strategyResult && (
-            <div className="text-left bg-muted/30 rounded-lg p-4 space-y-2 text-sm border">
+            <div className="text-left bg-muted/30 rounded-lg p-3 space-y-1 text-xs border">
               <div className="font-semibold text-primary flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" /> 本次内容简报
+                <Sparkles className="h-3.5 w-3.5" /> 本次方案
               </div>
               <div><strong>主题：</strong>{strategyResult.strategy.theme}</div>
-              <div className="text-muted-foreground text-xs">
+              <div className="text-muted-foreground">
                 <strong className="text-foreground">钩子：</strong>{strategyResult.strategy.hookFormula}
-              </div>
-              <div className="flex flex-wrap gap-1 pt-1">
-                {strategyResult.strategy.hashtags?.slice(0, 6).map((h: string, i: number) => (
-                  <Badge key={i} variant="secondary" className="text-xs">{h}</Badge>
-                ))}
               </div>
             </div>
           )}
