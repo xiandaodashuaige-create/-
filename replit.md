@@ -9,7 +9,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Typecheck:** `pnpm typecheck`
 - **Codegen:** `pnpm codegen`
 - **DB Push:** `pnpm db:push`
-- **Required Env Vars:** `PORT`, `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `SESSION_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`, `META_APP_ID`, `META_APP_SECRET`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `AYRSHARE_API_KEY`. Optional: `OPENAI_API_KEY`, `VOLCANO_ENGINE_API_KEY`, `TIKHUB_API_KEY`, `RAPIDAPI_KEY`, `INITIAL_ADMIN_EMAILS`, `TIKTOK_DATA_PROVIDER`, `VIDEO_JOBS_MAX_CONCURRENT` (1~8, 默认 4，非法回退 4 并告警).
+- **Required Env Vars:** `PORT`, `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `SESSION_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`, `META_APP_ID`, `META_APP_SECRET`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `AYRSHARE_API_KEY`. Optional: `OPENAI_API_KEY`, `VOLCANO_ENGINE_API_KEY`, `TIKHUB_API_KEY`, `RAPIDAPI_KEY`, `INITIAL_ADMIN_EMAILS`, `TIKTOK_DATA_PROVIDER`, `VIDEO_JOBS_MAX_CONCURRENT` (1~8, 默认 4，非法回退 4 并告警), `AI_RATE_LIMIT_PER_MIN` (默认 30), `AI_RATE_LIMIT_PER_HOUR` (默认 200).
 
 ## Stack
 
@@ -76,6 +76,8 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **静态守卫 `pnpm --filter @workspace/scripts run check-content-owner`：** 防止 `routes/services` 里 `db.insert(contentTable).values({...})` 漏写 `ownerUserId` 字段（孤儿 bug 防回归）。改 `schedules.ts` / `content.ts` 等涉及 content 插入的代码后必跑。
 - **Cron 列表（process-internal, single-instance only）：** trackingHours=12 / publishSeconds=60 / categoryTrainingHours=6 / autoSyncHours=24 / videoJobsSeconds=30 / **oauthStatesCleanupHours=24**（删 24h 前过期/消费的 `oauth_states`）。多实例部署需切换到 DB lock 或外部调度器。
 - **`GET /api/admin/publish-stats?windowHours=24`：** Admin-only 多平台发布失败率聚合（successRate / avgDurationMs / recentFailures top 20），用于运营巡检；`requireAdmin` 中间件需 `user.role === 'admin'`（首次注册时由 `INITIAL_ADMIN_EMAILS` 决定）。
+- **AI 用户级 rate limit (`middlewares/aiRateLimit.ts`)：** 所有 `/api/ai/*` 路由经过双层滑动窗口限流：30 次/min（短突发）+ 200 次/h（长持续）。命中返回 `429 { error: "rate_limited", retryAfterSec }` 并带 `Retry-After` 头。**进程内 Map，单实例语义**（与 cron 一致）；多实例部署需切换 Redis。可用 `AI_RATE_LIMIT_PER_MIN/_PER_HOUR` 环境变量调整。
+- **上游重试 (`lib/retry.ts` → `fetchWithRetry`)：** 仅 **幂等** 的轮询/下载路径包重试（Sora 2 处 + Seedance 1 处）；指数 800ms × 2^n + 0~30% jitter，上限 20s，429 尊重 `Retry-After`。**`createTask` POST 不重试**（Sora/Volcano Ark 都不支持 `Idempotency-Key`，重试会造成双重扣费 + 双重视频）。
 
 ## Pointers
 

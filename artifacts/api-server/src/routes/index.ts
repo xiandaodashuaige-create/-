@@ -21,6 +21,7 @@ import autoOnboardingRouter from "./autoOnboarding";
 import videoGenRouter from "./videoGen";
 import brandProfileRouter from "./brandProfile";
 import { requireAuth } from "../middlewares/requireAuth";
+import { aiRateLimit } from "../middlewares/aiRateLimit";
 
 const router: IRouter = Router();
 
@@ -40,6 +41,8 @@ router.use(adminRouter);
 router.use(accountsRouter);
 router.use(contentRouter);
 router.use(assetsRouter);
+// AI 路由全部走用户级 rate limit(在 requireAuth 之后,req.userId 已就绪)
+router.use("/ai", aiRateLimit);
 router.use(aiRouter);
 router.use(schedulesRouter);
 router.use(dashboardRouter);

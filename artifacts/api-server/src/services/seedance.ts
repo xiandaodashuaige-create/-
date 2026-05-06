@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger.js";
+import { fetchWithRetry } from "../lib/retry.js";
 
 /**
  * 豆包 Seedance（火山方舟）视频生成 — 全网最便宜的大厂方案。
@@ -81,6 +82,8 @@ export class SeedanceClient {
 
     (log || logger).info({ model, hasRef: !!input.referenceImageUrl, aspect: input.aspect, dur: input.durationSec }, "Seedance: creating video task");
 
+    // ⚠️ 同 sora.createTask:创建任务非幂等,Volcano Ark 不支持 Idempotency-Key。
+    // 重试可能造成双重扣费,故不走 fetchWithRetry。
     const res = await fetch(TASK_ENDPOINT, {
       method: "POST",
       headers: {
@@ -105,9 +108,12 @@ export class SeedanceClient {
     const start = Date.now();
 
     while (Date.now() - start < timeout) {
-      const res = await fetch(`${TASK_ENDPOINT}/${taskId}`, {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
-      });
+      const res = await fetchWithRetry(
+        () => fetch(`${TASK_ENDPOINT}/${taskId}`, {
+          headers: { Authorization: `Bearer ${this.apiKey}` },
+        }),
+        { label: "seedance.pollTask", log, maxRetries: 2 }, // 轮询本身循环,少重试
+      );
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(`Seedance poll ${res.status}: ${text.slice(0, 200)}`);

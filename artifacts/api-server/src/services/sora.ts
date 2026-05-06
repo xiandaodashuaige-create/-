@@ -1,4 +1,5 @@
 import { logger } from "../lib/logger.js";
+import { fetchWithRetry } from "../lib/retry.js";
 
 /**
  * OpenAI Sora 2 Pro 视频生成 — 高级电影级档位（仅 pro 用户使用）
@@ -66,6 +67,9 @@ export class SoraClient {
 
     (log || logger).info({ model: SORA_MODEL, size, seconds }, "Sora: creating video task");
 
+    // ⚠️ 创建任务是非幂等 POST,Sora API 不支持 Idempotency-Key。
+    // 重试 = 可能在上游已扣费的情况下二次创建任务 → 双重扣费 + 双重视频。
+    // 故此处不走重试,直接 fetch;429/5xx 让用户/调用方决定要不要重试。
     const res = await fetch(`${OPENAI_BASE}/videos`, {
       method: "POST",
       headers: this.headers(),
@@ -91,9 +95,12 @@ export class SoraClient {
     const start = Date.now();
 
     while (Date.now() - start < timeout) {
-      const res = await fetch(`${OPENAI_BASE}/videos/${taskId}`, {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
-      });
+      const res = await fetchWithRetry(
+        () => fetch(`${OPENAI_BASE}/videos/${taskId}`, {
+          headers: { Authorization: `Bearer ${this.apiKey}` },
+        }),
+        { label: "sora.pollTask", log, maxRetries: 2 }, // 轮询本身就是循环,少重试避免叠加
+      );
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         throw new Error(`Sora poll ${res.status}: ${text.slice(0, 200)}`);
@@ -112,9 +119,12 @@ export class SoraClient {
   }
 
   async downloadContent(taskId: string): Promise<Buffer> {
-    const res = await fetch(`${OPENAI_BASE}/videos/${taskId}/content`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
-    });
+    const res = await fetchWithRetry(
+      () => fetch(`${OPENAI_BASE}/videos/${taskId}/content`, {
+        headers: { Authorization: `Bearer ${this.apiKey}` },
+      }),
+      { label: "sora.download" },
+    );
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`Sora download ${res.status}: ${text.slice(0, 200)}`);
