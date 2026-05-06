@@ -12,7 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import {
   Users, Coins, TrendingUp, Shield, Plus, Minus,
-  Loader2, Crown, User, ChevronDown, ChevronUp, History
+  Loader2, Crown, User, ChevronDown, ChevronUp, History,
+  Server, Database, Brain, Globe
 } from "lucide-react";
 
 export default function AdminPage() {
@@ -332,6 +333,59 @@ export default function AdminPage() {
               ))}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* 系统信息（从 /settings 迁过来） */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Server className="h-4 w-4" /> {t("admin.systemInfo")}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">{t("admin.systemInfoDesc")}</p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Brain className="h-3.5 w-3.5" /> {t("admin.aiConfig")}
+              </div>
+              <div className="flex flex-wrap gap-1.5 pl-5">
+                <Badge variant="outline" className="text-[11px]">GPT-4o Mini</Badge>
+                <Badge variant="outline" className="text-[11px]">GPT-5 Mini</Badge>
+                <Badge variant="outline" className="text-[11px]">Volcano Ark</Badge>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Globe className="h-3.5 w-3.5" /> {t("admin.supportedRegions")}
+              </div>
+              <div className="flex flex-wrap gap-1.5 pl-5">
+                <Badge variant="outline" className="text-[11px]">{t("region.SG")}</Badge>
+                <Badge variant="outline" className="text-[11px]">{t("region.HK")}</Badge>
+                <Badge variant="outline" className="text-[11px]">{t("region.MY")}</Badge>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Database className="h-3.5 w-3.5" /> {t("admin.database")}
+              </div>
+              <div className="flex flex-wrap gap-1.5 pl-5">
+                <Badge variant="outline" className="text-[11px]">PostgreSQL</Badge>
+                <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-[11px]">{t("admin.connected")}</Badge>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Server className="h-3.5 w-3.5" /> {t("admin.version")}
+              </div>
+              <div className="flex flex-wrap gap-1.5 pl-5">
+                <Badge variant="outline" className="text-[11px]">v1.0.0</Badge>
+                <Badge variant="outline" className="text-[11px]">React + Vite</Badge>
+                <Badge variant="outline" className="text-[11px]">Express + Drizzle</Badge>
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
