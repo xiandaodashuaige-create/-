@@ -1285,7 +1285,7 @@ export default function AutopilotPage() {
 
       {/* 进度 */}
       <Card className="p-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-1 sm:gap-2 overflow-x-auto">
           {[
             { key: "setup", label: t("autopilot.step.setup"), icon: FileEdit },
             { key: "running", label: t("autopilot.step.running"), icon: Brain },
@@ -1300,14 +1300,14 @@ export default function AutopilotPage() {
             const active = myIdx === currentIdx;
             const Icon = s.icon;
             return (
-              <div key={s.key} className="flex items-center flex-1">
-                <div className={`flex flex-col items-center gap-1 ${active ? "text-primary" : done ? "text-emerald-600" : "text-muted-foreground/50"}`}>
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition ${active ? "border-primary bg-primary/10" : done ? "border-emerald-500 bg-emerald-50" : "border-muted-foreground/20"}`}>
-                    {step === "running" && active ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+              <div key={s.key} className="flex items-center flex-1 min-w-0">
+                <div className={`flex flex-col items-center gap-1 min-w-0 ${active ? "text-primary" : done ? "text-emerald-600" : "text-muted-foreground/50"}`} title={s.label}>
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition shrink-0 ${active ? "border-primary bg-primary/10" : done ? "border-emerald-500 bg-emerald-50" : "border-muted-foreground/20"}`}>
+                    {step === "running" && active ? <Loader2 className="h-4 w-4 animate-spin" /> : done ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                   </div>
-                  <span className="text-xs font-medium">{s.label}</span>
+                  <span className="text-[11px] sm:text-xs font-medium truncate max-w-full">{s.label}</span>
                 </div>
-                {i < arr.length - 1 && <ArrowRight className="h-3 w-3 mx-2 text-muted-foreground/40 flex-shrink-0" />}
+                {i < arr.length - 1 && <ArrowRight className="h-3 w-3 mx-0.5 sm:mx-2 text-muted-foreground/40 flex-shrink-0 self-start mt-3" />}
               </div>
             );
           })}

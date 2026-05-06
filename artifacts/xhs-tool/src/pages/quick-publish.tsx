@@ -192,9 +192,9 @@ export default function QuickPublishPage() {
 
       {/* 进度 */}
       <Card className="p-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-1 sm:gap-2 overflow-x-auto">
           {[
-            { n: 1, label: "选账号 + 上传", icon: Upload },
+            { n: 1, label: "上传素材", icon: Upload },
             { n: 2, label: "写文案", icon: Wand2 },
             { n: 3, label: "选时间", icon: CalendarIcon },
             { n: 4, label: "完成", icon: CheckCircle2 },
@@ -203,14 +203,14 @@ export default function QuickPublishPage() {
             const done = step > s.n;
             const active = step === s.n;
             return (
-              <div key={s.n} className="flex items-center flex-1">
-                <div className={`flex flex-col items-center gap-1 ${active ? "text-primary" : done ? "text-emerald-600" : "text-muted-foreground/50"}`}>
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition ${active ? "border-primary bg-primary/10" : done ? "border-emerald-500 bg-emerald-50" : "border-muted-foreground/20"}`}>
-                    <Icon className="h-4 w-4" />
+              <div key={s.n} className="flex items-center flex-1 min-w-0">
+                <div className={`flex flex-col items-center gap-1 min-w-0 ${active ? "text-primary" : done ? "text-emerald-600" : "text-muted-foreground/50"}`}>
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center border-2 transition shrink-0 ${active ? "border-primary bg-primary/10" : done ? "border-emerald-500 bg-emerald-50" : "border-muted-foreground/20"}`}>
+                    {done ? <CheckCircle2 className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
                   </div>
-                  <span className="text-xs font-medium">{s.label}</span>
+                  <span className="text-[11px] sm:text-xs font-medium truncate max-w-full">{s.label}</span>
                 </div>
-                {i < arr.length - 1 && <ArrowRight className="h-3 w-3 mx-2 text-muted-foreground/40 flex-shrink-0" />}
+                {i < arr.length - 1 && <ArrowRight className="h-3 w-3 mx-1 sm:mx-2 text-muted-foreground/40 flex-shrink-0 self-start mt-3" />}
               </div>
             );
           })}
@@ -270,10 +270,14 @@ export default function QuickPublishPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-2 block">
+            <label className="text-sm font-medium mb-1 block">
               上传你的{isVideoPlatform ? "视频" : "图片或视频"}
-              {isVideoPlatform && <span className="text-xs text-muted-foreground ml-2">TikTok 推荐 9:16 竖屏视频</span>}
             </label>
+            {isVideoPlatform && (
+              <p className="text-xs text-muted-foreground mb-2">
+                建议 9:16 竖屏 · 最长 60s · 单文件 ≤ 100MB
+              </p>
+            )}
 
             {media.length > 0 && (
               <div className="grid grid-cols-3 gap-2 mb-3">
