@@ -259,15 +259,13 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
       return;
     }
 
-    // 评审建议：幂等去重 — 已存在 (account, scheduledAt) 完全相同的 schedule 则跳过
-    // 防止用户在 done 步骤连点 CTA、或当前 done 内容碰巧排到明天时撞日
-    // 注：同请求并发场景仍需后续给 schedules(account_id, scheduled_at) 加唯一索引 + ON CONFLICT 才能彻底闭环
+    // 幂等去重 — 已存在 (account, scheduledAt) 完全相同的 schedule 则跳过
+    // 第一道：进程内 pre-check 过滤 99% 的撞日（同请求 items 重复 + 已落库）
     const existingScheduledAt = await db
       .select({ scheduledAt: schedulesTable.scheduledAt })
       .from(schedulesTable)
       .where(eq(schedulesTable.accountId, account.id));
     const seenTimes = new Set(existingScheduledAt.map((r) => r.scheduledAt.getTime()));
-    // 1) 跳过 DB 已有的；2) 同批 items 自身重复 scheduledAt 也只保留首条
     const filtered: typeof prepared = [];
     for (const item of prepared) {
       const t = item.scheduledAt.getTime();
@@ -275,38 +273,52 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
       seenTimes.add(t);
       filtered.push(item);
     }
-    const skipped = prepared.length - filtered.length;
+    let skipped = prepared.length - filtered.length;
 
-    // 事务：失败整体回滚
-    const created = await db.transaction(async (tx) => {
-      const out: Array<{ contentId: number; scheduleId: number; scheduledAt: Date }> = [];
-      for (const { item, scheduledAt } of filtered) {
-        const [content] = await tx
-          .insert(contentTable)
-          .values({
-            accountId: account.id,
-            platform: account.platform,
-            title: (item.title || "未命名").slice(0, 200),
-            body: item.body || "",
-            tags: Array.isArray(item.tags) ? item.tags.slice(0, 10) : [],
-            imageUrls: [],
-            status: "scheduled",
-            scheduledAt,
-          })
-          .returning();
-        const [schedule] = await tx
-          .insert(schedulesTable)
-          .values({
-            contentId: content.id,
-            accountId: account.id,
-            platform: account.platform,
-            scheduledAt,
-          })
-          .returning();
-        out.push({ contentId: content.id, scheduleId: schedule.id, scheduledAt });
+    // 第二道：DB 唯一索引 schedules(account_id, scheduled_at) + onConflictDoNothing
+    // 跨请求并发的硬性闭环；冲突的 item 用 savepoint 回滚掉孤儿 content，并计入 skipped
+    const created: Array<{ contentId: number; scheduleId: number; scheduledAt: Date }> = [];
+    for (const { item, scheduledAt } of filtered) {
+      try {
+        const result = await db.transaction(async (sp) => {
+          const [content] = await sp
+            .insert(contentTable)
+            .values({
+              accountId: account.id,
+              platform: account.platform,
+              title: (item.title || "未命名").slice(0, 200),
+              body: item.body || "",
+              tags: Array.isArray(item.tags) ? item.tags.slice(0, 10) : [],
+              imageUrls: [],
+              status: "scheduled",
+              scheduledAt,
+            })
+            .returning();
+          const inserted = await sp
+            .insert(schedulesTable)
+            .values({
+              contentId: content.id,
+              accountId: account.id,
+              platform: account.platform,
+              scheduledAt,
+            })
+            .onConflictDoNothing({ target: [schedulesTable.accountId, schedulesTable.scheduledAt] })
+            .returning();
+          if (!inserted.length) {
+            // 唯一索引命中：抛错让 savepoint 回滚 content 孤儿
+            throw new Error("__schedule_conflict__");
+          }
+          return { contentId: content.id, scheduleId: inserted[0].id, scheduledAt };
+        });
+        created.push(result);
+      } catch (e: any) {
+        if (e?.message === "__schedule_conflict__") {
+          skipped++;
+          continue;
+        }
+        throw e;
       }
-      return out;
-    });
+    }
 
     res.status(201).json({ created: created.length, skipped, items: created });
   } catch (err) {
@@ -394,47 +406,63 @@ router.post("/schedules/duplicate-weeks", async (req, res): Promise<void> => {
       ));
     const existingTimes = new Set(existingTargets.map((s) => s.scheduledAt.getTime()));
 
-    const totalCreated = await db.transaction(async (tx) => {
-      let n = 0;
-      for (let w = 1; w <= weeksClamped; w++) {
-        const offsetMs = w * 7 * 24 * 60 * 60 * 1000;
-        for (const sch of srcSchedules) {
-          const src = contentMap.get(sch.contentId);
-          if (!src) continue;
-          const newScheduledAt = new Date(sch.scheduledAt.getTime() + offsetMs);
-          if (existingTimes.has(newScheduledAt.getTime())) continue; // 幂等去重
+    // 每条 item 独立 savepoint：DB 唯一索引命中时回滚孤儿 content；与 bulk-create 同模式
+    let totalCreated = 0;
+    let totalSkipped = 0;
+    for (let w = 1; w <= weeksClamped; w++) {
+      const offsetMs = w * 7 * 24 * 60 * 60 * 1000;
+      for (const sch of srcSchedules) {
+        const src = contentMap.get(sch.contentId);
+        if (!src) continue;
+        const newScheduledAt = new Date(sch.scheduledAt.getTime() + offsetMs);
+        if (existingTimes.has(newScheduledAt.getTime())) { totalSkipped++; continue; }
 
-          const [newContent] = await tx
-            .insert(contentTable)
-            .values({
-              accountId: src.accountId,
-              platform: src.platform,
-              parentContentId: src.id,
-              mediaType: src.mediaType,
-              title: src.title,
-              body: src.body,
-              originalReference: src.originalReference,
-              tags: src.tags,
-              imageUrls: src.imageUrls,
-              videoUrl: src.videoUrl,
-              status: "scheduled",
-              scheduledAt: newScheduledAt,
-            })
-            .returning();
-          await tx.insert(schedulesTable).values({
-            contentId: newContent.id,
-            accountId: sch.accountId,
-            platform: sch.platform,
-            scheduledAt: newScheduledAt,
+        try {
+          await db.transaction(async (sp) => {
+            const [newContent] = await sp
+              .insert(contentTable)
+              .values({
+                accountId: src.accountId,
+                platform: src.platform,
+                parentContentId: src.id,
+                mediaType: src.mediaType,
+                title: src.title,
+                body: src.body,
+                originalReference: src.originalReference,
+                tags: src.tags,
+                imageUrls: src.imageUrls,
+                videoUrl: src.videoUrl,
+                status: "scheduled",
+                scheduledAt: newScheduledAt,
+              })
+              .returning();
+            const inserted = await sp
+              .insert(schedulesTable)
+              .values({
+                contentId: newContent.id,
+                accountId: sch.accountId,
+                platform: sch.platform,
+                scheduledAt: newScheduledAt,
+              })
+              .onConflictDoNothing({ target: [schedulesTable.accountId, schedulesTable.scheduledAt] })
+              .returning({ id: schedulesTable.id });
+            if (!inserted.length) {
+              throw new Error("__schedule_conflict__");
+            }
           });
           existingTimes.add(newScheduledAt.getTime());
-          n++;
+          totalCreated++;
+        } catch (e: any) {
+          if (e?.message === "__schedule_conflict__") {
+            totalSkipped++;
+            continue;
+          }
+          throw e;
         }
       }
-      return n;
-    });
+    }
 
-    res.status(201).json({ created: totalCreated, weeks: weeksClamped });
+    res.status(201).json({ created: totalCreated, skipped: totalSkipped, weeks: weeksClamped });
   } catch (err) {
     req.log.error(err, "Failed to duplicate schedule weeks");
     res.status(500).json({ error: "Internal server error" });

@@ -15,6 +15,8 @@ export const videoJobsTable = pgTable(
     result: jsonb("result").$type<Record<string, unknown> | null>(),
     error: text("error"),
     creditsRefunded: integer("credits_refunded").notNull().default(0),
+    // 该任务实际扣的积分（写入与扣费同事务）。退款时读这个字段，避免 dedup hit / 漏扣 时盲目退款导致负余额造币
+    chargedAmount: integer("charged_amount").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

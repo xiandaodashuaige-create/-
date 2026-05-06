@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { eq, and, inArray, lt } from "drizzle-orm";
-import { db, videoJobsTable, type VideoJobRow } from "@workspace/db";
+import { eq, and, inArray, lt, gte, sql } from "drizzle-orm";
+import { db, videoJobsTable, usersTable, creditTransactionsTable, type VideoJobRow } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { SeedanceClient, type SeedanceAspect } from "./seedance.js";
 import { SoraClient, type SoraSize } from "./sora.js";
 import { generateVideoCreativePlan, type GenerateVideoPlanInput, type VideoCreativePlan } from "./videoPipeline.js";
 import { burnSubtitles } from "./videoComposer.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
-import { refundCredits, CREDIT_COSTS } from "../middlewares/creditSystem.js";
+import { refundCredits } from "../middlewares/creditSystem.js";
 
 export type VideoProvider = "seedance" | "sora-pro";
 
@@ -198,21 +198,33 @@ async function tryRunJob(jobId: string, userId: number): Promise<void> {
   } catch (err: any) {
     const msg = err?.message ?? "unknown";
     logger.error({ err: msg, jobId, userId }, "video job failed");
-    try {
-      // 失败自动退款（幂等：credits_refunded 已置位则跳过）
-      const [cur] = await db.select().from(videoJobsTable).where(eq(videoJobsTable.id, jobId));
-      if (cur && cur.creditsRefunded === 0) {
-        const curInput = cur.input as unknown as VideoJob["input"];
-        const opKey = curInput?.provider === "sora-pro" ? "ai-generate-video-sora" : "ai-generate-video";
-        const refundAmount = CREDIT_COSTS[opKey] ?? 0;
-        if (refundAmount > 0) {
-          await refundCredits(userId, refundAmount, opKey, String(msg).slice(0, 80));
+    // 失败自动退款 — CAS 原子门闩：只有把 credits_refunded 0→1 改成功的那一次才执行退款
+    // 防止 cron 重抢 + 当前进程 catch 同时进入退款逻辑造成双退（积分净增）
+    const claimed = await db
+      .update(videoJobsTable)
+      .set({ creditsRefunded: 1 })
+      .where(and(eq(videoJobsTable.id, jobId), eq(videoJobsTable.creditsRefunded, 0)))
+      .returning({ chargedAmount: videoJobsTable.chargedAmount, input: videoJobsTable.input });
+    if (claimed[0] && claimed[0].chargedAmount > 0) {
+      const curInput = claimed[0].input as unknown as VideoJob["input"];
+      const opKey = curInput?.provider === "sora-pro" ? "ai-generate-video-sora" : "ai-generate-video";
+      try {
+        await refundCredits(userId, claimed[0].chargedAmount, opKey, String(msg).slice(0, 80));
+      } catch (rErr: any) {
+        // 退款写库失败 → 必须回滚门闩，让 cron 后续 tick 重新进入退款分支重试
+        // 否则 credits_refunded=1 永久占位 → 用户钱永远退不回来（积分守恒被破坏）
+        logger.error({ err: rErr?.message, userId, jobId }, "refund failed; rolling back credits_refunded latch for retry");
+        try {
+          await db
+            .update(videoJobsTable)
+            .set({ creditsRefunded: 0 })
+            .where(eq(videoJobsTable.id, jobId));
+        } catch (rollbackErr: any) {
+          logger.error({ err: rollbackErr?.message, userId, jobId }, "CRITICAL: failed to roll back refund latch — manual reconciliation required");
         }
-        await patchJob(jobId, { creditsRefunded: 1 });
       }
-    } catch (rErr: any) {
-      logger.error({ err: rErr?.message, userId, jobId }, "refund failed");
     }
+    // chargedAmount=0（dedup hit / admin / 漏扣）的情况下，门闩已闭合但不退款，避免造币
     await patchJob(jobId, {
       status: "failed",
       error: String(msg).slice(0, 500),
@@ -253,36 +265,82 @@ export async function runVideoJobsTick(): Promise<void> {
   }
 }
 
+export class InsufficientCreditsError extends Error {
+  constructor(public required: number, public available: number) {
+    super(`insufficient_credits: required=${required} available=${available}`);
+    this.name = "InsufficientCreditsError";
+  }
+}
+
 export async function enqueueVideoJob(
   userId: number,
   input: GenerateVideoPlanInput & { tier?: "lite" | "pro"; burnSubtitles?: boolean; provider?: VideoProvider },
+  charge?: { amount: number; opKey: string; isAdmin?: boolean },
 ): Promise<{ job: VideoJob; created: boolean }> {
-  // 单用户去重：找到 in-flight 任务直接返回
-  const inflightRows = await db
-    .select()
-    .from(videoJobsTable)
-    .where(
-      and(
-        eq(videoJobsTable.ownerUserId, userId),
-        inArray(videoJobsTable.status, ["queued", "planning", "generating", "composing", "uploading"]),
-      ),
-    )
-    .limit(1);
-  if (inflightRows[0]) {
-    return { job: rowToJob(inflightRows[0]), created: false };
-  }
-
   const id = randomUUID();
-  const [row] = await db
-    .insert(videoJobsTable)
-    .values({
-      id,
-      ownerUserId: userId,
-      status: "queued",
-      progress: 0,
-      input: input as unknown as Record<string, unknown>,
-    })
-    .returning();
+
+  // 把 in-flight 去重 + 扣费 + 插入 行 三步放在一个事务里，避免 dedup 命中却又扣了费 / 漏退款 等竞态
+  const result = await db.transaction(async (tx) => {
+    // 数据库级互斥：同一 userId 的 enqueue 串行化（事务结束自动释放）
+    // 仅事务包裹不够：并发请求会同时通过 in-flight 检查 → 双扣费 + 双 job
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${userId})`);
+    const inflightRows = await tx
+      .select()
+      .from(videoJobsTable)
+      .where(
+        and(
+          eq(videoJobsTable.ownerUserId, userId),
+          inArray(videoJobsTable.status, ["queued", "planning", "generating", "composing", "uploading"]),
+        ),
+      )
+      .limit(1);
+    if (inflightRows[0]) {
+      return { row: inflightRows[0], created: false as const };
+    }
+
+    let chargedAmount = 0;
+    if (charge && charge.amount > 0 && !charge.isAdmin) {
+      const updated = await tx
+        .update(usersTable)
+        .set({
+          credits: sql`GREATEST(0, ${usersTable.credits} - ${charge.amount})`,
+          totalCreditsUsed: sql`${usersTable.totalCreditsUsed} + ${charge.amount}`,
+        })
+        .where(and(eq(usersTable.id, userId), gte(usersTable.credits, charge.amount)))
+        .returning({ newCredits: usersTable.credits });
+      if (!updated.length) {
+        const [u] = await tx.select({ credits: usersTable.credits }).from(usersTable).where(eq(usersTable.id, userId));
+        throw new InsufficientCreditsError(charge.amount, u?.credits ?? 0);
+      }
+      await tx.insert(creditTransactionsTable).values({
+        userId,
+        amount: -charge.amount,
+        balanceAfter: updated[0].newCredits,
+        type: "deduct",
+        operationType: charge.opKey,
+        description: charge.opKey,
+      });
+      chargedAmount = charge.amount;
+    }
+
+    const [inserted] = await tx
+      .insert(videoJobsTable)
+      .values({
+        id,
+        ownerUserId: userId,
+        status: "queued",
+        progress: 0,
+        input: input as unknown as Record<string, unknown>,
+        chargedAmount,
+      })
+      .returning();
+    return { row: inserted, created: true as const };
+  });
+
+  if (!result.created) {
+    return { job: rowToJob(result.row), created: false };
+  }
+  const row = result.row;
 
   setImmediate(() => { void runVideoJobsTick(); });
   return { job: rowToJob(row), created: true };

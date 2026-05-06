@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { ensureUser } from "../middlewares/creditSystem.js";
 import { requireCredits, deductCredits } from "../middlewares/creditSystem.js";
-import { enqueueVideoJob, getVideoJob } from "../services/videoJobs.js";
+import { enqueueVideoJob, getVideoJob, InsufficientCreditsError } from "../services/videoJobs.js";
 import { generateVideoCreativePlan } from "../services/videoPipeline.js";
 import type { SeedanceAspect } from "../services/seedance.js";
 
@@ -55,39 +55,47 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
   if (!b.newTopic || typeof b.newTopic !== "string") { res.status(400).json({ error: "newTopic is required" }); return; }
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
 
-  const { job, created } = await enqueueVideoJob(user.id, {
-    userId: user.id,
-    platform,
-    newTopic: b.newTopic,
-    newTitle: typeof b.newTitle === "string" ? b.newTitle : undefined,
-    newKeyPoints: Array.isArray(b.newKeyPoints) ? b.newKeyPoints.filter((x: any) => typeof x === "string") : undefined,
-    niche: typeof b.niche === "string" ? b.niche : null,
-    region: typeof b.region === "string" ? b.region : null,
-    mimicStrength: b.mimicStrength === "full" || b.mimicStrength === "minimal" ? b.mimicStrength : "partial",
-    referenceVideo: b.referenceVideo && typeof b.referenceVideo === "object" ? b.referenceVideo : null,
-    customSubtitles: Array.isArray(b.customSubtitles) ? b.customSubtitles : null,
-    customEmojis: Array.isArray(b.customEmojis) ? b.customEmojis.filter((x: any) => typeof x === "string") : null,
-    customBgmMood: typeof b.customBgmMood === "string" ? b.customBgmMood : null,
-    preferredAspect: isAspect(b.aspect) ? b.aspect : null,
-    preferredDurationSec: b.durationSec === 5 || b.durationSec === 10 ? b.durationSec : null,
-    extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
-    tier: b.tier === "pro" ? "pro" : "lite",
-    burnSubtitles: b.burnSubtitles !== false,
-  });
+  try {
+    const { job, created } = await enqueueVideoJob(user.id, {
+      userId: user.id,
+      platform,
+      newTopic: b.newTopic,
+      newTitle: typeof b.newTitle === "string" ? b.newTitle : undefined,
+      newKeyPoints: Array.isArray(b.newKeyPoints) ? b.newKeyPoints.filter((x: any) => typeof x === "string") : undefined,
+      niche: typeof b.niche === "string" ? b.niche : null,
+      region: typeof b.region === "string" ? b.region : null,
+      mimicStrength: b.mimicStrength === "full" || b.mimicStrength === "minimal" ? b.mimicStrength : "partial",
+      referenceVideo: b.referenceVideo && typeof b.referenceVideo === "object" ? b.referenceVideo : null,
+      customSubtitles: Array.isArray(b.customSubtitles) ? b.customSubtitles : null,
+      customEmojis: Array.isArray(b.customEmojis) ? b.customEmojis.filter((x: any) => typeof x === "string") : null,
+      customBgmMood: typeof b.customBgmMood === "string" ? b.customBgmMood : null,
+      preferredAspect: isAspect(b.aspect) ? b.aspect : null,
+      preferredDurationSec: b.durationSec === 5 || b.durationSec === 10 ? b.durationSec : null,
+      extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
+      tier: b.tier === "pro" ? "pro" : "lite",
+      burnSubtitles: b.burnSubtitles !== false,
+    }, {
+      amount: req.creditCost ?? 0,
+      opKey: "ai-generate-video",
+      isAdmin: user.role === "admin",
+    });
 
-  // 仅新建任务时扣费；命中已有去重任务直接返回，不重复扣
-  if (created) {
-    await deductCredits(req, "ai-generate-video");
+    res.status(202).json({
+      jobId: job.id,
+      status: job.status,
+      deduplicated: !created,
+      message: created
+        ? `视频生成任务已入队，请轮询 /api/ai/video-job?jobId=${job.id}（一般 1-3 分钟）`
+        : `已有进行中的视频任务（jobId=${job.id}），未重复扣费`,
+    });
+  } catch (err: any) {
+    if (err instanceof InsufficientCreditsError) {
+      res.status(402).json({ error: "insufficient_credits", required: err.required, available: err.available });
+      return;
+    }
+    req.log.error(err, "enqueue video job failed");
+    res.status(500).json({ error: "视频任务入队失败，请稍后重试", message: err?.message });
   }
-
-  res.status(202).json({
-    jobId: job.id,
-    status: job.status,
-    deduplicated: !created,
-    message: created
-      ? `视频生成任务已入队，请轮询 /api/ai/video-job?jobId=${job.id}（一般 1-3 分钟）`
-      : `已有进行中的视频任务（jobId=${job.id}），未重复扣费`,
-  });
 });
 
 // ── POST /api/ai/generate-video-sora ────────────────────────────────────
@@ -103,38 +111,47 @@ router.post("/ai/generate-video-sora", requireCredits("ai-generate-video-sora"),
   if (!b.newTopic || typeof b.newTopic !== "string") { res.status(400).json({ error: "newTopic is required" }); return; }
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
 
-  const { job, created } = await enqueueVideoJob(user.id, {
-    userId: user.id,
-    platform,
-    newTopic: b.newTopic,
-    newTitle: typeof b.newTitle === "string" ? b.newTitle : undefined,
-    newKeyPoints: Array.isArray(b.newKeyPoints) ? b.newKeyPoints.filter((x: any) => typeof x === "string") : undefined,
-    niche: typeof b.niche === "string" ? b.niche : null,
-    region: typeof b.region === "string" ? b.region : null,
-    mimicStrength: b.mimicStrength === "full" || b.mimicStrength === "minimal" ? b.mimicStrength : "partial",
-    referenceVideo: b.referenceVideo && typeof b.referenceVideo === "object" ? b.referenceVideo : null,
-    customSubtitles: Array.isArray(b.customSubtitles) ? b.customSubtitles : null,
-    customEmojis: Array.isArray(b.customEmojis) ? b.customEmojis.filter((x: any) => typeof x === "string") : null,
-    customBgmMood: typeof b.customBgmMood === "string" ? b.customBgmMood : null,
-    preferredAspect: isAspect(b.aspect) ? b.aspect : null,
-    preferredDurationSec: b.durationSec === 5 || b.durationSec === 10 ? b.durationSec : null,
-    extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
-    provider: "sora-pro",
-    burnSubtitles: b.burnSubtitles === true, // Sora 默认不烧字幕，保留电影感
-  });
+  try {
+    const { job, created } = await enqueueVideoJob(user.id, {
+      userId: user.id,
+      platform,
+      newTopic: b.newTopic,
+      newTitle: typeof b.newTitle === "string" ? b.newTitle : undefined,
+      newKeyPoints: Array.isArray(b.newKeyPoints) ? b.newKeyPoints.filter((x: any) => typeof x === "string") : undefined,
+      niche: typeof b.niche === "string" ? b.niche : null,
+      region: typeof b.region === "string" ? b.region : null,
+      mimicStrength: b.mimicStrength === "full" || b.mimicStrength === "minimal" ? b.mimicStrength : "partial",
+      referenceVideo: b.referenceVideo && typeof b.referenceVideo === "object" ? b.referenceVideo : null,
+      customSubtitles: Array.isArray(b.customSubtitles) ? b.customSubtitles : null,
+      customEmojis: Array.isArray(b.customEmojis) ? b.customEmojis.filter((x: any) => typeof x === "string") : null,
+      customBgmMood: typeof b.customBgmMood === "string" ? b.customBgmMood : null,
+      preferredAspect: isAspect(b.aspect) ? b.aspect : null,
+      preferredDurationSec: b.durationSec === 5 || b.durationSec === 10 ? b.durationSec : null,
+      extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
+      provider: "sora-pro",
+      burnSubtitles: b.burnSubtitles === true, // Sora 默认不烧字幕，保留电影感
+    }, {
+      amount: req.creditCost ?? 0,
+      opKey: "ai-generate-video-sora",
+      isAdmin: user.role === "admin",
+    });
 
-  if (created) {
-    await deductCredits(req, "ai-generate-video-sora");
+    res.status(202).json({
+      jobId: job.id,
+      status: job.status,
+      deduplicated: !created,
+      message: created
+        ? `Sora 高清视频任务已入队，请轮询 /api/ai/video-job?jobId=${job.id}（一般 2-5 分钟）`
+        : `已有进行中的视频任务（jobId=${job.id}），未重复扣费`,
+    });
+  } catch (err: any) {
+    if (err instanceof InsufficientCreditsError) {
+      res.status(402).json({ error: "insufficient_credits", required: err.required, available: err.available });
+      return;
+    }
+    req.log.error(err, "enqueue sora video job failed");
+    res.status(500).json({ error: "Sora 视频任务入队失败，请稍后重试", message: err?.message });
   }
-
-  res.status(202).json({
-    jobId: job.id,
-    status: job.status,
-    deduplicated: !created,
-    message: created
-      ? `Sora 高清视频任务已入队，请轮询 /api/ai/video-job?jobId=${job.id}（一般 2-5 分钟）`
-      : `已有进行中的视频任务（jobId=${job.id}），未重复扣费`,
-  });
 });
 
 // ── GET /api/ai/video-job?jobId=xxx ─────────────────────────────────────
