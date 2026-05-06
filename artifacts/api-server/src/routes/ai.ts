@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
 import { localScan } from "../services/sensitiveWordFilter.js";
-import { db, sensitiveWordsTable, imageReferencesTable, usersTable, assetsTable, accountsTable, contentTable } from "@workspace/db";
+import { db, sensitiveWordsTable, imageReferencesTable, usersTable, assetsTable, accountsTable, contentTable, brandProfilesTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import {
   AiRewriteContentBody,
@@ -1743,6 +1743,29 @@ router.post("/ai/generate-weekly-plan", requireCredits("ai-guide"), async (req, 
       maxPosts: 10,
     });
 
+    // 拉品牌画像（per-platform），把 category/products/audience/tone/forbiddenClaims/conversionGoal 注入 prompt
+    const [brand] = await db
+      .select()
+      .from(brandProfilesTable)
+      .where(and(eq(brandProfilesTable.ownerUserId, u.id), eq(brandProfilesTable.platform, body.platform)));
+    let brandBlock = "";
+    if (brand) {
+      const lines: string[] = [];
+      if (brand.category) lines.push(`类目：${brand.category}`);
+      if (brand.products) lines.push(`商品：${brand.products}`);
+      if (brand.targetAudience) lines.push(`目标受众：${brand.targetAudience}`);
+      if (brand.priceRange) lines.push(`价位带：${brand.priceRange}`);
+      if (brand.tone) lines.push(`品牌调性：${brand.tone}`);
+      if (brand.conversionGoal) lines.push(`转化目标：${brand.conversionGoal}`);
+      const forbidden = Array.isArray(brand.forbiddenClaims) ? brand.forbiddenClaims.filter((x) => typeof x === "string" && x.trim().length > 0) : [];
+      if (forbidden.length > 0) lines.push(`【禁用宣称】（绝对不能出现，包括同义词/暗示/反问）：${forbidden.join("、")}`);
+      if (lines.length > 0) {
+        // 截断防止用户填的超长品牌资料挤掉 prompt 主体或被模型误读为指令
+        const body = lines.join("\n").slice(0, 1500);
+        brandBlock = `\n\n[品牌画像 — 必须严格遵守]\n${body}`;
+      }
+    }
+
     const items = await generateWeeklyPlan({
       platform: body.platform,
       niche: body.niche.trim(),
@@ -1753,6 +1776,7 @@ router.post("/ai/generate-weekly-plan", requireCredits("ai-guide"), async (req, 
       language: body.language === "en" ? "en" : "zh",
       viralPromptBlock: viral.promptBlock,
       viralHashtags: viral.topHashtags,
+      brandBlock,
     });
 
     await deductCredits(req, "ai-guide");

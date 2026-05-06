@@ -22,6 +22,8 @@ export type GenerateWeeklyPlanInput = {
   // 已收集爆款数据上下文（必须传入，由路由层 loadViralContext() 注入）
   viralPromptBlock?: string;
   viralHashtags?: string[];
+  // 品牌画像（per-platform，由路由层从 brandProfilesTable 读出后拼成 prompt 片段）
+  brandBlock?: string;
 };
 
 const FREQ_DESC: Record<NonNullable<GenerateWeeklyPlanInput["frequency"]>, string> = {
@@ -66,8 +68,12 @@ export async function generateWeeklyPlan(input: GenerateWeeklyPlanInput): Promis
   const peakTimes = PEAK_TIMES[input.platform].join(" / ");
 
   const viralBlock = input.viralPromptBlock ?? "";
+  const brandBlock = input.brandBlock ?? "";
   const hashtagHint = input.viralHashtags && input.viralHashtags.length > 0
     ? `\n7) tags 必须从这批已收集的高频/热门 hashtags 里至少挑 50%：${input.viralHashtags.slice(0, 12).map((t) => `#${t}`).join(" ")}，再补充 1-2 个长尾词；不要凭空生造。`
+    : "";
+  const brandRules = brandBlock
+    ? `\n8) 必须严格符合下方"品牌画像"：所有内容紧贴目标受众/品牌调性/转化目标；任何【禁用宣称】绝对不能出现（哪怕是同义词、暗示、反问句）；如涉及商品请围绕清单内的产品。`
     : "";
 
   const systemPrompt = `你是${input.platform.toUpperCase()}内容运营策略师。生成一份覆盖未来 7 天的发布计划。
@@ -80,8 +86,8 @@ export async function generateWeeklyPlan(input: GenerateWeeklyPlanInput): Promis
 3) time 用 24h "HH:mm"，挑建议时段里的合适点
 4) 每条 body 必须是完整可发布的草稿，不是大纲；钩子/句式/节奏必须借鉴下方"爆款样本"
 5) tags 不带 #
-6) imagePrompt 用一句简短英文/中文描述配图视觉，视觉风格也要参考样本${hashtagHint}
-输出格式（严格 JSON）：{ "items": [ { "dayOffset": 0, "time": "20:00", "topic": "...", "title": "...", "body": "...", "tags": ["...","..."], "imagePrompt": "..." } ] }${viralBlock}`;
+6) imagePrompt 用一句简短英文/中文描述配图视觉，视觉风格也要参考样本${hashtagHint}${brandRules}
+输出格式（严格 JSON）：{ "items": [ { "dayOffset": 0, "time": "20:00", "topic": "...", "title": "...", "body": "...", "tags": ["...","..."], "imagePrompt": "..." } ] }${brandBlock}${viralBlock}`;
 
   const userPrompt = `行业 / 业务：${input.niche}
 ${input.region ? `目标地区：${input.region}\n` : ""}${input.audience ? `目标受众：${input.audience}\n` : ""}${input.styleHints ? `风格偏好：${input.styleHints}\n` : ""}语言：${lang === "zh" ? "中文" : "English"}

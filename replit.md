@@ -64,12 +64,14 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 
 - **OAuth Account Binding:** `POST /api/strategy/:id/approve` returns `400 no_account` if no platform account is bound.
 - **Ayrshare profileKey:** Do not use "default" as `ayrshareProfileKey` in the `Profile-Key` header; it causes a 404.
-- **XHS Specifics:** XHS uses `/workflow` (not `/autopilot`), requires direct account details (no OAuth), and has an exclusive editor at `/content/:id`. XHS image URLs require proxying due to anti-hotlinking.
-- **Autopilot Workflow:** `/autopilot` is a 4-step wizard (setup → running → review → schedule → done) with niche-fit checks and dynamic timeslot suggestions.
+- **XHS Specifics:** XHS uses `/workflow` (not `/autopilot`), requires direct account details (no OAuth), and has an exclusive editor at `/content/:id`.
+- **XHS image anti-hotlinking:** All XHS CDN images (`*.xhscdn.com` etc.) must be wrapped with `proxyXhsImage()` from `xhs-tool/src/lib/image-proxy.ts` (routes through `/api/xhs/image-proxy` server endpoint). Direct `<img src>` to xhscdn returns 403 due to Referer check. Server proxy uses strict hostname-suffix allowlist + manual redirect with per-hop revalidation (anti-SSRF).
+- **Autopilot Workflow:** `/autopilot` is a 4-step wizard (setup → running → review → schedule → done) with niche-fit checks and dynamic timeslot suggestions. Default account selection MUST prefer ready accounts (`xhs` OR `authStatus==='authorized'` OR has `ayrshareProfileKey`); falling back to `list[0]` blindly hits backend `isAccountReadyToPublish` 400.
 - **Sensitive Word Check:** Dual-layer check: local DFA first (high-risk words block LLM call), then `gpt-4o-mini`.
 - **Media URLs:** Must be absolute HTTPS; relative paths are converted using `toAbsoluteUrl()` for external platforms.
 - **Sora Pro Video Generation:** Gated by `user.plan === "pro"` and requires `OPENAI_API_KEY` with Sora access; check for `pro_only` gate happens before credit deduction.
-- **Bulk Schedule Creation:** Idempotent, with in-process pre-check and DB unique index `schedules_account_scheduled_at_uniq` for concurrency.
+- **Bulk Schedule Creation:** Idempotent, with in-process pre-check and DB unique index `schedules_account_scheduled_at_uniq` for concurrency. **Always write `ownerUserId: u.id` on `contentTable.insert`** in `schedules.ts` bulk-create / duplicate-weeks; `/api/content` filters by `c.owner_user_id` and orphan rows become invisible to the user.
+- **Weekly plan brand-profile injection:** `/api/ai/generate-weekly-plan` reads `brandProfilesTable` per (user, platform) and assembles a `brandBlock` (truncated 1500 chars) passed to `planGenerator.generateWeeklyPlan`. Forbidden claims must be enforced as absolute (incl. synonyms/implications). Without this, drafts can violate ad-law.
 
 ## Pointers
 

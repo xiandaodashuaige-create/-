@@ -314,7 +314,15 @@ export default function AutopilotPage() {
     }
     // 当前选中已不在最新列表（账号被删/换平台后残留），自动重选第一个
     const stillExists = selectedAccountId != null && list.some((a: any) => a.id === selectedAccountId);
-    if (!stillExists) setSelectedAccountId(list[0].id);
+    if (!stillExists) {
+      // 优先选已授权账号；防止默认落到未 OAuth 的占位账号导致 schedule 步被后端 isAccountReadyToPublish 拦下
+      const ready = list.find((a: any) =>
+        a.platform === "xhs" ||
+        a.authStatus === "authorized" ||
+        (a.ayrshareProfileKey && String(a.ayrshareProfileKey).length > 0)
+      );
+      setSelectedAccountId((ready ?? list[0]).id);
+    }
   }, [accountsQ.data, selectedAccountId]);
   const selectedAccount = accountsQ.data?.find((a: any) => a.id === selectedAccountId) ?? null;
 

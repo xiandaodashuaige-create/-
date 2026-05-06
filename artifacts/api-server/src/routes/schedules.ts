@@ -284,6 +284,7 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
           const [content] = await sp
             .insert(contentTable)
             .values({
+              ownerUserId: u.id,
               accountId: account.id,
               platform: account.platform,
               title: (item.title || "未命名").slice(0, 200),
@@ -422,6 +423,7 @@ router.post("/schedules/duplicate-weeks", async (req, res): Promise<void> => {
             const [newContent] = await sp
               .insert(contentTable)
               .values({
+                ownerUserId: u.id,
                 accountId: src.accountId,
                 platform: src.platform,
                 parentContentId: src.id,
