@@ -87,12 +87,21 @@ router.get("/competitors", async (req, res): Promise<void> => {
   const profiles = await db.select().from(competitorProfilesTable)
     .where(where).orderBy(desc(competitorProfilesTable.createdAt));
 
-  // 各自的 post 计数
-  const result = await Promise.all(profiles.map(async (p) => {
-    const [row] = await db.select({ c: sql<number>`count(*)::int` })
-      .from(competitorPostsTable).where(eq(competitorPostsTable.competitorId, p.id));
-    return { ...p, postCount: row?.c ?? 0 };
-  }));
+  // 一次 GROUP BY 批量取所有 profile 的 post 计数(避免 N+1)
+  // profiles=0 时跳过,避免 inArray 空数组生成无效 SQL
+  const counts = profiles.length === 0
+    ? new Map<number, number>()
+    : await db
+        .select({
+          competitorId: competitorPostsTable.competitorId,
+          c: sql<number>`count(*)::int`,
+        })
+        .from(competitorPostsTable)
+        .where(inArray(competitorPostsTable.competitorId, profiles.map((p) => p.id)))
+        .groupBy(competitorPostsTable.competitorId)
+        .then((rows) => new Map(rows.map((r) => [r.competitorId, r.c])));
+
+  const result = profiles.map((p) => ({ ...p, postCount: counts.get(p.id) ?? 0 }));
   res.json(result);
 });
 

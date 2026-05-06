@@ -73,6 +73,8 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Weekly plan brand-profile injection:** `/api/ai/generate-weekly-plan` uses `brandProfilesTable` for (user, platform) to generate a `brandBlock` (truncated 1500 chars) for the prompt.
 - **Market Data Best Times:** `/api/market-data/best-times` sources data based on user login status (real for logged-in with sufficient data, fallback for less data, mock for not logged-in). Timezone handling is critical.
 - **Static Guard `check-content-owner`:** Run `pnpm --filter @workspace/scripts run check-content-owner` after changes to content insertion logic to prevent orphan rows.
+- **Defense-in-depth on UPDATE/DELETE:** 即便已用 `loadOwnedContent`/`loadOwnedSchedule` 前置校验,`UPDATE/DELETE` 的 `where` 子句也要带 `ownerUserId`(防未来重构误删前置校验);`returning()` 后必须判 `if (!content) return 404`,严禁 `content.accountId!` 非空断言(并发场景下 update 可能 0 行)。`content.ts` 的 PATCH / schedule / publish 已遵循。
+- **N+1 防御:** 列表端点禁止 `Promise.all(rows.map(rowQuery))` 模式。统一改 `inArray + GROUP BY` 一次聚合,空数组 short-circuit 返空 Map(避免 Drizzle `inArray([])` 生成 `IN ()` 语法错误)。参考 `routes/competitors.ts GET /competitors`。
 - **Cron Jobs:** Tracking, publishing, category training, auto-sync, video jobs, and OAuth states cleanup run internally. Multi-instance deployments require external scheduling or DB locks.
 - **Admin Publish Stats:** `/api/admin/publish-stats` is admin-only, requires `user.role === 'admin'`.
 - **AI User-Level Rate Limit:** `/api/ai/*` routes are subject to dual-layer sliding window rate limits (30/min, 200/hour). Single-instance semantic; Redis required for multi-instance.

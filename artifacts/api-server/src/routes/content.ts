@@ -278,13 +278,18 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
     if (parsed.data.mediaType !== undefined) updateData.mediaType = parsed.data.mediaType;
     if (parsed.data.ttsAudioUrl !== undefined) updateData.ttsAudioUrl = parsed.data.ttsAudioUrl;
 
+    // defense-in-depth: 即便上面 loadOwnedContent 已校验,update where 也带 ownerUserId,
+    // 防未来重构误删前置校验;且 content.accountId! 之前可能 NPE,这里 returning 拿 null 时显式处理
     const [content] = await db
       .update(contentTable)
       .set(updateData)
-      .where(eq(contentTable.id, params.data.id))
+      .where(and(eq(contentTable.id, params.data.id), eq(contentTable.ownerUserId, u.id)))
       .returning();
+    if (!content) { res.status(404).json({ error: "Content not found" }); return; }
 
-    const [account] = await db.select().from(accountsTable).where(eq(accountsTable.id, content.accountId!));
+    const [account] = content.accountId
+      ? await db.select().from(accountsTable).where(eq(accountsTable.id, content.accountId))
+      : [undefined as any];
 
     const result = mapContentRow(ormRowToMapInput(content, account));
 
@@ -418,7 +423,7 @@ router.delete("/content/:id", async (req, res): Promise<void> => {
 
     const [content] = await db
       .delete(contentTable)
-      .where(eq(contentTable.id, params.data.id))
+      .where(and(eq(contentTable.id, params.data.id), eq(contentTable.ownerUserId, u.id)))
       .returning();
 
     if (content?.accountId) {
@@ -482,8 +487,9 @@ router.post("/content/:id/schedule", async (req, res): Promise<void> => {
     const [content] = await db
       .update(contentTable)
       .set({ status: "scheduled", scheduledAt: new Date(parsed.data.scheduledAt) })
-      .where(eq(contentTable.id, params.data.id))
+      .where(and(eq(contentTable.id, params.data.id), eq(contentTable.ownerUserId, u.id)))
       .returning();
+    if (!content) { res.status(404).json({ error: "Content not found" }); return; }
 
     if (content.accountId) {
       await db.insert(schedulesTable).values({
@@ -494,7 +500,9 @@ router.post("/content/:id/schedule", async (req, res): Promise<void> => {
       });
     }
 
-    const [account] = await db.select().from(accountsTable).where(eq(accountsTable.id, content.accountId!));
+    const [account] = content.accountId
+      ? await db.select().from(accountsTable).where(eq(accountsTable.id, content.accountId))
+      : [undefined as any];
     await logActivity("content_scheduled", `Scheduled (${content.platform}): ${content.title}`, content.id, content.accountId ?? undefined);
 
     const result = mapContentRow(ormRowToMapInput(content, account));
@@ -599,8 +607,9 @@ router.post("/content/:id/publish", requireCredits("content-publish"), async (re
         publishedAt: new Date(),
         ...(remotePostId ? { remotePostId } : {}),
       })
-      .where(eq(contentTable.id, params.data.id))
+      .where(and(eq(contentTable.id, params.data.id), eq(contentTable.ownerUserId, u.id)))
       .returning();
+    if (!content) { res.status(404).json({ error: "Content not found" }); return; }
 
     await db
       .update(schedulesTable)
