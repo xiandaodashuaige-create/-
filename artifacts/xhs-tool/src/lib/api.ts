@@ -98,6 +98,11 @@ export const api = {
     rewrite: (data: any) => request<any>("/ai/rewrite", { method: "POST", body: JSON.stringify(data) }),
     refineScheduleItem: (data: { current: { title?: string; body?: string; tags?: string[] }; instruction: string; niche?: string; platform?: string }) =>
       request<{ title: string; body: string; tags: string[] }>("/ai/refine-schedule-item", { method: "POST", body: JSON.stringify(data) }),
+    checkNicheFit: (data: { accountId: number; niche: string }) =>
+      request<{ fit: number; accountSummary: string; suggestedNiche: string; reason: string; hasHistory: boolean }>(
+        "/ai/check-niche-fit",
+        { method: "POST", body: JSON.stringify(data) },
+      ),
     checkSensitivity: (data: any) => request<any>("/ai/check-sensitivity", { method: "POST", body: JSON.stringify(data) }),
     generateTitle: (data: any) => request<any>("/ai/generate-title", { method: "POST", body: JSON.stringify(data) }),
     generateHashtags: (data: any) => request<any>("/ai/generate-hashtags", { method: "POST", body: JSON.stringify(data) }),

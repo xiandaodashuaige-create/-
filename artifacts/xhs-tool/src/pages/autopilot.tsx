@@ -16,6 +16,10 @@ import {
   Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
   AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Step = "setup" | "running" | "review" | "schedule" | "done";
 
@@ -138,6 +142,9 @@ export default function AutopilotPage() {
     const myRunId = ++runIdRef.current;
     const isStale = () => myRunId !== runIdRef.current || ctrl.signal.aborted;
     const sig = ctrl.signal;
+    // 用 ref 里写死的最终 niche，避开 setNiche 异步更新导致的闭包陈旧
+    // （用户可能在 fit-check 弹窗里改用了 AI 推荐的 niche，但 React state 还没刷到这次闭包里）
+    const niche = finalNicheRef.current || (() => { throw new Error("finalNicheRef not set"); })();
 
     setLogs([]);
     setStep("running");
@@ -514,7 +521,27 @@ export default function AutopilotPage() {
     setScheduledAt("");
   }
 
-  function handleStart() {
+  // 账号画像 vs niche 一致性校验（弹窗状态）
+  const [fitDialog, setFitDialog] = useState<{
+    open: boolean;
+    fit: number;
+    suggestedNiche: string;
+    reason: string;
+    accountSummary: string;
+  } | null>(null);
+  const [checkingFit, setCheckingFit] = useState(false);
+
+  // 真正启动流水线（已通过/绕过画像校验后调）
+  // 用 ref 把最终 niche 写到 runPipeline 能直接读到的位置，避免 setNiche 的 React 异步更新导致 runPipeline 闭包读到旧值
+  const finalNicheRef = useRef<string>("");
+  function startPipelineWith(finalNiche: string) {
+    customModeRef.current = customMode;
+    finalNicheRef.current = finalNiche;
+    if (finalNiche !== niche) setNiche(finalNiche); // 同步 UI 显示
+    runPipeline();
+  }
+
+  async function handleStart() {
     if (!hasAccounts) {
       toast({
         title: `请先添加 ${platformMeta.name} 账号`,
@@ -536,8 +563,29 @@ export default function AutopilotPage() {
       toast({ title: "请输入行业关键词", variant: "destructive" });
       return;
     }
-    customModeRef.current = customMode;
-    runPipeline();
+
+    // 一致性校验：账号画像 vs 本次 niche；fit < 0.5 弹窗确认
+    setCheckingFit(true);
+    try {
+      const fitRes = await api.ai.checkNicheFit({ accountId: selectedAccount.id, niche: niche.trim() });
+      if (fitRes.fit < 0.5 && fitRes.hasHistory) {
+        setFitDialog({
+          open: true,
+          fit: fitRes.fit,
+          suggestedNiche: fitRes.suggestedNiche,
+          reason: fitRes.reason,
+          accountSummary: fitRes.accountSummary,
+        });
+        return; // 等用户在弹窗里选
+      }
+    } catch (err) {
+      // 校验本身失败不能阻塞主流程，正常往下走
+      console.warn("niche-fit check failed, proceeding anyway", err);
+    } finally {
+      setCheckingFit(false);
+    }
+
+    startPipelineWith(niche.trim());
   }
 
   return (
@@ -805,10 +853,13 @@ export default function AutopilotPage() {
             size="lg"
             className="w-full bg-gradient-to-r from-primary to-purple-500 hover:opacity-90 text-base h-12"
             onClick={handleStart}
-            disabled={!niche.trim() || !hasAccounts || !selectedAccount}
+            disabled={!niche.trim() || !hasAccounts || !selectedAccount || checkingFit}
           >
-            <Rocket className="h-5 w-5 mr-2" />
-            {customMode ? "启动 AI 自动驾驶（手动审核）" : "一键启动 AI 自动驾驶"}
+            {checkingFit ? (
+              <><Loader2 className="h-5 w-5 mr-2 animate-spin" />正在校验账号画像…</>
+            ) : (
+              <><Rocket className="h-5 w-5 mr-2" />{customMode ? "启动 AI 自动驾驶（手动审核）" : "一键启动 AI 自动驾驶"}</>
+            )}
           </Button>
         </Card>
       )}
@@ -1210,6 +1261,61 @@ export default function AutopilotPage() {
           <Link href="/competitors" className="underline ml-1">去同行库管理 →</Link>
         </div>
       )}
+
+      {/* 账号画像 vs niche 不一致 → 弹窗让用户三选一 */}
+      <AlertDialog open={!!fitDialog?.open} onOpenChange={(o) => { if (!o) setFitDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              账号画像跟你输入的行业对不上
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-md bg-muted/50 p-3 whitespace-pre-line text-foreground">
+                  {fitDialog?.accountSummary}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">本次你想做：</span>
+                  <strong className="text-foreground">{niche.trim()}</strong>
+                  <span className="ml-2 text-xs text-amber-600">
+                    一致性 {Math.round((fitDialog?.fit ?? 0) * 100)}%
+                  </span>
+                </div>
+                {fitDialog?.reason && (
+                  <div className="text-muted-foreground">AI 判断：{fitDialog.reason}</div>
+                )}
+                <div className="text-foreground">怎么继续？</div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-col gap-2">
+            {fitDialog?.suggestedNiche && (
+              <AlertDialogAction
+                className="w-full"
+                onClick={() => {
+                  const target = fitDialog.suggestedNiche;
+                  setFitDialog(null);
+                  startPipelineWith(target);
+                }}
+              >
+                改用「{fitDialog.suggestedNiche}」跑（贴合账号原画像）
+              </AlertDialogAction>
+            )}
+            <AlertDialogAction
+              className="w-full bg-amber-600 hover:bg-amber-700"
+              onClick={() => {
+                const target = niche.trim();
+                setFitDialog(null);
+                startPipelineWith(target);
+              }}
+            >
+              仍按「{niche.trim()}」跑（我在做转型/拓品类）
+            </AlertDialogAction>
+            <AlertDialogCancel className="w-full mt-0">取消，让我重填</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

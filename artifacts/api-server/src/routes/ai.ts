@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
-import { db, sensitiveWordsTable, imageReferencesTable, usersTable, assetsTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, sensitiveWordsTable, imageReferencesTable, usersTable, assetsTable, accountsTable, contentTable } from "@workspace/db";
+import { eq, and, desc } from "drizzle-orm";
 import {
   AiRewriteContentBody,
   AiRewriteContentResponse,
@@ -1579,6 +1579,88 @@ ${current.body || ""}
   } catch (err) {
     req.log.error(err, "Failed to refine schedule item");
     res.status(500).json({ error: "AI 微调失败，请重试" });
+  }
+});
+
+// 校验"用户输入的本轮目标 niche"是否跟"账号自身画像"对齐。
+// 防止用户绑了美妆号、却临时输入"美食"导致 AI 全程用错位语境跑流水线。
+// 返回 { fit: 0-1, accountSummary, suggestedNiche, reason }；前端 fit < 0.5 时弹确认对话框。
+router.post("/ai/check-niche-fit", async (req, res): Promise<void> => {
+  try {
+    const { accountId, niche } = req.body as { accountId?: number; niche?: string };
+    if (!accountId || !niche || !niche.trim()) {
+      res.status(400).json({ error: "accountId 与 niche 必填" });
+      return;
+    }
+    const u = await ensureUser(req);
+    if (!u) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    const userId = u.id as number;
+    const [account] = await db
+      .select()
+      .from(accountsTable)
+      .where(and(eq(accountsTable.id, accountId), eq(accountsTable.ownerUserId, userId)))
+      .limit(1);
+    if (!account) {
+      res.status(404).json({ error: "账号不存在或无权限" });
+      return;
+    }
+
+    // 抓该账号最近 5 条已发/草稿内容标题，作为画像佐证
+    const recentPosts = await db
+      .select({ title: contentTable.title })
+      .from(contentTable)
+      .where(and(eq(contentTable.accountId, accountId), eq(contentTable.ownerUserId, userId)))
+      .orderBy(desc(contentTable.createdAt))
+      .limit(5);
+    const recentTitles = recentPosts.map((p) => p.title).filter(Boolean);
+
+    const accountSummary = [
+      `昵称：${account.nickname}`,
+      account.notes ? `画像备注：${account.notes}` : null,
+      recentTitles.length > 0 ? `近期内容标题：${recentTitles.join(" / ")}` : "（账号还没有任何内容历史）",
+    ].filter(Boolean).join("\n");
+
+    const sys = `你是社媒账号定位审计员。判断【用户本次输入的目标行业】是否跟【账号已有画像】方向一致。
+严格输出 JSON：{"fit": 0到1的小数, "suggestedNiche": "从账号画像推断的核心赛道（≤10字）", "reason": "≤40字一句话说明"}。
+判分标准：
+- 0.8-1.0：高度一致或属于同一大类
+- 0.5-0.8：相邻领域（如美妆↔个护、母婴↔家居），可顺势拓展
+- 0-0.5：明显错位（如美妆账号要做财经、宠物号要做职场），强烈建议确认
+账号无任何内容历史时给 fit=1（无据可比，不要拦截）。`;
+
+    const userMsg = `【账号画像】
+${accountSummary}
+
+【本次目标行业】${niche.trim()}
+
+输出 JSON。`;
+
+    const resp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: sys },
+        { role: "user", content: userMsg },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    });
+    const text = resp.choices[0]?.message?.content || "{}";
+    const parsed = safeJsonParse(text) || {};
+    const fit = Math.max(0, Math.min(1, Number(parsed.fit) || 0));
+    res.json({
+      fit,
+      accountSummary,
+      suggestedNiche: typeof parsed.suggestedNiche === "string" ? parsed.suggestedNiche.slice(0, 30) : "",
+      reason: typeof parsed.reason === "string" ? parsed.reason.slice(0, 80) : "",
+      hasHistory: recentTitles.length > 0,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to check niche fit");
+    // 校验失败不能阻断主流程，返回 fit=1 让前端正常往下走
+    res.json({ fit: 1, accountSummary: "", suggestedNiche: "", reason: "(校验服务暂时不可用)", hasHistory: false });
   }
 });
 
