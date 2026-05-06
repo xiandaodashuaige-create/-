@@ -40,15 +40,15 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Multi-Platform Focus:** Content creation and publishing workflow treats "platform" (XHS, TikTok, Instagram, Facebook) as a primary dimension, managed via a `PlatformProvider` React context.
 - **AI-Driven Content Workflow:** Integrates multiple AI models for strategy analysis, content generation, image/video creation, and agentic user interaction.
 - **Robust OAuth & Publishing:** Employs a dedicated `oauth_states` table for secure state management and a `publishDispatcher` cron for resilient multi-platform publishing. OAuth tokens are encrypted at rest.
+- **Credit System:** Credit-based system for AI and content operations with atomic debit/refund transactions.
 
 ## Product
 
 - AI-powered content strategy and generation for XHS, TikTok, Instagram, Facebook.
 - Multi-platform publishing with direct OAuth and Ayrshare integration.
-- AI-driven rewriting, image/video generation, and sensitive word detection.
+- AI-driven rewriting, image/video generation (including Sora Pro), and sensitive word detection.
 - Competitor analysis and market data exploration.
 - Note tracking with engagement metrics and keyword ranking.
-- Credit-based system for AI and content operations.
 - Multi-region support with region-aware AI.
 
 ## User preferences
@@ -64,37 +64,12 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 
 - **OAuth Account Binding:** `POST /api/strategy/:id/approve` returns `400 no_account` if no platform account is bound.
 - **Ayrshare profileKey:** Do not use "default" as `ayrshareProfileKey` in the `Profile-Key` header; it causes a 404.
-- **Strategy Generation:** Uses `gpt-5-mini` and performs niche-relevance scoring; irrelevant samples are ignored.
-- **XHS Quick Add:** For XHS, users provide account details directly within the `PlatformGuard` card as XHS does not support OAuth.
-- **XHS uses /workflow, not /autopilot:** XHS has its own wizard at `/workflow`. `/autopilot` is for TikTok/IG/FB and auto-redirects to `/workflow` for XHS.
-- **Schedules empty state:** If no schedules exist, `AutoPlanReview` automatically triggers `api.ai.generateWeeklyPlan` and displays a 7-day draft. This auto-trigger is gated by `sessionStorage` to prevent re-firing.
-- **Competitor 24h cache:** `POST /api/competitors` and `POST /api/competitors/:id/sync` skip external fetches if `lastSyncedAt < 24h`. `?force=true` bypasses this.
-- **Autopilot custom competitors + video script:** `/autopilot` accepts `customCompetitors` (parsed for handles/URLs) and `wantVideoScript` (influences `customRequirements` for `strategy.generate`).
-- **Sidebar grouping:** `Layout.tsx` `navItemsConfig` items have `group` (`main`, `history`, `system`). History group is collapsed by default.
-- **Autopilot niche-fit guard:** Before starting `/autopilot`, `POST /api/ai/check-niche-fit` checks niche consistency (0-1 score). Low fit (<0.5) with history prompts user to confirm or change niche.
-- **Autopilot 4-step wizard:** `/autopilot` (TT/IG/FB) is a 4-step wizard: `setup → running → review (3 strategies) → schedule → done`. One-click mode auto-picks and schedules. Custom mode allows user selection and manual scheduling.
-- **`/content/:id` is XHS-exclusive editor:** This page is designed specifically for XHS content. Do not link to it from TikTok/IG/FB autopilot flows.
-- **`UpdateContentBody` schema does not accept null:** When clearing video, omit the `videoUrl` field from the payload, do not send `null`.
-- **AI strategy generation schema description leakage:** The `strategyGenerator.ts` system prompt's field descriptions (`"bodyDraft": "若是图文平台..."`) can be echoed into generated content. This is mitigated by prompt refinements and a `stripLeakedLabel` regex.
-- **Autopilot done step must actively backfill editForm:** In one-click mode, the `editForm` is empty in the "done" step. A `useEffect` loads content into `editForm` for preview if `editForm` is empty.
-- **Autopilot recommended timeslot cards:** The schedule step dynamically generates 5 candidate timeslot cards based on `marketInsights.bestTimes`. The first card is pre-selected.
-- **Autopilot inline edit step:** Custom-mode autopilot includes an `edit` step where users can live-preview and edit content (title, body, tags, images, video) before scheduling.
-- **`POST /content/:id/publish` 真发：** 老版本只是把 DB status 翻成 `published` 不调外部 API（假发布）。已改为通过 `dispatchContentToProvider`（`publishDispatcher.ts` 导出）真调 FB/IG/TT/Ayrshare；失败返回 502 + 不改 status 也不扣积分；成功后写真 `remote_post_id` + `publish_logs` 一条。XHS 仍走旧"标记已发"语义。
-- **`publish_logs.schedule_id` 已放宽为 nullable：** 手动立即发布无对应 schedule，写 `schedule_id=NULL` + `attempt=1`。已对 prod DB 做 `ALTER TABLE publish_logs ALTER COLUMN schedule_id DROP NOT NULL`。
-- **敏感词检查双层：** `POST /api/ai/check-sensitivity` 先走本地 DFA（`mint-filter` + `data/sensitive-words/{political,porn,general}.txt` + 内置广告法极限词列表 `services/sensitiveWordFilter.ts`）。命中高危直接返回不调 LLM、不扣积分；无高危才走 gpt-4o-mini。词库通过 esbuild `loader: { ".txt": "text" }` 打包进 dist。
-- **侧边栏 nonXhs / xhsOnly：** `Layout.tsx` NavItem 支持 `xhsOnly`（仅 XHS 显示，如 `/workflow` `/tracking` `/sensitive-words`）和 `nonXhs`（XHS 模式下隐藏，如 `/autopilot` `/quick-publish`）。
-- **媒体 URL 必须是绝对 https：** `dispatchContentToProvider` 入口用 `toAbsoluteUrl()` 把 `/api/storage/objects/...` 这类相对路径补成 `https://${REPLIT_DOMAINS}{path}`，否则 TikTok / FB / IG 服务器拉不到媒体会报 "Media URLs invalid"。
-- **`/credits` 是普通用户的积分页：** `/admin` 只 admin 可见，`/credits` 给所有用户看自己的「余额 + 累计 + 套餐 + 最近 100 条流水（含操作类型 emoji + 金额涨跌）+ 顾问联系方式」。流水通过 `api.user.transactions(100)` 取，operationType 复用 `cost.*` i18n key 显示。Layout 侧边栏 system 组里在 settings 上方。
-- **设置页 5 模块：** `/settings` = 个人资料（nickname via `PATCH /user/me`）+ 创作偏好（默认平台/地区/行业，存 localStorage `pref.region`/`pref.niche`，平台直连 `setActivePlatform`）+ 积分速览（链接到 /credits）+ 语言（同步保存到后端 `user.language`）+ 退出登录二次确认。系统信息卡已迁移到 `/admin` 底部。
-- **autopilot.tsx 已全 i18n：** 所有 toast、step 标签、setup/running/review/edit/schedule/done 6 步的 UI 字符串、按钮、placeholder、STRATEGY_ANGLES 的 labelKey/hintKey 都走 `t()`。`i18n.tsx` 三语段（zh/en/zh-HK）加了 `autopilot.*` 165+ key。仅 pipeline `pushLog` 控制台中文日志（30+ 处）未改，作低优先（用户看的是结果不是 log 文本）。
-- **品牌画像（按平台）：** `GET/PUT /api/brand-profile?platform=xhs|tiktok|instagram|facebook`，per-user per-platform upsert。`settings.tsx` 第 3 张卡片填写后会被注入到后续 AI 策略/文案生成 prompt（`category/products/targetAudience/priceRange/tone/forbiddenClaims/conversionGoal`）。前端 `api.brandProfile.{get,upsert}`。
-- **bulk-create schedules 幂等去重（双层闭环）：** `POST /api/schedules/bulk-create` 第一层在进程内 pre-check：查 `accountId` 已有 `scheduledAt`，对 (1) DB 已有 (2) 同批 items 重复 都跳过。第二层是 DB 唯一索引 `schedules_account_scheduled_at_uniq(account_id, scheduled_at)` + 每条 item 独立 savepoint + `onConflictDoNothing`，跨请求并发撞日时索引返空 → 抛 `__schedule_conflict__` 让 savepoint 回滚孤儿 content → skipped++。返回 `{ created, skipped, items }`。
-- **ObjectUploader allowedFileTypes：** `@workspace/object-storage-web` 现支持 `allowedFileTypes?: string[]` prop（透传到 Uppy `restrictions.allowedFileTypes`），workflow / autopilot 等上传点用 `["image/*"]` / `["video/*"]` 限制。
-- **Sora 2 Pro 高清电影级视频（pro 专享）：** `POST /api/ai/generate-video-sora` 250 积分，仅 `user.plan === "pro"` 可调（否则 403 `pro_only`）。复用 `videoJobs` 异步队列，`input.provider="sora-pro"` 在 `processJob` 里分支：planning 步还是走 `videoPipeline.generateVideoCreativePlan`（保留同行/类目/品牌画像 prompt 注入），generate 步走 `services/sora.ts`（OpenAI `POST/GET /v1/videos` + `/content` 二进制下载）；默认 1080P 12s 竖屏（1024x1792），16:9/4:3 时换横屏（1792x1024）。失败按 provider 退款（250 vs 15）。前端 `autopilot.tsx` 只对 pro 显示紫色「Sora 高清电影级 (Pro · 250)」按钮，二次 `confirm("250 积分≈43 元")` → 5s 轮询 `/ai/video-job` → 成功自动填 `editForm.videoUrl`。需要 `OPENAI_API_KEY` 已开通 Sora 权限。
-- **视频任务扣费/退款原子化（已闭环）：** `video_jobs.charged_amount` 记录该任务实际扣的积分。`enqueueVideoJob(userId, input, charge)` 在一个 `db.transaction` 里依次：`pg_advisory_xact_lock(userId)` 串行化同 user 的 enqueue → in-flight 去重 → 扣余额（带 `gte` CAS）→ 写流水 → 插 job 带 chargedAmount。余额不足抛 `InsufficientCreditsError`（路由层 catch → 402）。`tryRunJob` 退款用 CAS 门闩：`UPDATE ... SET credits_refunded=1 WHERE id=? AND credits_refunded=0 RETURNING charged_amount, input`，仅命中行才退；退款 DB 失败时回滚门闩 (set 0)，让 cron 重抢可重试，避免永久占位破坏积分守恒。dedup hit / admin / 漏扣（chargedAmount=0）门闩照样闭合但不退款，避免造币。路由 `routes/videoGen.ts` 不再单独调 `deductCredits`，改用 `req.creditCost` 透传给 enqueue。
-- **退款兜底 cron + 单事务原子退款：** `videoJobs.ts` 私有 `claimAndRefundAtomic(jobId, userId, reason)` 把"CAS 抢门闩 + 加余额 + 写流水"塞进**同一个 `db.transaction`**，任何一步抛错整段回滚（门闩自动归零，无需手动补偿）。这是积分守恒的核心：避免老版"半失败回滚门闩 → 下次重抢 → 余额加两次"造币漏洞。`tryRunJob` 失败分支和 `reconcileFailedRefunds()`（扫 `status='failed' AND charged_amount>=1 AND credits_refunded=0`，limit 50）都通过这个 helper 退款。Reconcile 在 `runVideoJobsTick()` 开头跑，cron 30s 间隔自动捞瞬时失败的尾巴。注意：原 `middlewares/creditSystem.ts:refundCredits` 仍存在但视频路径已不用（它本身两步非原子）。
-- **Sora pro_only gate 必须先于 requireCredits：** `routes/videoGen.ts` `/ai/generate-video-sora` 用 `proOnlyGate` 内联中间件做 `user.plan === "pro"` 检查，**放在 `requireCredits` 之前**。否则 free 用户（20 积分）会先被 `requireCredits` 拦下返回"积分不足 (required:250)"，而不是友好的"升级到 Pro"提示。e2e 测试已验证。
-- **市场数据 trending 真接：** `/api/market-data/trending?platform=xhs` 已接 `hotTopics.searchXhsNotes`（TikHub 优先，RapidAPI 兜底，地区 SG/HK/MY→中文 region 词），返回 `source: "xhs"`。`platform=tiktok` 走 TikHub。FB/IG 仍 mock + 引导去同行库。前端按 `data.source === "mock"` 显示黄色提示横幅。
+- **XHS Specifics:** XHS uses `/workflow` (not `/autopilot`), requires direct account details (no OAuth), and has an exclusive editor at `/content/:id`. XHS image URLs require proxying due to anti-hotlinking.
+- **Autopilot Workflow:** `/autopilot` is a 4-step wizard (setup → running → review → schedule → done) with niche-fit checks and dynamic timeslot suggestions.
+- **Sensitive Word Check:** Dual-layer check: local DFA first (high-risk words block LLM call), then `gpt-4o-mini`.
+- **Media URLs:** Must be absolute HTTPS; relative paths are converted using `toAbsoluteUrl()` for external platforms.
+- **Sora Pro Video Generation:** Gated by `user.plan === "pro"` and requires `OPENAI_API_KEY` with Sora access; check for `pro_only` gate happens before credit deduction.
+- **Bulk Schedule Creation:** Idempotent, with in-process pre-check and DB unique index `schedules_account_scheduled_at_uniq` for concurrency.
 
 ## Pointers
 

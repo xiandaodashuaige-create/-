@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useLocation } from "wouter";
 import { setReturnToFlow } from "@/lib/return-to-flow";
+import { proxyXhsImage } from "@/lib/image-proxy";
 import {
   Users2, RefreshCw, Trash2, Search, Sparkles, Heart, MessageCircle, Eye, Plus, ExternalLink, Loader2,
   TrendingUp, Hash, Music, Clock, BarChart3, Star, Compass, Calendar, CheckCircle2, XCircle, FileText, Mic,
@@ -284,7 +285,17 @@ export default function CompetitorsPage() {
               <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
                 {discovered.map((c) => (
                   <div key={c.handle} className="flex items-center gap-3 p-2 rounded border bg-muted/30">
-                    {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" /> : <div className="w-9 h-9 rounded-full bg-muted" />}
+                    {c.avatarUrl ? (
+                      <img
+                        src={proxyXhsImage(c.avatarUrl) || c.avatarUrl}
+                        alt=""
+                        className="w-9 h-9 rounded-full object-cover bg-muted"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded-full bg-muted" />
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate">@{c.handle}</div>
                       <div className="text-xs text-muted-foreground">{formatCount(c.followerCount)} 粉 · {formatCount(c.videoCount)} 作品</div>
@@ -313,7 +324,17 @@ export default function CompetitorsPage() {
           {list.map((c: any) => (
             <Card key={c.id} className={`p-4 cursor-pointer hover:shadow-md transition ${openId === c.id ? "ring-2 ring-primary" : ""}`} onClick={() => setOpenId(c.id)}>
               <div className="flex items-start gap-3">
-                {c.avatarUrl ? <img src={c.avatarUrl} alt="" className="w-12 h-12 rounded-full object-cover" /> : <div className="w-12 h-12 rounded-full bg-muted" />}
+                {c.avatarUrl ? (
+                  <img
+                    src={proxyXhsImage(c.avatarUrl) || c.avatarUrl}
+                    alt=""
+                    className="w-12 h-12 rounded-full object-cover bg-muted"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.visibility = "hidden"; }}
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-muted" />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold truncate">{c.displayName || c.handle}</div>
                   <div className="text-xs text-muted-foreground truncate">@{c.handle}</div>
@@ -488,7 +509,19 @@ export default function CompetitorsPage() {
                   <div key={p.id} className="block group relative">
                     <a href={p.postUrl || "#"} target="_blank" rel="noreferrer">
                       {p.coverUrl ? (
-                        <img src={p.coverUrl} alt="" className="w-full aspect-[3/4] object-cover rounded border" loading="lazy" />
+                        <img
+                          src={proxyXhsImage(p.coverUrl) || p.coverUrl}
+                          alt=""
+                          className="w-full aspect-[3/4] object-cover rounded border bg-muted"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            if (img.dataset.fallback === "1") return;
+                            img.dataset.fallback = "1";
+                            img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 160'><rect width='120' height='160' fill='%23f1f5f9'/><text x='60' y='85' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'>无封面</text></svg>";
+                          }}
+                        />
                       ) : (
                         <div className="w-full aspect-[3/4] bg-muted rounded border" />
                       )}

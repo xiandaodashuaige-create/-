@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { setReturnToFlow } from "@/lib/return-to-flow";
 import { useI18n } from "@/lib/i18n";
+import { proxyXhsImage } from "@/lib/image-proxy";
 import {
   Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
   AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
@@ -1332,7 +1333,19 @@ export default function AutopilotPage() {
                       <div key={it.id} className="rounded-md border bg-muted/20 p-2 text-xs space-y-1 overflow-hidden">
                         {it.thumbnailUrl && (
                           <div className="aspect-video bg-muted rounded overflow-hidden">
-                            <img src={it.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            <img
+                              src={proxyXhsImage(it.thumbnailUrl) || it.thumbnailUrl}
+                              alt=""
+                              className="w-full h-full object-cover"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => {
+                                const img = e.currentTarget;
+                                if (img.dataset.fallback === "1") { img.style.display = "none"; return; }
+                                img.dataset.fallback = "1";
+                                img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 90'><rect width='160' height='90' fill='%23f1f5f9'/><text x='80' y='50' text-anchor='middle' fill='%2394a3b8' font-size='10' font-family='sans-serif'>无封面</text></svg>";
+                              }}
+                            />
                           </div>
                         )}
                         <div className="line-clamp-2 font-medium">{it.title || t("autopilot.review.noTitle")}</div>

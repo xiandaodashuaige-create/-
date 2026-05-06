@@ -231,33 +231,81 @@ export async function tryFetchXhsData(keyword: string): Promise<{ available: boo
   return { available: false, notes: [], source: "ai-only" };
 }
 
+// 严格 hostname 后缀白名单 —— 防止 url.includes(...) 子串误判被滥用为 SSRF/开放代理
+const IMG_PROXY_HOST_SUFFIXES = [
+  ".xhscdn.com",
+  ".xiaohongshu.com",
+  "xhscdn.com",
+  "xiaohongshu.com",
+];
+function isAllowedImgHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return IMG_PROXY_HOST_SUFFIXES.some((s) => h === s || h.endsWith(s));
+}
+
 publicRouter.get("/xhs/image-proxy", async (req, res): Promise<void> => {
   try {
-    const url = req.query.url as string;
-    if (!url || typeof url !== "string") {
+    const raw = req.query.url as string;
+    if (!raw || typeof raw !== "string") {
       res.status(400).json({ error: "url parameter required" });
       return;
     }
 
-    const allowed = ["xhscdn.com", "xiaohongshu.com", "sns-webpic", "sns-img", "sns-na-", "sns-avatar"];
-    const isAllowed = allowed.some((d) => url.includes(d));
-    if (!isAllowed) {
-      res.status(403).json({ error: "URL not allowed" });
+    const normalizedRaw = raw.startsWith("//") ? `https:${raw}` : raw;
+    let parsed: URL;
+    try {
+      parsed = new URL(normalizedRaw);
+    } catch {
+      res.status(400).json({ error: "invalid url" });
+      return;
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      res.status(400).json({ error: "unsupported protocol" });
+      return;
+    }
+    if (!isAllowedImgHost(parsed.hostname)) {
+      res.status(403).json({ error: "host not allowed" });
       return;
     }
 
     // 小红书 CDN 默认返回 HEIF，浏览器不认。改写为 webp。
-    const rewritten = url.replace(/format\/heif/gi, "format/webp");
-    const fetchUrl = rewritten.startsWith("//") ? `https:${rewritten}` : rewritten;
-    const imgRes = await fetch(fetchUrl, {
-      method: "GET",
-      redirect: "follow",
-      signal: AbortSignal.timeout(10_000),
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-      },
-    });
+    const fetchUrl = parsed.toString().replace(/format\/heif/gi, "format/webp");
+
+    // 手动跟随重定向，每跳都重新校验 host，防止重定向到内网/任意域。
+    let currentUrl = fetchUrl;
+    let imgRes: Response | null = null;
+    for (let hop = 0; hop < 3; hop++) {
+      const r = await fetch(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+      });
+      if (r.status >= 300 && r.status < 400) {
+        const loc = r.headers.get("location");
+        if (!loc) { imgRes = r; break; }
+        const next = new URL(loc, currentUrl);
+        if (next.protocol !== "https:" && next.protocol !== "http:") {
+          res.status(403).json({ error: "redirect protocol blocked" });
+          return;
+        }
+        if (!isAllowedImgHost(next.hostname)) {
+          res.status(403).json({ error: "redirect host blocked" });
+          return;
+        }
+        currentUrl = next.toString();
+        continue;
+      }
+      imgRes = r;
+      break;
+    }
+    if (!imgRes) {
+      res.status(508).json({ error: "too many redirects" });
+      return;
+    }
 
     if (!imgRes.ok) {
       res.status(imgRes.status).json({ error: "Failed to fetch image" });

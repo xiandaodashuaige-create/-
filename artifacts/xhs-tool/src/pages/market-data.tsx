@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { BarChart3, TrendingUp, Megaphone, Clock, Loader2, Heart, Eye, MessageCircle, Info, ArrowRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { setReturnToFlow } from "@/lib/return-to-flow";
+import { proxyXhsImage } from "@/lib/image-proxy";
 
 function formatCount(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -101,7 +102,19 @@ export default function MarketDataPage() {
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 {(trendingQ.data?.items ?? []).map((it: any) => (
                   <a key={it.id} href={it.mediaUrl || "#"} target="_blank" rel="noreferrer" className="block group">
-                    <img src={it.thumbnailUrl} alt="" className="w-full aspect-[3/4] object-cover rounded border" loading="lazy" />
+                    <img
+                      src={proxyXhsImage(it.thumbnailUrl) || it.thumbnailUrl}
+                      alt=""
+                      className="w-full aspect-[3/4] object-cover rounded border bg-muted"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        const img = e.currentTarget;
+                        if (img.dataset.fallback === "1") return;
+                        img.dataset.fallback = "1";
+                        img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 160'><rect width='120' height='160' fill='%23f1f5f9'/><text x='60' y='85' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'>无封面</text></svg>";
+                      }}
+                    />
                     <div className="mt-1.5 text-xs line-clamp-2 group-hover:text-primary">{it.title}</div>
                     <div className="flex gap-1.5 mt-1 text-[10px] text-muted-foreground">
                       <span className="inline-flex items-center gap-0.5"><Eye className="h-3 w-3" />{formatCount(it.views)}</span>
@@ -156,7 +169,21 @@ export default function MarketDataPage() {
                         ))}
                       </div>
                     </div>
-                    {ad.mediaUrl && <img src={ad.mediaUrl} alt="" className="w-full h-32 object-cover rounded mb-2" />}
+                    {ad.mediaUrl && (
+                      <img
+                        src={proxyXhsImage(ad.mediaUrl) || ad.mediaUrl}
+                        alt=""
+                        className="w-full h-32 object-cover rounded mb-2 bg-muted"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (img.dataset.fallback === "1") { img.style.display = "none"; return; }
+                          img.dataset.fallback = "1";
+                          img.src = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 128'><rect width='320' height='128' fill='%23f1f5f9'/><text x='160' y='68' text-anchor='middle' fill='%2394a3b8' font-size='12' font-family='sans-serif'>素材加载失败</text></svg>";
+                        }}
+                      />
+                    )}
                     <div className="text-xs line-clamp-3 text-muted-foreground">{ad.caption}</div>
                     <div className="text-[10px] text-muted-foreground mt-2">投放开始: {ad.startDate}</div>
                   </Card>
