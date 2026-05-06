@@ -219,7 +219,14 @@ export default function ContentList() {
                             </Badge>
                           );
                         })()}
-                        <Badge variant={sc.variant}>{sc.label}</Badge>
+                        {/* XHS 没有 OAuth 直发，"published" 实际是"已生成草稿"，需手动到 XHS App 发布；其他平台才是真发布 */}
+                        {item.platform === "xhs" && item.status === "published" ? (
+                          <Badge variant="secondary" title="XHS 不支持自动发布，已生成的内容请手动复制到小红书 App">
+                            已生成 · 手动发布
+                          </Badge>
+                        ) : (
+                          <Badge variant={sc.variant}>{sc.label}</Badge>
+                        )}
                         {tracking && (
                           <button
                             onClick={() => setLocation(`/tracking/${tracking.id}`)}
