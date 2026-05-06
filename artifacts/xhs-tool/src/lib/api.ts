@@ -454,7 +454,7 @@ export const api = {
       const q = new URLSearchParams({ keyword, country });
       return request<{ source: string; configured: boolean; items: any[] }>(`/market-data/ads?${q}`);
     },
-    bestTimes: () => request<Record<string, { bestDays: string[]; bestHours: number[]; insight: string }>>(
+    bestTimes: () => request<Record<string, { bestDays: string[]; bestHours: number[]; insight: string; source?: "real" | "fallback" | "mock" }>>(
       `/market-data/best-times`,
     ),
   },

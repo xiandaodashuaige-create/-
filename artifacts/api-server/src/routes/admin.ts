@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, usersTable, creditTransactionsTable } from "@workspace/db";
-import { eq, desc, sql, count } from "drizzle-orm";
+import { db, usersTable, creditTransactionsTable, publishLogsTable } from "@workspace/db";
+import { eq, desc, sql, count, gte } from "drizzle-orm";
 import { ensureUser, CREDIT_COSTS } from "../middlewares/creditSystem";
 
 const router: IRouter = Router();
@@ -194,6 +194,66 @@ router.get("/user/me/transactions", async (req, res): Promise<void> => {
   } catch (err) {
     req.log.error(err, "Failed to list user transactions");
     res.status(500).json({ error: "Failed to list transactions" });
+  }
+});
+
+// ── GET /api/admin/publish-stats?windowHours=24 ──
+// 多平台发布失败率聚合面板（最近 N 小时按平台 × 状态分组）
+router.get("/admin/publish-stats", requireAdmin, async (req, res): Promise<void> => {
+  try {
+    const windowHours = Math.min(Math.max(parseInt(req.query.windowHours as string) || 24, 1), 24 * 30);
+    const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+
+    const rows = await db
+      .select({
+        platform: publishLogsTable.platform,
+        status: publishLogsTable.status,
+        count: count(),
+        avgDurationMs: sql<number>`COALESCE(AVG(${publishLogsTable.durationMs})::int, 0)`,
+      })
+      .from(publishLogsTable)
+      .where(gte(publishLogsTable.createdAt, since))
+      .groupBy(publishLogsTable.platform, publishLogsTable.status);
+
+    // 重组成 {platform: {success, failed, retried, total, successRate, avgDurationMs}}
+    type Bucket = { success: number; failed: number; retried: number; total: number; avgDurationMs: number };
+    const byPlatform: Record<string, Bucket> = {};
+    for (const r of rows) {
+      const b = byPlatform[r.platform] ??= { success: 0, failed: 0, retried: 0, total: 0, avgDurationMs: 0 };
+      b.total += r.count;
+      if (r.status === "success" || r.status === "succeeded") b.success += r.count;
+      else if (r.status === "failed" || r.status === "error") b.failed += r.count;
+      else if (r.status === "retried" || r.status === "retry") b.retried += r.count;
+      // 加权平均（按 count 加权）
+      b.avgDurationMs = b.total > 0 ? Math.round((b.avgDurationMs * (b.total - r.count) + r.avgDurationMs * r.count) / b.total) : 0;
+    }
+    const platforms = Object.entries(byPlatform).map(([platform, b]) => ({
+      platform,
+      ...b,
+      successRate: b.total > 0 ? Math.round((b.success / b.total) * 1000) / 10 : 0, // 一位小数百分比
+    }));
+
+    // 最近 20 条失败明细（方便 admin 快速 grep 错误）
+    const recentFailures = await db
+      .select({
+        id: publishLogsTable.id,
+        platform: publishLogsTable.platform,
+        status: publishLogsTable.status,
+        errorMessage: publishLogsTable.errorMessage,
+        scheduleId: publishLogsTable.scheduleId,
+        contentId: publishLogsTable.contentId,
+        attempt: publishLogsTable.attempt,
+        createdAt: publishLogsTable.createdAt,
+      })
+      .from(publishLogsTable)
+      .where(sql`${publishLogsTable.createdAt} >= ${since} AND ${publishLogsTable.status} IN ('failed','error')`)
+      .orderBy(desc(publishLogsTable.createdAt))
+      .limit(20);
+
+    res.json({ windowHours, since: since.toISOString(), platforms, recentFailures });
+  } catch (err) {
+    req.log.error(err, "Failed to get publish stats");
+    res.status(500).json({ error: "Failed to get publish stats" });
   }
 });
 

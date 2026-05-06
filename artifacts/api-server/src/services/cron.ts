@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+import { db } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { runDailyTrackingJob } from "./noteTracking.js";
 import { runPublishDispatcher } from "./publishDispatcher.js";
@@ -11,6 +13,25 @@ const PUBLISH_INTERVAL_MS = 60 * 1000;
 const VIDEO_JOBS_INTERVAL_MS = 30 * 1000;
 const CATEGORY_TRAINING_INTERVAL_MS = 6 * HOUR_MS;
 const AUTO_SYNC_INTERVAL_MS = 24 * HOUR_MS;
+const OAUTH_STATES_CLEANUP_INTERVAL_MS = 24 * HOUR_MS;
+
+let oauthStatesCleanupTimer: NodeJS.Timeout | null = null;
+
+async function safeCleanupOauthStates(label: string): Promise<void> {
+  const startedAt = Date.now();
+  try {
+    // 删 24 小时前过期 / 已消费的 state，防止表无限增长
+    const r = await db.execute(sql`
+      DELETE FROM oauth_states
+      WHERE expires_at < NOW() - INTERVAL '24 hours'
+         OR (consumed_at IS NOT NULL AND consumed_at < NOW() - INTERVAL '24 hours')
+    `);
+    const deleted = (r as any).rowCount ?? 0;
+    logger.info({ label, deleted, durationMs: Date.now() - startedAt }, "oauth_states cleanup tick done");
+  } catch (e: any) {
+    logger.error({ err: e?.message, label }, "oauth_states cleanup failed");
+  }
+}
 
 let trackingTimer: NodeJS.Timeout | null = null;
 let publishTimer: NodeJS.Timeout | null = null;
@@ -96,6 +117,10 @@ export function startCronJobs(): void {
   setTimeout(() => safeRunAutoSync("initial"), 120_000);
   autoSyncTimer = setInterval(() => safeRunAutoSync("scheduled"), AUTO_SYNC_INTERVAL_MS);
 
+  // 每 24 小时清理 oauth_states（过期 24h+ 或已消费 24h+），防止表无限增长
+  setTimeout(() => safeCleanupOauthStates("initial"), 150_000);
+  oauthStatesCleanupTimer = setInterval(() => safeCleanupOauthStates("scheduled"), OAUTH_STATES_CLEANUP_INTERVAL_MS);
+
   // 每 30 秒推进视频生成任务：捡起 queued + 重启崩溃后还在中间态的任务
   const tickVideo = async () => {
     if (isVideoJobsRunning) return;
@@ -124,4 +149,5 @@ export function stopCronJobs(): void {
   if (categoryTrainingTimer) { clearInterval(categoryTrainingTimer); categoryTrainingTimer = null; }
   if (autoSyncTimer) { clearInterval(autoSyncTimer); autoSyncTimer = null; }
   if (videoJobsTimer) { clearInterval(videoJobsTimer); videoJobsTimer = null; }
+  if (oauthStatesCleanupTimer) { clearInterval(oauthStatesCleanupTimer); oauthStatesCleanupTimer = null; }
 }

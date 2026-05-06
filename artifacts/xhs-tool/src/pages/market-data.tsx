@@ -19,6 +19,22 @@ function formatCount(n: number) {
   return String(n);
 }
 
+// 数据可信度三档徽标：绿=真实抓取 / 黄=回退到行业经验值 / 灰=未配置只能 mock
+function SourceBadge({ source }: { source?: string }) {
+  if (!source) return null;
+  const s = String(source);
+  // 真实数据：tikhub/graph/real → 绿
+  if (s === "real" || s === "tikhub" || s === "graph") {
+    return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-100" title="真实抓取数据">● 真实数据</Badge>;
+  }
+  // 回退：fallback / cached → 黄
+  if (s === "fallback" || s === "cached") {
+    return <Badge className="bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-100" title="样本不足或 API 暂不可用，已回退到经验值">◐ 经验回退</Badge>;
+  }
+  // mock / 其他 → 灰
+  return <Badge variant="outline" className="text-muted-foreground" title="未配置数据源，使用示例数据">○ 示例数据</Badge>;
+}
+
 export default function MarketDataPage() {
   const { activePlatform } = usePlatform();
   const [keyword, setKeyword] = useState("beauty");
@@ -74,7 +90,7 @@ export default function MarketDataPage() {
           ) : (
             <>
               <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
-                数据源: <Badge variant="outline">{trendingQ.data?.source}</Badge>
+                数据源: <SourceBadge source={trendingQ.data?.source} />
               </div>
               {trendingQ.data?.source === "mock" && (
                 <Card className="p-3 mb-3 border-amber-300 bg-amber-50/60 flex items-start gap-3">
@@ -134,7 +150,7 @@ export default function MarketDataPage() {
           ) : (
             <>
               <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
-                数据源: <Badge variant="outline">{adsQ.data?.source}</Badge>
+                数据源: <SourceBadge source={adsQ.data?.source} />
               </div>
               {!adsQ.data?.configured && (
                 <Card className="p-3 mb-3 border-amber-300 bg-amber-50/60 flex items-start gap-3">
@@ -203,6 +219,7 @@ export default function MarketDataPage() {
                   <div className="flex items-center gap-2 mb-3">
                     <p.icon className={`h-5 w-5 ${p.textClass}`} />
                     <h3 className="font-semibold">{p.name}</h3>
+                    <SourceBadge source={data.source} />
                   </div>
                   <div className="space-y-2 text-sm">
                     <div><strong>最佳日期:</strong> <span className="text-muted-foreground">{data.bestDays.join(", ")}</span></div>

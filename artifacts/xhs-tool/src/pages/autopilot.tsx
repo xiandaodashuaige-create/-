@@ -147,6 +147,152 @@ function BulkCampaignCTA({
   );
 }
 
+// 品牌画像 inline 折叠面板（autopilot setup 步内嵌，避免用户必须先去设置页填）
+// 强烈建议填好 → AI 周计划/策略生成会读 brandProfilesTable 注入 brandBlock，
+// 严守品牌定位 + 禁用宣称（含同义词 / 暗示 / 反问） → 防止草稿踩广告法。
+function BrandProfileInlinePanel({ platform }: { platform: PlatformId }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<{
+    category: string; products: string; targetAudience: string; priceRange: string;
+    tone: string; conversionGoal: string; forbiddenClaimsText: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const q = useQuery({
+    queryKey: ["brand-profile", platform],
+    queryFn: () => api.brandProfile.get(platform),
+  });
+
+  // 数据加载后初始化 draft（仅一次）
+  useEffect(() => {
+    if (q.data && draft === null) {
+      setDraft({
+        category: q.data.category ?? "",
+        products: q.data.products ?? "",
+        targetAudience: q.data.targetAudience ?? "",
+        priceRange: q.data.priceRange ?? "",
+        tone: q.data.tone ?? "",
+        conversionGoal: q.data.conversionGoal ?? "",
+        forbiddenClaimsText: (q.data.forbiddenClaims ?? []).join("、"),
+      });
+    } else if (q.data === null && draft === null) {
+      setDraft({
+        category: "", products: "", targetAudience: "", priceRange: "",
+        tone: "", conversionGoal: "", forbiddenClaimsText: "",
+      });
+    }
+  }, [q.data, draft]);
+
+  // 切平台时 reset
+  useEffect(() => { setDraft(null); }, [platform]);
+
+  const filledCount = q.data ? [
+    q.data.category, q.data.products, q.data.targetAudience,
+    q.data.priceRange, q.data.tone, q.data.conversionGoal,
+  ].filter((x) => x && String(x).trim().length > 0).length + (q.data.forbiddenClaims?.length ?? 0 > 0 ? 1 : 0) : 0;
+
+  async function save() {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const forbiddenClaims = draft.forbiddenClaimsText
+        .split(/[、,，\n;；]+/).map((s) => s.trim()).filter((s) => s.length > 0).slice(0, 50);
+      await api.brandProfile.upsert({
+        platform,
+        category: draft.category || null,
+        products: draft.products || null,
+        targetAudience: draft.targetAudience || null,
+        priceRange: draft.priceRange || null,
+        tone: draft.tone || null,
+        conversionGoal: draft.conversionGoal || null,
+        forbiddenClaims,
+      });
+      await qc.invalidateQueries({ queryKey: ["brand-profile", platform] });
+      toast({ title: "品牌画像已保存", description: "AI 生成时会严格遵守该画像与禁用宣称" });
+    } catch (e: any) {
+      toast({ title: "保存失败", description: e?.message ?? "未知错误", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-background">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/30 transition rounded-lg"
+      >
+        <div className="flex items-center gap-2">
+          <Brain className="h-4 w-4 text-purple-500" />
+          <span className="text-sm font-medium">品牌画像</span>
+          {filledCount > 0 ? (
+            <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-700 border-emerald-300">
+              已填 {filledCount} 项 · AI 会严格遵守
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300">
+              建议填写 · 让 AI 不偏离定位
+            </Badge>
+          )}
+        </div>
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && draft && (
+        <div className="p-4 pt-0 space-y-3 border-t">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium mb-1 block text-muted-foreground">类目</label>
+              <Input value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} placeholder="医美 / 餐饮 / 母婴…" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block text-muted-foreground">商品/服务</label>
+              <Input value={draft.products} onChange={(e) => setDraft({ ...draft, products: e.target.value })} placeholder="如：面部骨雕、私厨菜单" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block text-muted-foreground">目标受众</label>
+              <Input value={draft.targetAudience} onChange={(e) => setDraft({ ...draft, targetAudience: e.target.value })} placeholder="25-40 女性 / 高净值 / 宝妈…" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block text-muted-foreground">价位带</label>
+              <Input value={draft.priceRange} onChange={(e) => setDraft({ ...draft, priceRange: e.target.value })} placeholder="2k-5k / 高端" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block text-muted-foreground">品牌调性</label>
+              <Input value={draft.tone} onChange={(e) => setDraft({ ...draft, tone: e.target.value })} placeholder="专业冷静 / 温暖治愈 / 反差幽默" className="text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium mb-1 block text-muted-foreground">转化目标</label>
+              <Input value={draft.conversionGoal} onChange={(e) => setDraft({ ...draft, conversionGoal: e.target.value })} placeholder="预约咨询 / 私信 / 进店" className="text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium mb-1 block text-muted-foreground">
+              禁用宣称（绝对不能出现，含同义词/暗示/反问）
+            </label>
+            <Textarea
+              value={draft.forbiddenClaimsText}
+              onChange={(e) => setDraft({ ...draft, forbiddenClaimsText: e.target.value })}
+              placeholder="如：最有效、根治、立刻见效、医保报销 —— 用、或换行分隔"
+              rows={2}
+              className="text-sm"
+            />
+            <div className="text-[10px] text-muted-foreground mt-1">最多 50 个，每个 ≤ 100 字</div>
+          </div>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={save} disabled={saving} className="gap-1">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              保存品牌画像
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AutopilotPage() {
   const { activePlatform } = usePlatform();
   const platform = activePlatform as PlatformId;
@@ -383,7 +529,11 @@ export default function AutopilotPage() {
       }
       if (btSettled.status === "fulfilled") {
         bestTimes = (btSettled.value as any)[platform] ?? null;
-        if (bestTimes) pushLog(`  · 最佳发布时段：${bestTimes.bestHours.map(h => `${h}:00`).join("、")} — ${bestTimes.insight}`, "info");
+        if (bestTimes) {
+          const src = (bestTimes as any).source as string | undefined;
+          const srcTag = src === "real" ? "🟢 真实数据" : src === "fallback" ? "🟡 经验回退" : src === "mock" ? "⚪ 示例" : "";
+          pushLog(`  · 最佳发布时段：${bestTimes.bestHours.map(h => `${h}:00`).join("、")} — ${bestTimes.insight}${srcTag ? ` [${srcTag}]` : ""}`, "info");
+        }
       } else {
         pushLog(`⚠ 最佳发布时段拉取失败：${(btSettled.reason as any)?.message ?? "skip"}`, "warn");
       }
@@ -1173,6 +1323,9 @@ export default function AutopilotPage() {
               </div>
             </div>
           )}
+
+          {/* 品牌画像（per-platform）：避免用户必须先去设置页填，强烈建议填好让 AI 严格符合品牌定位/避开禁用宣称 */}
+          <BrandProfileInlinePanel platform={platform} />
 
           {/* 自定义高级配置 */}
           <button

@@ -4,6 +4,18 @@
  *
  * 后端实现：artifacts/api-server/src/routes/xhsImageProxy.ts
  */
+// 图片代理失败上报：onError 走 SVG 兜底时调用，按 URL 去重防刷屏
+const _reportedFailures = new Set<string>();
+export function reportImageProxyFallback(url: string | undefined, where: string): void {
+  if (!url) return;
+  const key = `${where}::${url}`;
+  if (_reportedFailures.has(key)) return;
+  _reportedFailures.add(key);
+  // 至少保留 console 痕迹方便 grep；后续可改成 sendBeacon 上报后端
+  // eslint-disable-next-line no-console
+  console.warn("[image-proxy-fallback]", where, url);
+}
+
 export function proxyXhsImage(url: string | undefined | null): string | undefined {
   if (!url) return undefined;
   if (url.includes("/api/xhs/image-proxy")) return url;

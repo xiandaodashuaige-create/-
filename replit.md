@@ -72,6 +72,10 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Sora Pro Video Generation:** Gated by `user.plan === "pro"` and requires `OPENAI_API_KEY` with Sora access; check for `pro_only` gate happens before credit deduction.
 - **Bulk Schedule Creation:** Idempotent, with in-process pre-check and DB unique index `schedules_account_scheduled_at_uniq` for concurrency. **Always write `ownerUserId: u.id` on `contentTable.insert`** in `schedules.ts` bulk-create / duplicate-weeks; `/api/content` filters by `c.owner_user_id` and orphan rows become invisible to the user.
 - **Weekly plan brand-profile injection:** `/api/ai/generate-weekly-plan` reads `brandProfilesTable` per (user, platform) and assembles a `brandBlock` (truncated 1500 chars) passed to `planGenerator.generateWeeklyPlan`. Forbidden claims must be enforced as absolute (incl. synonyms/implications). Without this, drafts can violate ad-law.
+- **`/api/market-data/best-times` 三档来源：** 端点接受可选认证：登录用户聚合自己 `competitor_posts.published_at` 按 SGT 分桶（≥10 条样本 → `source: "real"`，否则 `source: "fallback"`）；未登录 → `source: "mock"`。前端 `SourceBadge`（绿/黄/灰）必须按此分流显示，避免给运营误导性信号。
+- **静态守卫 `pnpm --filter @workspace/scripts run check-content-owner`：** 防止 `routes/services` 里 `db.insert(contentTable).values({...})` 漏写 `ownerUserId` 字段（孤儿 bug 防回归）。改 `schedules.ts` / `content.ts` 等涉及 content 插入的代码后必跑。
+- **Cron 列表（process-internal, single-instance only）：** trackingHours=12 / publishSeconds=60 / categoryTrainingHours=6 / autoSyncHours=24 / videoJobsSeconds=30 / **oauthStatesCleanupHours=24**（删 24h 前过期/消费的 `oauth_states`）。多实例部署需切换到 DB lock 或外部调度器。
+- **`GET /api/admin/publish-stats?windowHours=24`：** Admin-only 多平台发布失败率聚合（successRate / avgDurationMs / recentFailures top 20），用于运营巡检；`requireAdmin` 中间件需 `user.role === 'admin'`（首次注册时由 `INITIAL_ADMIN_EMAILS` 决定）。
 
 ## Pointers
 

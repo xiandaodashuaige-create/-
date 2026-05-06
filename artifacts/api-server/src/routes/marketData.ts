@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db, competitorPostsTable, competitorProfilesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { fetchTrendingHashtagVideos, isTikHubConfigured } from "../services/tikhubScraper";
@@ -189,13 +189,82 @@ router.get("/market-data/ads", async (req, res): Promise<void> => {
 });
 
 // ── GET /api/market-data/best-times ──────────────────────────────────
-router.get("/market-data/best-times", async (_req, res): Promise<void> => {
-  res.json({
-    xhs: { bestDays: ["Wednesday", "Friday", "Saturday", "Sunday"], bestHours: [12, 19, 22], insight: "20:00-22:00 流量峰值，周末白天表现更稳" },
-    tiktok: { bestDays: ["Tuesday", "Thursday", "Friday"], bestHours: [19, 20, 21], insight: "晚间 19-21 完播率高 2 倍" },
-    instagram: { bestDays: ["Monday", "Tuesday", "Wednesday", "Friday"], bestHours: [6, 12, 19], insight: "Reels 在 6am 或 7pm 表现 +23%" },
-    facebook: { bestDays: ["Tuesday", "Wednesday", "Thursday"], bestHours: [9, 13, 15], insight: "工作日下午 1-3 点互动 +18%" },
-  });
+// source 字段：
+//   - "real"     : 用户已收集的真实同行 published_at 聚合（>=10 条样本）
+//   - "fallback" : 样本不足，回退到行业经验常量
+//   - "mock"     : 用户未登录或没任何同行数据
+const BEST_TIMES_FALLBACK: Record<string, { bestDays: string[]; bestHours: number[]; insight: string }> = {
+  xhs: { bestDays: ["Wednesday", "Friday", "Saturday", "Sunday"], bestHours: [12, 19, 22], insight: "20:00-22:00 流量峰值，周末白天表现更稳（行业经验值）" },
+  tiktok: { bestDays: ["Tuesday", "Thursday", "Friday"], bestHours: [19, 20, 21], insight: "晚间 19-21 完播率高 2 倍（行业经验值）" },
+  instagram: { bestDays: ["Monday", "Tuesday", "Wednesday", "Friday"], bestHours: [6, 12, 19], insight: "Reels 在 6am 或 7pm 表现 +23%（行业经验值）" },
+  facebook: { bestDays: ["Tuesday", "Wednesday", "Thursday"], bestHours: [9, 13, 15], insight: "工作日下午 1-3 点互动 +18%（行业经验值）" },
+};
+
+const DOW_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+async function aggregatePerPlatform(userId: number, platform: string) {
+  // 拉用户在该平台的同行 ID 列表
+  const profiles = await db
+    .select({ id: competitorProfilesTable.id })
+    .from(competitorProfilesTable)
+    .where(and(eq(competitorProfilesTable.userId, userId), eq(competitorProfilesTable.platform, platform)));
+  if (profiles.length === 0) return null;
+  const ids = profiles.map((p) => p.id);
+
+  // 按 SGT (UTC+8) 聚合，更贴近东南亚用户使用习惯
+  const rows = await db.execute(sql`
+    SELECT
+      EXTRACT(HOUR  FROM (published_at AT TIME ZONE 'Asia/Singapore'))::int AS hour,
+      EXTRACT(DOW   FROM (published_at AT TIME ZONE 'Asia/Singapore'))::int AS dow,
+      COUNT(*)::int AS posts,
+      SUM(COALESCE(view_count,0) + COALESCE(like_count,0)*5 + COALESCE(comment_count,0)*10)::bigint AS score
+    FROM competitor_posts
+    WHERE platform = ${platform}
+      AND competitor_id = ANY(${ids})
+      AND published_at IS NOT NULL
+      AND published_at > NOW() - INTERVAL '120 days'
+    GROUP BY 1, 2
+  `);
+  const buckets = (rows as any).rows ?? [];
+  const totalPosts = buckets.reduce((s: number, r: any) => s + Number(r.posts), 0);
+  if (totalPosts < 10) return null; // 样本太少，不可信
+
+  // 时段：取 score 最高的前 3 个小时
+  const byHour = new Map<number, number>();
+  const byDow = new Map<number, number>();
+  for (const r of buckets) {
+    const h = Number(r.hour); const d = Number(r.dow); const s = Number(r.score);
+    byHour.set(h, (byHour.get(h) ?? 0) + s);
+    byDow.set(d, (byDow.get(d) ?? 0) + s);
+  }
+  const bestHours = [...byHour.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h]) => h).sort((a, b) => a - b);
+  const bestDays = [...byDow.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([d]) => DOW_NAMES[d]);
+  const insight = `基于您 ${profiles.length} 位 ${platform} 同行的 ${totalPosts} 条作品聚合（近 120 天，SGT 时区）`;
+  return { bestDays, bestHours, insight };
+}
+
+router.get("/market-data/best-times", async (req, res): Promise<void> => {
+  // 未登录也能看：直接返回常量 fallback（保留向后兼容）
+  const user = await ensureUser(req).catch(() => null);
+  const out: Record<string, { bestDays: string[]; bestHours: number[]; insight: string; source: "real" | "fallback" | "mock" }> = {};
+  for (const platform of ["xhs", "tiktok", "instagram", "facebook"] as const) {
+    if (!user) {
+      out[platform] = { ...BEST_TIMES_FALLBACK[platform], source: "mock" };
+      continue;
+    }
+    try {
+      const real = await aggregatePerPlatform(user.id, platform);
+      if (real) {
+        out[platform] = { ...real, source: "real" };
+      } else {
+        out[platform] = { ...BEST_TIMES_FALLBACK[platform], source: "fallback" };
+      }
+    } catch (e: any) {
+      logger.warn({ err: e?.message, platform, userId: user.id }, "best-times aggregate failed, using fallback");
+      out[platform] = { ...BEST_TIMES_FALLBACK[platform], source: "fallback" };
+    }
+  }
+  res.json(out);
 });
 
 function getMockTrending(platform: string, keyword: string) {

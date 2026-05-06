@@ -52,50 +52,42 @@ router.put("/brand-profile", async (req, res): Promise<void> => {
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
   const data = parsed.data;
-  const [existing] = await db
-    .select({ id: brandProfilesTable.id })
-    .from(brandProfilesTable)
-    .where(and(eq(brandProfilesTable.ownerUserId, user.id), eq(brandProfilesTable.platform, data.platform)));
-
-  if (existing) {
-    const [row] = await db
-      .update(brandProfilesTable)
-      .set({
-        category: data.category ?? null,
-        products: data.products ?? null,
-        targetAudience: data.targetAudience ?? null,
-        priceRange: data.priceRange ?? null,
-        tone: data.tone ?? null,
-        forbiddenClaims: data.forbiddenClaims ?? [],
-        conversionGoal: data.conversionGoal ?? null,
-        region: data.region ?? null,
-        language: data.language ?? null,
-        extras: data.extras ?? {},
-      })
-      .where(eq(brandProfilesTable.id, existing.id))
-      .returning();
-    res.json(row);
-    return;
-  }
-
+  // 原子 upsert：依赖 schema 上 `(owner_user_id, platform)` 唯一约束，
+  // 避免 SELECT-then-INSERT 的并发 race（之前快速点保存会偶发 unique constraint 500）。
+  const values = {
+    ownerUserId: user.id,
+    platform: data.platform,
+    category: data.category ?? null,
+    products: data.products ?? null,
+    targetAudience: data.targetAudience ?? null,
+    priceRange: data.priceRange ?? null,
+    tone: data.tone ?? null,
+    forbiddenClaims: data.forbiddenClaims ?? [],
+    conversionGoal: data.conversionGoal ?? null,
+    region: data.region ?? null,
+    language: data.language ?? null,
+    extras: data.extras ?? {},
+  };
   const [row] = await db
     .insert(brandProfilesTable)
-    .values({
-      ownerUserId: user.id,
-      platform: data.platform,
-      category: data.category ?? null,
-      products: data.products ?? null,
-      targetAudience: data.targetAudience ?? null,
-      priceRange: data.priceRange ?? null,
-      tone: data.tone ?? null,
-      forbiddenClaims: data.forbiddenClaims ?? [],
-      conversionGoal: data.conversionGoal ?? null,
-      region: data.region ?? null,
-      language: data.language ?? null,
-      extras: data.extras ?? {},
+    .values(values)
+    .onConflictDoUpdate({
+      target: [brandProfilesTable.ownerUserId, brandProfilesTable.platform],
+      set: {
+        category: values.category,
+        products: values.products,
+        targetAudience: values.targetAudience,
+        priceRange: values.priceRange,
+        tone: values.tone,
+        forbiddenClaims: values.forbiddenClaims,
+        conversionGoal: values.conversionGoal,
+        region: values.region,
+        language: values.language,
+        extras: values.extras,
+      },
     })
     .returning();
-  res.status(201).json(row);
+  res.json(row);
 });
 
 // DELETE /api/brand-profile?platform=xhs
