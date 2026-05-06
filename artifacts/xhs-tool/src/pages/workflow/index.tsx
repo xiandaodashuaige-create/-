@@ -154,20 +154,26 @@ export default function WorkflowWizard() {
     onError: (e: Error) => toast({ title: "保存失败", description: e.message, variant: "destructive" }),
   });
 
+  const showAiError = (e: any, fallbackTitle: string) => {
+    const msg = e?.body?.error || e?.body?.message || e?.message || "未知错误";
+    if (e?.status === 403) { handleCreditError(e); return; }
+    toast({ title: fallbackTitle, description: String(msg).slice(0, 240), variant: "destructive" });
+  };
+
   const rewriteMutation = useMutation({
     mutationFn: (data: any) => api.ai.rewrite(data),
-    onSuccess: (result) => setAiResult(result),
-    onError: (e: any) => handleCreditError(e),
+    onSuccess: (result) => { setAiResult(result); toast({ title: "AI 改写完成" }); },
+    onError: (e: any) => showAiError(e, "AI 改写失败"),
   });
 
   const sensitivityMutation = useMutation({
     mutationFn: (data: any) => api.ai.checkSensitivity(data),
     onSuccess: (result) => setSensitivityResult(result),
-    onError: (e: any) => handleCreditError(e),
+    onError: (e: any) => showAiError(e, "敏感词检测失败"),
   });
 
-  const titleMutation = useMutation({ mutationFn: (data: any) => api.ai.generateTitle(data), onError: (e: any) => handleCreditError(e) });
-  const hashtagMutation = useMutation({ mutationFn: (data: any) => api.ai.generateHashtags(data), onError: (e: any) => handleCreditError(e) });
+  const titleMutation = useMutation({ mutationFn: (data: any) => api.ai.generateTitle(data), onError: (e: any) => showAiError(e, "AI 生成标题失败") });
+  const hashtagMutation = useMutation({ mutationFn: (data: any) => api.ai.generateHashtags(data), onError: (e: any) => showAiError(e, "AI 生成标签失败") });
 
   const imageMutation = useMutation({
     mutationFn: (data: { prompt: string; style?: string; size?: string }) => api.ai.generateImage(data),
@@ -176,7 +182,7 @@ export default function WorkflowWizard() {
       setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
       toast({ title: "AI配图生成成功" });
     },
-    onError: (e: any) => handleCreditError(e),
+    onError: (e: any) => showAiError(e, "AI 配图生成失败"),
   });
 
   const editImageMutation = useMutation({
@@ -186,7 +192,7 @@ export default function WorkflowWizard() {
       setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, url] }));
       toast({ title: "参考图伪原创成功！" });
     },
-    onError: (e: any) => handleCreditError(e),
+    onError: (e: any) => showAiError(e, "参考图伪原创失败"),
   });
 
   const pipelineImageMutation = useMutation({
@@ -206,7 +212,7 @@ export default function WorkflowWizard() {
         description: `引擎: ${result.provider}${result.styleProfileUsed ? "（已应用你的历史风格档案）" : ""}`,
       });
     },
-    onError: (e: any) => handleCreditError(e),
+    onError: (e: any) => showAiError(e, "爆款封面生成失败"),
   });
 
   const feedbackMutation = useMutation({
