@@ -19,6 +19,7 @@ import strategyRouter from "./strategy";
 import marketDataRouter from "./marketData";
 import autoOnboardingRouter from "./autoOnboarding";
 import videoGenRouter from "./videoGen";
+import brandProfileRouter from "./brandProfile";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -50,5 +51,6 @@ router.use(strategyRouter);
 router.use(marketDataRouter);
 router.use(autoOnboardingRouter);
 router.use(videoGenRouter);
+router.use(brandProfileRouter);
 
 export default router;

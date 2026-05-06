@@ -39,6 +39,113 @@ type LogLine = { ts: number; text: string; status: "info" | "success" | "warn" |
 
 function nowTs() { return Date.now(); }
 
+// T2：在 done 步骤里一键再排 6 条（连 done 这条 = 7 天闭环）
+function BulkCampaignCTA({
+  accountId, platform, niche, region,
+}: {
+  accountId: number;
+  platform: PlatformId;
+  niche: string;
+  region?: string;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<Array<{ dayOffset: number; time: string; title: string; body: string; tags: string[] }> | null>(null);
+
+  async function genPlan() {
+    setBusy(true);
+    try {
+      const r = await api.ai.generateWeeklyPlan({
+        platform, niche, region,
+        frequency: "daily",
+      });
+      // 取 7 条草稿的后 6 条（避开第 0 天，留给当前 done 内容），重新映射 dayOffset=0..5
+      // 因为 startDate 会用「明天 00:00」作为基准，dayOffset 从 0 起即明天发首条，避免和今天 done 内容撞日
+      const items = (r.items ?? [])
+        .filter((it) => it.dayOffset >= 1 && it.dayOffset <= 6)
+        .slice(0, 6)
+        .map((it, idx) => ({
+          dayOffset: idx, // 0..5 → 明天起的连续 6 天
+          time: it.time || "20:00",
+          title: it.title,
+          body: it.body,
+          tags: it.tags ?? [],
+        }));
+      if (items.length === 0) {
+        toast({ title: "暂无可排期条目", description: "稍后再试或换关键词", variant: "destructive" });
+      } else {
+        setDraft(items);
+      }
+    } catch (e: any) {
+      toast({ title: "生成排期失败", description: e?.message ?? "未知错误", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commit() {
+    if (!draft || draft.length === 0) return;
+    setBusy(true);
+    try {
+      // 用「明天 00:00」作为 bulk 起点，避免和当前 done 内容撞日
+      const tomorrow = new Date();
+      tomorrow.setHours(0, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const startDate = tomorrow.toISOString();
+      const r = await api.schedules.bulkCreate({
+        accountId,
+        startDate,
+        items: draft,
+      });
+      toast({ title: `已排期 ${r.created} 条`, description: "可在排期表查看与微调" });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      setDraft(null);
+    } catch (e: any) {
+      toast({
+        title: "批量排期失败",
+        description: e?.message ?? "未知错误",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!draft) {
+    return (
+      <div className="text-center space-y-2">
+        <div className="text-sm text-muted-foreground">想让 AI 一次帮你排满下周 6 天？</div>
+        <Button variant="secondary" size="sm" onClick={genPlan} disabled={busy}>
+          {busy ? "生成中…" : "AI 生成下周 6 条排期"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">即将创建 {draft.length} 条草稿 + 排期：</div>
+      <div className="space-y-1.5 max-h-56 overflow-y-auto">
+        {draft.map((it, i) => (
+          <div key={i} className="text-xs border rounded p-2 bg-muted/20">
+            <div className="font-semibold">D+{it.dayOffset} {it.time} · {it.title}</div>
+            <div className="text-muted-foreground line-clamp-2">{it.body}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 justify-center">
+        <Button size="sm" onClick={commit} disabled={busy}>
+          {busy ? "创建中…" : `确认创建 ${draft.length} 条`}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+          取消
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function AutopilotPage() {
   const { activePlatform } = usePlatform();
   const platform = activePlatform as PlatformId;
@@ -1699,6 +1806,18 @@ export default function AutopilotPage() {
               再来一条
             </Button>
           </div>
+
+          {/* T2：一键再排 6 条（连同已发布的当前 1 条共 7 天闭环） */}
+          {selectedAccount && niche.trim() && (
+            <div className="border-t pt-4 mt-2">
+              <BulkCampaignCTA
+                accountId={selectedAccount.id}
+                platform={platform}
+                niche={niche.trim()}
+                region={region.trim() || undefined}
+              />
+            </div>
+          )}
         </Card>
       )}
 

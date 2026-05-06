@@ -7,6 +7,7 @@ import {
   competitorPostsTable,
   accountsTable,
   contentTable,
+  brandProfilesTable,
 } from "@workspace/db";
 import { ensureUser } from "../middlewares/creditSystem";
 import { logger } from "../lib/logger";
@@ -78,12 +79,32 @@ router.post("/strategy/generate", async (req, res): Promise<void> => {
     }
   }
 
+  // 加载用户该平台的品牌画像，注入策略生成
+  const [brandProfile] = await db
+    .select()
+    .from(brandProfilesTable)
+    .where(and(
+      eq(brandProfilesTable.ownerUserId, user.id),
+      eq(brandProfilesTable.platform, platform),
+    ));
+
   try {
     const result = await generateStrategyCard({
       platform, region, niche,
       competitorPosts: candidatePosts,
       competitorProfiles: candidateProfiles,
       accounts, customRequirements,
+      brandProfile: brandProfile ? {
+        category: brandProfile.category,
+        products: brandProfile.products,
+        targetAudience: brandProfile.targetAudience,
+        priceRange: brandProfile.priceRange,
+        tone: brandProfile.tone,
+        forbiddenClaims: brandProfile.forbiddenClaims as string[] | null,
+        conversionGoal: brandProfile.conversionGoal,
+        region: brandProfile.region,
+        language: brandProfile.language,
+      } : null,
     });
 
     const [strategy] = await db.insert(strategiesTable).values({

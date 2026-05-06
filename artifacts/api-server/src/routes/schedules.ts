@@ -7,6 +7,7 @@ import {
   DeleteScheduleParams,
 } from "@workspace/api-zod";
 import { ensureUser } from "../middlewares/creditSystem";
+import { isAccountReadyToPublish } from "../services/publishDispatcher.js";
 
 // 校验某条 schedule 是否属于当前用户，返回 schedule（含 contentId / accountId）
 async function loadOwnedSchedule(scheduleId: number, userId: number) {
@@ -245,6 +246,16 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
       .where(and(eq(accountsTable.id, accountId), eq(accountsTable.ownerUserId, u.id)));
     if (!account) {
       res.status(404).json({ error: "Account not found" });
+      return;
+    }
+
+    // T1：非 XHS 平台账号必须授权后才能批量建排期；防止后续 cron 必然失败
+    if (!isAccountReadyToPublish(account)) {
+      res.status(400).json({
+        error: "account_not_authorized",
+        message: `${account.platform} 账号尚未授权，无法批量排期。请先到「账号管理」完成授权。`,
+        platform: account.platform,
+      });
       return;
     }
 

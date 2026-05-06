@@ -3,10 +3,12 @@ import { runDailyTrackingJob } from "./noteTracking.js";
 import { runPublishDispatcher } from "./publishDispatcher.js";
 import { recomputeAllCategoryProfiles } from "./categoryTraining.js";
 import { runAutoSyncStaleCompetitors } from "./autoOnboarding.js";
+import { runVideoJobsTick } from "./videoJobs.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const TRACKING_INTERVAL_MS = 12 * HOUR_MS;
 const PUBLISH_INTERVAL_MS = 60 * 1000;
+const VIDEO_JOBS_INTERVAL_MS = 30 * 1000;
 const CATEGORY_TRAINING_INTERVAL_MS = 6 * HOUR_MS;
 const AUTO_SYNC_INTERVAL_MS = 24 * HOUR_MS;
 
@@ -14,6 +16,8 @@ let trackingTimer: NodeJS.Timeout | null = null;
 let publishTimer: NodeJS.Timeout | null = null;
 let categoryTrainingTimer: NodeJS.Timeout | null = null;
 let autoSyncTimer: NodeJS.Timeout | null = null;
+let videoJobsTimer: NodeJS.Timeout | null = null;
+let isVideoJobsRunning = false;
 let isRunning = false;
 let isCategoryTrainingRunning = false;
 let isAutoSyncRunning = false;
@@ -92,6 +96,17 @@ export function startCronJobs(): void {
   setTimeout(() => safeRunAutoSync("initial"), 120_000);
   autoSyncTimer = setInterval(() => safeRunAutoSync("scheduled"), AUTO_SYNC_INTERVAL_MS);
 
+  // 每 30 秒推进视频生成任务：捡起 queued + 重启崩溃后还在中间态的任务
+  const tickVideo = async () => {
+    if (isVideoJobsRunning) return;
+    isVideoJobsRunning = true;
+    try { await runVideoJobsTick(); }
+    catch (e: any) { logger.error({ err: e?.message }, "video jobs tick failed"); }
+    finally { isVideoJobsRunning = false; }
+  };
+  setTimeout(() => { void tickVideo(); }, 20_000);
+  videoJobsTimer = setInterval(() => { void tickVideo(); }, VIDEO_JOBS_INTERVAL_MS);
+
   logger.info(
     {
       trackingHours: TRACKING_INTERVAL_MS / HOUR_MS,
@@ -108,4 +123,5 @@ export function stopCronJobs(): void {
   if (publishTimer) { clearInterval(publishTimer); publishTimer = null; }
   if (categoryTrainingTimer) { clearInterval(categoryTrainingTimer); categoryTrainingTimer = null; }
   if (autoSyncTimer) { clearInterval(autoSyncTimer); autoSyncTimer = null; }
+  if (videoJobsTimer) { clearInterval(videoJobsTimer); videoJobsTimer = null; }
 }

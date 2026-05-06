@@ -1,10 +1,72 @@
 import { Router, type IRouter } from "express";
+import { eq, and, desc, inArray } from "drizzle-orm";
+import { db, competitorPostsTable, competitorProfilesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { fetchTrendingHashtagVideos, isTikHubConfigured } from "../services/tikhubScraper";
 import { searchXhsNotes, isXhsHotTopicsConfigured } from "../services/hotTopics";
+import { ensureUser } from "../middlewares/creditSystem";
 
 // 市场数据探索：跨平台热门内容、广告库、最佳发布时间
 const router: IRouter = Router();
+
+// FB/IG 热门数据兜底：聚合用户已添加的同行账号最近爆款帖子
+async function fetchCompetitorTrending(
+  userId: number,
+  platform: "facebook" | "instagram",
+  keyword: string,
+): Promise<any[] | null> {
+  // 找用户在该平台的同行账号
+  const profiles = await db
+    .select()
+    .from(competitorProfilesTable)
+    .where(and(
+      eq(competitorProfilesTable.userId, userId),
+      eq(competitorProfilesTable.platform, platform),
+    ));
+  if (profiles.length === 0) return null;
+
+  const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const posts = await db
+    .select()
+    .from(competitorPostsTable)
+    .where(and(
+      eq(competitorPostsTable.platform, platform),
+      inArray(competitorPostsTable.competitorId, profiles.map((p) => p.id)),
+    ))
+    .orderBy(desc(competitorPostsTable.likeCount))
+    .limit(40);
+
+  if (posts.length === 0) return null;
+
+  // 关键词过滤（弱过滤，避免一关键词过滤掉所有数据）
+  const kw = keyword.trim().toLowerCase();
+  const filtered = kw && kw.length >= 2
+    ? posts.filter((p) => {
+        const hay = [p.title, p.description, (p.hashtags ?? []).join(" ")].join(" ").toLowerCase();
+        return hay.includes(kw);
+      })
+    : posts;
+  const finalPosts = filtered.length >= 3 ? filtered : posts;
+
+  return finalPosts.slice(0, 20).map((p) => {
+    const profile = profileById.get(p.competitorId);
+    return {
+      id: `competitor_${p.id}`,
+      platform,
+      title: (p.title || p.description || "").slice(0, 100) || `@${profile?.handle ?? ""} 的帖子`,
+      description: p.description ?? "",
+      thumbnailUrl: p.coverUrl ?? p.mediaUrl ?? "",
+      mediaUrl: p.postUrl ?? p.mediaUrl ?? "",
+      likes: p.likeCount,
+      views: p.viewCount,
+      comments: p.commentCount,
+      shares: p.shareCount,
+      hashtags: p.hashtags ?? [],
+      duration: p.duration ?? 0,
+      author: profile?.handle ?? null,
+    };
+  });
+}
 
 // ── GET /api/market-data/trending?platform=tiktok&keyword=美容&region=MY ──
 router.get("/market-data/trending", async (req, res): Promise<void> => {
@@ -67,7 +129,30 @@ router.get("/market-data/trending", async (req, res): Promise<void> => {
     return;
   }
 
-  // FB/IG 暂无公开热门接口 → mock + 引导到「同行库」
+  // FB/IG：先从用户已添加的同行库聚合真实爆款；空才回退 mock
+  if (platform === "facebook" || platform === "instagram") {
+    const user = await ensureUser(req);
+    if (user) {
+      try {
+        const items = await fetchCompetitorTrending(user.id, platform, keyword);
+        if (items && items.length > 0) {
+          res.json({ platform, keyword, region, source: "competitor_posts", items });
+          return;
+        }
+      } catch (err: any) {
+        logger.error({ err: err.message, platform, userId: user.id }, "market-data/trending competitor aggregate failed");
+      }
+    }
+    res.json({
+      platform, keyword, region,
+      source: "mock",
+      sourceConfidence: "low",
+      hint: `${platform} 没有官方公开热门接口；建议在「同行库」追加 5-10 个目标账号后，本接口将自动聚合真实爆款。`,
+      items: getMockTrending(platform, keyword),
+    });
+    return;
+  }
+
   res.json({ platform, keyword, region, source: "mock", items: getMockTrending(platform, keyword) });
 });
 

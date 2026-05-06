@@ -78,6 +78,18 @@ function scorePost(p: any, profile: any, nicheTokens: string[]): number {
   return s;
 }
 
+export interface BrandProfileInput {
+  category?: string | null;
+  products?: string | null;
+  targetAudience?: string | null;
+  priceRange?: string | null;
+  tone?: string | null;
+  forbiddenClaims?: string[] | null;
+  conversionGoal?: string | null;
+  region?: string | null;
+  language?: string | null;
+}
+
 export interface GenerateStrategyInput {
   platform: "xhs" | "tiktok" | "instagram" | "facebook";
   region?: string;
@@ -86,6 +98,23 @@ export interface GenerateStrategyInput {
   competitorProfiles: any[]; // 候选 competitor_profiles rows
   accounts: any[]; // 用户已授权账号
   customRequirements?: string;
+  brandProfile?: BrandProfileInput | null;
+}
+
+function buildBrandProfileBlock(bp: BrandProfileInput | null | undefined): string {
+  if (!bp) return "";
+  const lines: string[] = [];
+  if (bp.category) lines.push(`- 类目：${bp.category}`);
+  if (bp.products) lines.push(`- 主推产品/服务：${bp.products}`);
+  if (bp.targetAudience) lines.push(`- 目标受众：${bp.targetAudience}`);
+  if (bp.priceRange) lines.push(`- 价位区间：${bp.priceRange}`);
+  if (bp.tone) lines.push(`- 品牌调性：${bp.tone}`);
+  if (bp.conversionGoal) lines.push(`- 转化目标：${bp.conversionGoal}`);
+  if (bp.forbiddenClaims && bp.forbiddenClaims.length > 0) {
+    lines.push(`- ⛔ 禁用宣称（绝对不得出现）：${bp.forbiddenClaims.join("、")}`);
+  }
+  if (lines.length === 0) return "";
+  return `\n\n【品牌画像 — 必须严格遵循】\n${lines.join("\n")}`;
 }
 
 export interface GenerateStrategyResult {
@@ -106,7 +135,7 @@ export interface GenerateStrategyResult {
 }
 
 export async function generateStrategyCard(input: GenerateStrategyInput): Promise<GenerateStrategyResult> {
-  const { platform, region, niche, competitorPosts, competitorProfiles, accounts, customRequirements } = input;
+  const { platform, region, niche, competitorPosts, competitorProfiles, accounts, customRequirements, brandProfile } = input;
   const preset = PLATFORM_PRESETS[platform] ?? PLATFORM_PRESETS.tiktok;
   const baseNiche = sanitizeNiche(niche ?? "");
   const nicheTokens = expandNicheTokens(niche ?? "");
@@ -167,6 +196,7 @@ export async function generateStrategyCard(input: GenerateStrategyInput): Promis
     ? accounts.map(a => `@${a.nickname}（${a.region}）`).join("、")
     : "新账号（暂无历史数据）";
   const customBlock = customRequirements ? `\n\n用户额外要求：${customRequirements}` : "";
+  const brandBlock = buildBrandProfileBlock(brandProfile);
 
   const nicheConstraint = hasNiche
     ? `\n\n⚠️ 硬约束：用户行业=【${baseNiche}】。所有内容必须 100% 围绕此行业，严禁产出无关行业内容。如样本与行业无关，仅借鉴其爆款"结构/节奏/钩子手法"，主题强行回到【${baseNiche}】。`
@@ -218,7 +248,7 @@ ${sampleBlock}
 【真实数据洞察】
 - 平均时长：${avgDuration}s
 - 高频标签：${topHashtags.join(" ") || "—"}
-- 高频 BGM：${topMusic.join(" / ") || "—"}${dataModeNote}${customBlock}
+- 高频 BGM：${topMusic.join(" / ") || "—"}${dataModeNote}${brandBlock}${customBlock}
 
 请输出策略卡 JSON。`;
 

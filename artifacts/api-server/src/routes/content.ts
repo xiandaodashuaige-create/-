@@ -1,7 +1,9 @@
 import { Router, type IRouter } from "express";
 import { eq, and, sql, type SQL } from "drizzle-orm";
 import { db, contentTable, accountsTable, schedulesTable, publishLogsTable } from "@workspace/db";
-import { dispatchContentToProvider } from "../services/publishDispatcher.js";
+import { dispatchContentToProvider, isAccountReadyToPublish } from "../services/publishDispatcher.js";
+import { brandProfilesTable, strategiesTable } from "@workspace/db";
+import { z } from "zod/v4";
 import {
   CreateContentBody,
   GetContentParams,
@@ -295,6 +297,108 @@ router.patch("/content/:id", async (req, res): Promise<void> => {
   }
 });
 
+// T8：根据 strategy 一键建草稿（autopilot 内部 + 用户手动复用）
+const FromStrategySchema = z.object({
+  strategyId: z.number().int().positive().optional(),
+  accountId: z.number().int().positive(),
+  platform: z.enum(["xhs", "tiktok", "instagram", "facebook"]).optional(),
+  // 直接传 StrategyCard 时（不持久化），用 inline 字段覆盖
+  title: z.string().max(200).optional(),
+  body: z.string().max(20000).optional(),
+  tags: z.array(z.string()).max(20).optional(),
+  imageUrls: z.array(z.string()).max(20).optional(),
+  videoUrl: z.string().nullable().optional(),
+  mediaType: z.enum(["image", "video", "text"]).optional(),
+  // 把策略卡内的 voiceoverScript / coverPrompt 等也存入 originalReference 便于复溯
+  originalReference: z.string().max(20000).nullable().optional(),
+});
+router.post("/content/from-strategy", requireCredits("content-create"), async (req, res): Promise<void> => {
+  try {
+    const u = await ensureUser(req);
+    if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const parsed = FromStrategySchema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+    const data = parsed.data;
+
+    const account = await loadOwnedAccount(data.accountId, u.id);
+    if (!account) { res.status(403).json({ error: "Account not found or not owned" }); return; }
+
+    let title = data.title?.trim() || "未命名";
+    let body = data.body ?? "";
+    let tags = data.tags ?? [];
+    let mediaType: "image" | "video" | "text" = data.mediaType ?? (account.platform === "tiktok" ? "video" : "image");
+    let originalReference = data.originalReference ?? null;
+
+    // 若给了 strategyId，从策略卡里抽 title/body/tags
+    if (data.strategyId) {
+      const [strategy] = await db.select().from(strategiesTable).where(eq(strategiesTable.id, data.strategyId));
+      if (!strategy || strategy.userId !== u.id) {
+        res.status(404).json({ error: "strategy_not_found" });
+        return;
+      }
+      const card = strategy.strategyJson as any;
+      if (card) {
+        if (!data.title) title = (card.theme || card.hookFormula || "未命名").toString().slice(0, 200);
+        if (!data.body) body = (card.bodyDraft || card.voiceoverScript || "").toString();
+        if (!data.tags) tags = Array.isArray(card.hashtags) ? card.hashtags.slice(0, 10) : [];
+        if (!data.originalReference) {
+          originalReference = JSON.stringify({
+            strategyId: strategy.id,
+            theme: card.theme,
+            hookFormula: card.hookFormula,
+            voiceoverScript: card.voiceoverScript,
+            scriptOutline: card.scriptOutline,
+            coverPrompt: card.coverPrompt,
+            reasoning: card.reasoning,
+          }).slice(0, 19000);
+        }
+      }
+    }
+
+    const platform = data.platform || account.platform || "xhs";
+
+    const [content] = await db.insert(contentTable).values({
+      ownerUserId: u.id,
+      accountId: account.id,
+      platform,
+      mediaType,
+      title: title.slice(0, 200),
+      body,
+      tags,
+      imageUrls: data.imageUrls ?? [],
+      videoUrl: data.videoUrl ?? null,
+      originalReference,
+      status: "draft",
+    }).returning();
+
+    await db
+      .update(accountsTable)
+      .set({ contentCount: sql`content_count + 1`, lastActiveAt: new Date() })
+      .where(eq(accountsTable.id, account.id));
+
+    await logActivity(
+      "content_created",
+      `from-strategy ${data.strategyId ? `#${data.strategyId}` : "(inline)"} → content #${content.id}`,
+      content.id,
+      account.id,
+    );
+    await deductCredits(req, "content-create");
+    try { triggerContentProfileRecompute(u.id); } catch { /* ignore */ }
+
+    res.status(201).json({
+      contentId: content.id,
+      platform: content.platform,
+      title: content.title,
+      body: content.body,
+      tags: content.tags,
+      status: content.status,
+    });
+  } catch (err) {
+    req.log.error(err, "from-strategy failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 router.delete("/content/:id", async (req, res): Promise<void> => {
   try {
     const params = DeleteContentParams.safeParse(req.params);
@@ -361,6 +465,20 @@ router.post("/content/:id/schedule", async (req, res): Promise<void> => {
       return;
     }
 
+    // T1：账号必须已授权（XHS 走标记发布除外）
+    const ownedRowSch = owned as Record<string, any>;
+    if (ownedRowSch.account_id) {
+      const [acc] = await db.select().from(accountsTable).where(eq(accountsTable.id, ownedRowSch.account_id));
+      if (acc && !isAccountReadyToPublish(acc)) {
+        res.status(400).json({
+          error: "account_not_authorized",
+          message: `${acc.platform} 账号尚未授权，无法排期自动发布。请先到「账号管理」完成授权。`,
+          platform: acc.platform,
+        });
+        return;
+      }
+    }
+
     const [content] = await db
       .update(contentTable)
       .set({ status: "scheduled", scheduledAt: new Date(parsed.data.scheduledAt) })
@@ -416,6 +534,16 @@ router.post("/content/:id/publish", requireCredits("content-publish"), async (re
     const [account] = await db.select().from(accountsTable).where(eq(accountsTable.id, ownedAccountId));
     if (!account) {
       res.status(400).json({ error: "账号不存在" });
+      return;
+    }
+
+    // T1：非 XHS 平台必须已授权才允许真发布
+    if (!isAccountReadyToPublish(account)) {
+      res.status(400).json({
+        error: "account_not_authorized",
+        message: `${platform} 账号尚未授权，请先在「账号管理」完成授权后再发布`,
+        platform,
+      });
       return;
     }
 

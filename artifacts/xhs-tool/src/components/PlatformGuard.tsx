@@ -60,6 +60,15 @@ export function PlatformGuard({
   return <>{children}</>;
 }
 
+// 判定一个账号是否「真的能用来发布」。XHS 走画像直发；其他平台需 OAuth 已授权或 Ayrshare profileKey。
+// 注意：/accounts 响应已剥离 oauthAccessToken（敏感字段不下发到前端），所以仅靠 authStatus 即可。
+function isAccountReady(a: any): boolean {
+  if (!a) return false;
+  if (a.platform === "xhs") return true;
+  if (a.ayrshareProfileKey && String(a.ayrshareProfileKey).length > 0) return true;
+  return a.authStatus === "authorized";
+}
+
 function NeedsAuthGate({ platform, children }: { platform: PlatformId; children: React.ReactNode }) {
   const meta = PLATFORMS[platform];
   const { data: accounts, isLoading } = useQuery({
@@ -81,7 +90,15 @@ function NeedsAuthGate({ platform, children }: { platform: PlatformId; children:
     if (platform === "xhs") {
       return <XhsQuickAdd />;
     }
-    return <OAuthRedirectGate platform={platform} />;
+    return <OAuthRedirectGate platform={platform} reason="missing" />;
+  }
+
+  // T1：非 XHS 平台必须存在「真的能用来发布」的账号
+  if (platform !== "xhs") {
+    const anyReady = (accounts as any[]).some(isAccountReady);
+    if (!anyReady) {
+      return <OAuthRedirectGate platform={platform} reason="unauthorized" />;
+    }
   }
 
   return <>{children}</>;
@@ -211,8 +228,12 @@ function XhsQuickAdd() {
 }
 
 // TikTok / IG / FB：走 OAuth 跳转，引导到 /accounts 完成授权
-function OAuthRedirectGate({ platform }: { platform: PlatformId }) {
+function OAuthRedirectGate({ platform, reason }: { platform: PlatformId; reason: "missing" | "unauthorized" }) {
   const meta = PLATFORMS[platform];
+  const title = reason === "unauthorized" ? `${meta.name} 账号未完成授权` : `请先授权 ${meta.name} 账号`;
+  const desc = reason === "unauthorized"
+    ? `检测到你已添加 ${meta.name} 账号，但还没完成授权。AI 策略、自动发布、广告库等功能需要授权后才能调用真实接口。`
+    : `${meta.name} 的同行分析、市场数据、AI 策略与自动发布都需要一个已授权的账号。到「账号管理」一键授权即可（约 30 秒）。`;
   return (
     <div className="max-w-2xl mx-auto py-12">
       <Card className={`${meta.bgClass} ${meta.borderClass} border`}>
@@ -220,13 +241,8 @@ function OAuthRedirectGate({ platform }: { platform: PlatformId }) {
           <div className="mx-auto w-12 h-12 rounded-full bg-white flex items-center justify-center">
             <Link2 className={`h-6 w-6 ${meta.textClass}`} />
           </div>
-          <h2 className="text-lg font-semibold">
-            请先授权 {meta.name} 账号
-          </h2>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            {meta.name} 的同行分析、市场数据、AI 策略与自动发布都需要一个已授权的账号。
-            到「账号管理」一键授权即可（约 30 秒）。
-          </p>
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">{desc}</p>
           <div className="flex justify-center gap-2 pt-2">
             <Button asChild>
               <Link href="/accounts">

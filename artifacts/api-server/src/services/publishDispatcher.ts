@@ -108,6 +108,20 @@ async function markFailed(scheduleId: number, _currentRetryCount: number, errorM
   `);
 }
 
+// 复用的账号"是否可以真发布"判定。XHS 走"标记已发"语义不需要 OAuth；
+// 其他平台必须有 ayrshare profileKey 或 (authStatus=authorized + access_token)。
+export interface AccountAuthShape {
+  platform: string;
+  authStatus?: string | null;
+  oauthAccessToken?: string | null;
+  ayrshareProfileKey?: string | null;
+}
+export function isAccountReadyToPublish(account: AccountAuthShape): boolean {
+  if (account.platform === "xhs") return true;
+  if (account.ayrshareProfileKey && account.ayrshareProfileKey.length > 0) return true;
+  return account.authStatus === "authorized" && !!account.oauthAccessToken;
+}
+
 // 抽出"真正调外部 provider"的纯逻辑，cron dispatcher 和 manual /content/:id/publish 路由共用。
 // 不读不写 schedules / content / publish_logs 表，调用方负责状态维护和日志。
 export interface DispatchInput {

@@ -55,7 +55,7 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
   if (!b.newTopic || typeof b.newTopic !== "string") { res.status(400).json({ error: "newTopic is required" }); return; }
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
 
-  const { job, created } = enqueueVideoJob(user.id, {
+  const { job, created } = await enqueueVideoJob(user.id, {
     userId: user.id,
     platform,
     newTopic: b.newTopic,
@@ -96,7 +96,7 @@ router.get("/ai/video-job", async (req, res): Promise<void> => {
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
   const jobId = String(req.query.jobId ?? "");
   if (!jobId) { res.status(400).json({ error: "missing_jobId" }); return; }
-  const job = getVideoJob(jobId, user.id);
+  const job = await getVideoJob(jobId, user.id);
   if (!job) { res.status(404).json({ error: "job_not_found" }); return; }
   res.json({
     jobId: job.id,
