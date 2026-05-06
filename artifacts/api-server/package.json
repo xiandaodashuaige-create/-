@@ -22,6 +22,7 @@
     "express": "^5",
     "google-auth-library": "^9.15.1",
     "http-proxy-middleware": "^3.0.5",
+    "mint-filter": "^4.0.3",
     "pino": "^9",
     "pino-http": "^10",
     "sharp": "^0.34.5",

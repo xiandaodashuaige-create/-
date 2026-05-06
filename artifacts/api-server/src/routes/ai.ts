@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { openai } from "@workspace/integrations-openai-ai-server";
+import { localScan } from "../services/sensitiveWordFilter.js";
 import { db, sensitiveWordsTable, imageReferencesTable, usersTable, assetsTable, accountsTable, contentTable } from "@workspace/db";
 import { eq, and, desc } from "drizzle-orm";
 import {
@@ -13,7 +14,7 @@ import {
   AiGenerateHashtagsResponse,
 } from "@workspace/api-zod";
 import { ObjectStorageService } from "../lib/objectStorage";
-import { requireCredits, deductCredits, ensureUser } from "../middlewares/creditSystem";
+import { requireCredits, deductCredits, ensureUser, CREDIT_COSTS } from "../middlewares/creditSystem";
 import { ComfyUIClient } from "../services/comfyui.js";
 import { SeedreamClient } from "../services/seedream.js";
 import { buildCollage, composeWithText, type CollageLayout } from "../services/collage.js";
@@ -116,7 +117,9 @@ Respond in JSON format:
   }
 });
 
-router.post("/ai/check-sensitivity", requireCredits("ai-check-sensitivity"), async (req, res): Promise<void> => {
+// 注意：这里 **不挂** requireCredits 中间件——本地词库分支是免费的，
+// 余额不足时也应该让用户先用上本地检测。仅在走 LLM 分支前再做余额检查。
+router.post("/ai/check-sensitivity", async (req, res): Promise<void> => {
   try {
     const parsed = AiCheckSensitivityBody.safeParse(req.body);
     if (!parsed.success) {
@@ -129,6 +132,54 @@ router.post("/ai/check-sensitivity", requireCredits("ai-check-sensitivity"), asy
 
     const customWords = await db.select().from(sensitiveWordsTable);
     const wordList = customWords.map((w) => `${w.word} (${w.category}, ${w.severity})`).join("\n");
+
+    // ── 第 1 道：本地 DFA 词库扫描（毫秒级、不扣积分、不调 LLM）──
+    const localResult = localScan(`${title}\n${body}`, customWords.map((w) => ({
+      word: w.word,
+      severity: w.severity as "low" | "medium" | "high" | null,
+      category: w.category,
+    })));
+    if (localResult.hasHighSeverity) {
+      // 高危直接返回，不再走 LLM（省钱+秒响应）
+      res.json(
+        AiCheckSensitivityResponse.parse({
+          score: localResult.score,
+          issues: localResult.hits.map((h) => ({
+            word: h.word,
+            reason: `[${h.categoryLabel}] ${h.reason}`,
+            severity: h.severity,
+            suggestion: h.suggestion,
+          })),
+          suggestion: `本地词库命中 ${localResult.hits.length} 个高危违禁词，请处理后再尝试发布`,
+        })
+      );
+      return;
+    }
+
+    // ── 第 2 道：本地无高危 → 走 LLM 检查语境/隐喻/广告法灰色地带 ──
+    // LLM 分支才扣积分，所以这里手动做余额检查（顶层去掉了 requireCredits 中间件）
+    const dbUser = await ensureUser(req);
+    if (!dbUser) { res.status(401).json({ error: "Unauthorized" }); return; }
+    req.dbUser = dbUser;
+    const llmCost = CREDIT_COSTS["ai-check-sensitivity"] ?? 0;
+    if (dbUser.role !== "admin" && dbUser.credits < llmCost) {
+      // 余额不足时不挡用户：把本地结果直接返回（即使 score=0）
+      res.json(
+        AiCheckSensitivityResponse.parse({
+          score: localResult.score,
+          issues: localResult.hits.map((h) => ({
+            word: h.word, reason: `[${h.categoryLabel}] ${h.reason}`,
+            severity: h.severity, suggestion: h.suggestion,
+          })),
+          suggestion: localResult.hits.length
+            ? `本地词库提示 ${localResult.hits.length} 处需调整（积分不足，未做深度 AI 语义检查）`
+            : "本地词库未发现高危违禁词；积分不足，跳过 AI 语义检查",
+        })
+      );
+      return;
+    }
+    req.creditOperation = "ai-check-sensitivity";
+    req.creditCost = dbUser.role === "admin" ? 0 : llmCost;
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",

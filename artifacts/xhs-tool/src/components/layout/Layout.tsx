@@ -52,8 +52,8 @@ type NavItem = {
 // - system：账号 / 设置（始终可见）
 const navItemsConfig: NavItem[] = [
   { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, group: "main" },
-  { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true, group: "main" },
-  { path: "/quick-publish", labelKey: "nav.quickPublish", icon: Send, highlight: true, group: "main" },
+  { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true, nonXhs: true, group: "main" },
+  { path: "/quick-publish", labelKey: "nav.quickPublish", icon: Send, highlight: true, nonXhs: true, group: "main" },
   { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true, xhsOnly: true, group: "main" },
   { path: "/market-data", labelKey: "nav.marketData", icon: BarChart3, group: "main" },
 
@@ -87,7 +87,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const isAdmin = dbUser?.role === "admin";
 
-  const visibleItems = navItemsConfig.filter((item) => !item.xhsOnly || activePlatform === "xhs");
+  const visibleItems = navItemsConfig.filter((item) => {
+    if (item.xhsOnly && activePlatform !== "xhs") return false;
+    if (item.nonXhs && activePlatform === "xhs") return false;
+    return true;
+  });
   const mainItems = visibleItems.filter((i) => i.group === "main");
   const historyItems = visibleItems.filter((i) => i.group === "history");
   const systemItems = [
