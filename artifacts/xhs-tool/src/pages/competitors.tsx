@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
+import { useLocation } from "wouter";
+import { setReturnToFlow } from "@/lib/return-to-flow";
 import {
   Users2, RefreshCw, Trash2, Search, Sparkles, Heart, MessageCircle, Eye, Plus, ExternalLink, Loader2,
   TrendingUp, Hash, Music, Clock, BarChart3, Star, Compass, Calendar, CheckCircle2, XCircle,
@@ -48,6 +51,7 @@ export default function CompetitorsPage() {
   const platform = activePlatform as PlatformId;
   const platformMeta = PLATFORMS[platform];
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const qc = useQueryClient();
 
   const [handle, setHandle] = useState("");
@@ -80,7 +84,39 @@ export default function CompetitorsPage() {
       setHandle("");
       qc.invalidateQueries({ queryKey: ["competitors", platform] });
     },
-    onError: (err: any) => toast({ title: "添加失败", description: err?.message ?? "未知错误", variant: "destructive" }),
+    onError: (err: any) => {
+      const msg = String(err?.message ?? "");
+      // 后端返回 facebook_not_authorized / instagram_not_authorized → 引导去授权
+      // 关键 UX：不让用户卡死在"添加失败"，给一键跳到账号页 + 完成后自动返回的路径
+      const needAuth =
+        msg.includes("facebook_not_authorized") ||
+        msg.includes("instagram_not_authorized") ||
+        msg.includes("not_authorized") ||
+        msg.includes("412");
+      if (needAuth) {
+        toast({
+          title: "需要先授权对应平台账号",
+          description:
+            platform === "instagram"
+              ? "Instagram 同行追踪需要绑定一个 Business 账号（通过关联 Facebook 主页授权获取）"
+              : "Facebook 同行追踪需要先授权一个 Facebook 主页",
+          variant: "destructive",
+          action: (
+            <ToastAction
+              altText="去授权"
+              onClick={() => {
+                setReturnToFlow("/competitors");
+                setLocation("/accounts");
+              }}
+            >
+              去授权 →
+            </ToastAction>
+          ),
+        });
+        return;
+      }
+      toast({ title: "添加失败", description: msg || "未知错误", variant: "destructive" });
+    },
   });
 
   const syncMut = useMutation({

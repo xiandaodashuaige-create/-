@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { setReturnToFlow } from "@/lib/return-to-flow";
 import {
   Sparkles, Loader2, CheckCircle2, ArrowRight, Users2, Brain, FileEdit, Send,
   AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
@@ -258,7 +259,7 @@ export default function AutopilotPage() {
                       href="/accounts"
                       onClick={() => {
                         // 让账号页授权完成后自动跳回这里继续 AI 流程
-                        sessionStorage.setItem("oauth_return_to", "/autopilot");
+                        setReturnToFlow("/autopilot");
                       }}
                       className="underline ml-1 font-medium"
                     >

@@ -14,6 +14,8 @@ import { Plus, Trash2, Edit, Users, Sparkles, ArrowRight } from "lucide-react";
 import { usePlatform } from "@/lib/platform-context";
 import { PLATFORMS, type PlatformId } from "@/lib/platform-meta";
 import { OAuthConnectPanel } from "@/components/OAuthConnectPanel";
+import { useLocation } from "wouter";
+import { getReturnToFlow, clearReturnToFlow } from "@/lib/return-to-flow";
 
 const regionLabels: Record<string, string> = { SG: "🇸🇬 新加坡", HK: "🇭🇰 香港", MY: "🇲🇾 马来西亚", GLOBAL: "🌐 全球" };
 const statusLabels: Record<string, string> = { active: "活跃", inactive: "未激活", banned: "已封禁" };
@@ -329,14 +331,15 @@ export default function Accounts() {
 // 显示状态：1) 还没账号 → 提示"完成添加后会自动跳回"；2) 有账号了 → 大按钮"返回 AI 自动驾驶"
 function ReturnToFlowBanner({ hasAccount }: { hasAccount: boolean }) {
   const [returnTo, setReturnTo] = useState<string | null>(null);
+  const [, setLocation] = useLocation();
   useEffect(() => {
-    setReturnTo(sessionStorage.getItem("oauth_return_to"));
+    setReturnTo(getReturnToFlow());
   }, []);
   if (!returnTo) return null;
 
   const goBack = () => {
-    sessionStorage.removeItem("oauth_return_to");
-    window.location.href = returnTo;
+    clearReturnToFlow();
+    setLocation(returnTo);
   };
 
   return (

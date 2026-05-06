@@ -8,10 +8,13 @@ import { ExternalLink, Link2, Unlink, RefreshCw, AlertTriangle, CheckCircle2 } f
 import type { PlatformId } from "@/lib/platform-meta";
 import { PLATFORMS } from "@/lib/platform-meta";
 import { api } from "@/lib/api";
+import { useLocation } from "wouter";
+import { getReturnToFlow, clearReturnToFlow } from "@/lib/return-to-flow";
 
 export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const meta = PLATFORMS[platform];
 
   const { data: status, refetch } = useQuery({
@@ -28,12 +31,12 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
       if (e.data?.type === "oauth-done") {
         refetch();
         qc.invalidateQueries({ queryKey: ["accounts"] });
-        const returnTo = sessionStorage.getItem("oauth_return_to");
+        const returnTo = getReturnToFlow();
         if (returnTo) {
-          sessionStorage.removeItem("oauth_return_to");
+          clearReturnToFlow();
           toast({ title: "授权完成 ✓ 正在返回 AI 自动驾驶…" });
-          // 给 invalidate 一点时间刷数据再跳
-          setTimeout(() => { window.location.href = returnTo; }, 600);
+          // 给 invalidate 一点时间刷数据再跳（用 SPA 导航，保留 React Query 缓存）
+          setTimeout(() => { setLocation(returnTo); }, 600);
         } else {
           toast({ title: "授权完成，账号已同步" });
         }

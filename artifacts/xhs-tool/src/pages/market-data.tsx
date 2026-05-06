@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { BarChart3, TrendingUp, Megaphone, Clock, Loader2, Heart, Eye, MessageCircle } from "lucide-react";
+import { BarChart3, TrendingUp, Megaphone, Clock, Loader2, Heart, Eye, MessageCircle, Info, ArrowRight } from "lucide-react";
+import { useLocation } from "wouter";
+import { setReturnToFlow } from "@/lib/return-to-flow";
 
 function formatCount(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -20,6 +22,7 @@ export default function MarketDataPage() {
   const { activePlatform } = usePlatform();
   const [keyword, setKeyword] = useState("beauty");
   const [region, setRegion] = useState("MY");
+  const [, setLocation] = useLocation();
 
   const trendingQ = useQuery({
     queryKey: ["market-trending", activePlatform, keyword, region],
@@ -69,10 +72,32 @@ export default function MarketDataPage() {
             <div className="py-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
           ) : (
             <>
-              <div className="text-xs text-muted-foreground mb-2">
+              <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
                 数据源: <Badge variant="outline">{trendingQ.data?.source}</Badge>
-                {trendingQ.data?.source === "mock" && <span className="ml-2">⚠️ 当前为示例数据，配置对应平台 API key 后将显示真实数据</span>}
               </div>
+              {trendingQ.data?.source === "mock" && (
+                <Card className="p-3 mb-3 border-amber-300 bg-amber-50/60 flex items-start gap-3">
+                  <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm flex-1">
+                    <div className="font-medium text-amber-900">当前显示示例数据</div>
+                    <div className="text-xs text-amber-800/80 mt-0.5">
+                      {activePlatform === "tiktok"
+                        ? "TikTok 真实热门数据需要 TikHub API key（已可用）。如仍是示例数据，可能因为关键词无结果或地区不支持，换一组试试。"
+                        : `${platformMeta.name} 当前没有官方公开热门接口，建议在「同行库」追踪 5–10 个目标账号，AI 会基于他们的历史爆款给你更准的策略。`}
+                    </div>
+                    {activePlatform !== "tiktok" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 h-7 text-xs"
+                        onClick={() => { setLocation("/competitors"); }}
+                      >
+                        去同行库追踪 <ArrowRight className="h-3 w-3 ml-1" />
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              )}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 {(trendingQ.data?.items ?? []).map((it: any) => (
                   <a key={it.id} href={it.mediaUrl || "#"} target="_blank" rel="noreferrer" className="block group">
@@ -95,10 +120,31 @@ export default function MarketDataPage() {
             <div className="py-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
           ) : (
             <>
-              <div className="text-xs text-muted-foreground mb-2">
+              <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
                 数据源: <Badge variant="outline">{adsQ.data?.source}</Badge>
-                {!adsQ.data?.configured && <span className="ml-2">⚠️ 未配置 FACEBOOK_ACCESS_TOKEN，显示示例数据</span>}
               </div>
+              {!adsQ.data?.configured && (
+                <Card className="p-3 mb-3 border-amber-300 bg-amber-50/60 flex items-start gap-3">
+                  <Info className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-sm flex-1">
+                    <div className="font-medium text-amber-900">Meta 广告库未连接 — 当前为示例数据</div>
+                    <div className="text-xs text-amber-800/80 mt-0.5">
+                      授权一个 Facebook 主页后，系统会自动用你的访问令牌拉取 Meta 公开广告库（无需额外 API key）。
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2 h-7 text-xs"
+                      onClick={() => {
+                        setReturnToFlow("/market-data");
+                        setLocation("/accounts");
+                      }}
+                    >
+                      去授权 Facebook → <ArrowRight className="h-3 w-3 ml-1" />
+                    </Button>
+                  </div>
+                </Card>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {(adsQ.data?.items ?? []).map((ad: any) => (
                   <Card key={ad.id} className="p-3">
