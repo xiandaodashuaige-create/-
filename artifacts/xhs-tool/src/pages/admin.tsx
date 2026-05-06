@@ -108,17 +108,10 @@ export default function AdminPage() {
     },
   });
 
-  const costLabels: Record<string, string> = {
-    "ai-rewrite": "AI改写",
-    "ai-competitor-research": "同行爆款分析",
-    "ai-generate-title": "生成标题",
-    "ai-generate-hashtags": "生成标签",
-    "ai-generate-image": "生成配图",
-    "ai-guide": "AI向导",
-    "ai-check-sensitivity": "敏感词检测",
-    "content-publish": "发布内容",
-    "content-create": "创建内容",
-    "asset-upload": "上传素材",
+  // 操作标签全部走 i18n（key = `cost.${operationType}`），缺 key 时回落到 key 本身
+  const costLabel = (key: string) => {
+    const v = t(`cost.${key}`);
+    return v === `cost.${key}` ? key : v;
   };
 
   return (
@@ -208,14 +201,14 @@ export default function AdminPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <Coins className="h-4 w-4" /> 积分消耗标准
+              <Coins className="h-4 w-4" /> {t("admin.creditCostsTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-2">
               {Object.entries(creditCosts).map(([key, cost]) => (
                 <Badge key={key} variant="outline" className="text-xs py-1">
-                  {costLabels[key] || key}: <span className="font-bold ml-1">{cost as number}</span> 积分
+                  {costLabel(key)}: <span className="font-bold ml-1">{cost as number}</span> {t("credits.unit")}
                 </Badge>
               ))}
             </div>

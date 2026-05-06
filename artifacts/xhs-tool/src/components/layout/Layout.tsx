@@ -211,7 +211,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               className="w-full mt-3 flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
             >
               <Archive className="h-3.5 w-3.5" />
-              <span className="flex-1 text-left">历史与素材</span>
+              <span className="flex-1 text-left">{t("nav.historyGroup")}</span>
               <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showHistory ? "rotate-180" : ""}`} />
             </button>
             {showHistory && historyItems.map((item) => {
