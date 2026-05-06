@@ -15,6 +15,7 @@ import Assets from "@/pages/assets";
 import Schedules from "@/pages/schedules";
 import SensitiveWords from "@/pages/sensitive-words";
 import Settings from "@/pages/settings";
+import CreditsPage from "@/pages/credits";
 import LandingPage from "@/pages/landing";
 import WorkflowWizard from "@/pages/workflow/index";
 import TrackingPage from "@/pages/tracking/index";
@@ -232,6 +233,7 @@ function ClerkProviderWithRoutes() {
             <Route path="/schedules">{() => <ProtectedRoute component={Schedules} />}</Route>
             <Route path="/sensitive-words">{() => <ProtectedRoute component={SensitiveWords} guard="xhs-only" />}</Route>
             <Route path="/settings">{() => <ProtectedRoute component={Settings} />}</Route>
+            <Route path="/credits">{() => <ProtectedRoute component={CreditsPage} />}</Route>
             <Route path="/admin">{() => <ProtectedRoute component={AdminPage} />}</Route>
             <Route component={NotFound} />
           </Switch>

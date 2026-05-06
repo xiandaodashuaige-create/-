@@ -64,6 +64,7 @@ const navItemsConfig: NavItem[] = [
   { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp, xhsOnly: true, group: "history" },
 
   { path: "/accounts", labelKey: "nav.accounts", icon: Users, group: "system" },
+  { path: "/credits", labelKey: "nav.credits", icon: Coins, group: "system" },
   { path: "/sensitive-words", labelKey: "nav.sensitiveWords", icon: ShieldAlert, xhsOnly: true, group: "system" },
   { path: "/settings", labelKey: "nav.settings", icon: Settings, group: "system" },
 ];

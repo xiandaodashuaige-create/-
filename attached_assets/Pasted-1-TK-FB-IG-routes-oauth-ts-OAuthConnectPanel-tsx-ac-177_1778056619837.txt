@@ -1,0 +1,255 @@
+1. 按你的业务流程逐项对照
+你的场景步骤	当前代码是否支持	主要路径	结论
+TK/FB/IG 授权账户	部分支持	routes/oauth.ts、OAuthConnectPanel.tsx、accounts.tsx	OAuth 有，但前端仍允许“手动添加”非授权账号，可能导致后续发布失败
+输入类目信息和需求	支持	pages/autopilot.tsx	niche、region、extras、手动同行都已支持
+工具做市场分析	部分支持	routes/marketData.ts、pages/market-data.tsx	TikTok 可用 TikHub；FB/IG trending 仍是 mock；Meta Ads 用 env token，不是客户 OAuth token
+根据客户账户定位 + 市场数据生成策略	部分支持	pages/autopilot.tsx、routes/strategy.ts、strategyGenerator.ts	Autopilot 会把市场样本注入 prompt；但账号定位只用了昵称/地区，没充分使用账号备注/目标客群/产品卖点
+结合同行分析出新策略	支持	routes/competitors.ts、viralContext.ts、strategyGenerator.ts	同行样本、热门标签、BGM、发布时间等已进入分析链路
+伪原创文案	支持	routes/ai.ts、strategyGenerator.ts	文案/脚本可生成
+伪原创图片	部分支持	workflow/index.tsx、imagePipeline.ts	XHS workflow 图片能力较强；TK/IG/FB Autopilot 没自动生成图片素材
+伪原创视频	部分支持	routes/videoGen.ts、videoPipeline.ts、videoJobs.ts	Seedance 视频生成 API 存在，但没接进 Autopilot / weekly plan 主流程
+客户可再次自定义修改	支持	content/editor.tsx、schedules.tsx	草稿、排期项可编辑
+分析同行发布时间	支持	routes/competitors.ts	bestPostingHoursLocal 基于同行 publishedAt 聚合
+AI 自动排版一周发布内容	部分支持	routes/ai.ts、planGenerator.ts、schedules.tsx	/schedules 可生成周计划，但它和 Autopilot 生成的策略/市场分析不是同一个闭环
+TK/IG/FB 自动发布	部分支持	publishDispatcher.ts	调度器存在；但必须确保账号真实授权、媒体素材齐全
+XHS 无需授权、无需自动发布	部分支持	workflow/index.tsx、PlatformGuard.tsx	XHS workflow 是手动下载发布；但 /competitors、/market-data 仍被 needs-auth guard 包住，会要求创建账号画像
+2. 最大的问题
+P0：TK/IG/FB 现在会把“手动添加账号”当成可用账号
+路径：
+
+artifacts/xhs-tool/src/pages/accounts.tsx
+artifacts/xhs-tool/src/components/PlatformGuard.tsx
+现在 PlatformGuard 只判断：
+
+accounts.length > 0
+但没有判断：
+
+authStatus === "authorized"
+所以客户可以手动添加一个 TikTok / IG / FB 占位账号，然后 Autopilot 允许继续跑，最后排期发布时因为没有 OAuth token 而失败。
+
+建议：
+
+XHS：允许手动账号画像。
+TK/IG/FB：必须要求 authStatus === "authorized" 或 ayrshareProfileKey 存在。
+非授权账号只能用于“策略草稿”，不能用于“排期自动发布”。
+P0：Autopilot 只生成“单条策略草稿”，不是“一周内容作战计划”
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+artifacts/api-server/src/routes/strategy.ts
+现在 Autopilot 流程是：
+
+市场数据 → 同行数据 → 生成 3 个策略 → 选一个 → approve → 创建 1 条 content → 选 1 个发布时间
+但你的目标是：
+
+市场分析 → 生成新策略 → 生成一周 7 条内容 → 每条有文案/图/视频 → 客户确认
+目前“一周计划”在另一个地方：
+
+artifacts/xhs-tool/src/pages/schedules.tsx
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/services/planGenerator.ts
+它可以生成周计划，但没有复用 Autopilot 刚生成的策略、市场洞察和客户需求上下文。
+
+建议：
+把 Autopilot 的最终输出从“1 条 content”改成：
+
+campaign
+  strategy
+  marketAnalysis
+  weeklyPlan[7]
+    copy
+    imagePrompt
+    videoScript
+    scheduledAt
+    approvalStatus
+P0：素材生成没有真正进入 TK/IG/FB 主流程
+当前能力：
+
+文案：有。
+图片：有 API 和 XHS workflow，但 Autopilot 没自动调用。
+视频：/api/ai/generate-video 存在，但 Autopilot / 周计划没接。
+路径：
+
+artifacts/api-server/src/routes/videoGen.ts
+artifacts/api-server/src/services/videoJobs.ts
+artifacts/api-server/src/services/videoPipeline.ts
+注意 videoJobs.ts 还是进程内队列：
+
+const jobs = new Map<string, VideoJob>();
+const queue: string[] = [];
+这意味着服务重启后视频任务状态会丢。
+
+建议：
+
+先生成视频脚本 / 分镜 / 字幕，不要默认直接生成成片。
+客户确认后再调用 Seedance/Kling。
+视频任务应入库，不能只存在内存。
+P1：FB/IG 市场数据还不够真实
+路径：
+
+artifacts/api-server/src/routes/marketData.ts
+当前：
+
+// FB/IG/XHS 走 mock
+res.json({ platform, keyword, region, source: "mock", items: getMockTrending(...) });
+Meta Ads Library 也用的是：
+
+const token = process.env.FACEBOOK_ACCESS_TOKEN;
+不是客户授权得到的 Page token。
+
+建议：
+
+FB/IG 市场分析主要基于：
+客户授权 Page / IG Business 的竞品抓取；
+Meta Ads Library；
+已添加同行库；
+用户手动输入的竞品链接。
+不要把 mock 数据混进 AI 决策，至少要加 sourceConfidence。
+P1：客户账户定位太弱
+路径：
+
+artifacts/api-server/src/services/strategyGenerator.ts
+现在账号定位主要是：
+
+@nickname（region）
+但你的场景需要更完整的客户定位：
+
+行业类目
+主营产品/服务
+目标客群
+价格带
+地区
+语言
+品牌调性
+禁止词
+竞品偏好
+促销/转化目标
+内容形式偏好：图文 / 视频 / Reels / 长文
+建议新增表或字段：
+
+brand_profiles
+- user_id
+- platform
+- account_id
+- category
+- products
+- target_audience
+- price_range
+- tone
+- region
+- language
+- conversion_goal
+- forbidden_claims
+然后所有策略、文案、图片、视频、周计划都引用这个 profile。
+
+3. XHS 路线基本对，但还要调整体验
+你的要求是：
+
+小红书不需要授权，也不需要定时发布，只需要同行分析、伪原创、推荐排期表、客户自己下载发布。
+
+当前 XHS：
+
+/workflow 基本符合：
+同行/灵感分析
+内容生成
+图片伪原创
+下载素材
+手动打开创作中心
+publishDispatcher 不处理 XHS，这点正确。
+但 /competitors、/market-data 被 guard="needs-auth" 包住，XHS 会要求创建账号画像。
+我建议把文案改清楚：
+
+不叫“授权小红书账号”
+叫“填写小红书账号画像”
+对 XHS 不应该出现“自动发布”“授权账号”措辞
+XHS 的 schedule 应叫“推荐发布日历”或“手动发布提醒”，不要叫“定时发布”
+4. 我建议的最终产品流程
+A. TK / IG / FB 流程
+1. 授权平台账号
+   - TikTok OAuth / Ayrshare
+   - Facebook Page OAuth
+   - Instagram Business OAuth
+2. 填写业务画像
+   - 类目
+   - 需求
+   - 目标客户
+   - 产品卖点
+   - 地区
+   - 风格
+3. 市场分析
+   - TikTok: TikHub / EchoTik / Kalodata / FastMoss
+   - IG/FB: Meta Graph + Ads Library + 手动竞品
+   - 输出：趋势、热门标签、发布时间、爆款结构、竞品样本
+4. 生成 3 套策略
+   - 教学型
+   - 情绪共鸣型
+   - 数据反差型
+5. 客户选策略
+6. AI 生成一周内容包
+   - 每天 1-2 条
+   - 每条包含：
+     - 标题 / hook
+     - 正文 / caption
+     - hashtag
+     - 图片 prompt
+     - 视频脚本
+     - 封面文案
+     - 推荐发布时间
+7. 客户逐条修改 / 批准
+8. 生成最终素材
+   - 图片
+   - 视频
+   - 字幕
+   - 封面
+9. 排期
+   - TK/IG/FB 自动发布
+   - 失败重试
+   - 发布日志
+B. XHS 流程
+1. 填写账号画像，不授权
+2. 输入类目/需求/竞品链接
+3. 抓取小红书公开同行数据
+4. AI 生成爆款策略
+5. 生成伪原创图文
+6. 客户修改
+7. AI 给一周推荐排期
+8. 客户下载素材包
+9. 客户手动发小红书
+XHS 不进入 publishDispatcher。
+
+5. 模型与能力建议
+功能	推荐模型/方案
+市场数据总结	gpt-5-mini，结构化 JSON
+策略生成	gpt-5-mini
+周计划生成	gpt-5-mini 或 gpt-4o-mini 降本
+文案伪原创	gpt-4o-mini
+高质量文案/品牌语气	gpt-4.1 / gpt-5-mini
+图片伪原创	Seedream 优先；英文/海外图可加 GPT Image / Flux
+视频脚本	gpt-5-mini
+视频成片	Seedance / Kling
+口播转录	gpt-4o-mini-transcribe 或 Whisper
+同行相似度匹配	embedding + rerank
+自动发布时间	真实同行发布时间 + 平台经验规则 + 历史账号数据
+6. 推荐下一步改造优先级
+P0
+TK/IG/FB 必须校验真实授权账号
+
+不允许手动占位账号进入自动发布链路。
+把 Autopilot 改成“一周 Campaign”
+
+不再只生成 1 条 content。
+生成 weeklyPlan，客户确认后批量创建 content + schedules。
+素材生成接入周计划
+
+每条计划至少生成文案 + 图片 prompt。
+视频平台生成视频脚本。
+最终图片/视频由客户确认后生成。
+XHS 改为纯手动发布体验
+
+不出现自动发布措辞。
+提供“下载素材包 + 推荐排期表”。
+P1
+FB/IG market data 去 mock 化。
+Meta Ads Library 改用用户 OAuth token 或明确配置系统 token。
+视频任务入库，不要只存在内存。
+建 brand_profiles
