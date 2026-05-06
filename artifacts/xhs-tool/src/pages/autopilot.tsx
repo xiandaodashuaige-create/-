@@ -17,7 +17,14 @@ import {
   AlertCircle, Search, RefreshCw, Zap, Rocket, Settings2, ChevronDown,
 } from "lucide-react";
 
-type Step = "setup" | "running" | "review" | "approved";
+type Step = "setup" | "running" | "review" | "schedule" | "done";
+
+// 3 套生成 angle —— AI 同时跑 3 次，给用户选
+const STRATEGY_ANGLES: Array<{ key: string; label: string; hint: string; emoji: string }> = [
+  { key: "tutorial", emoji: "📚", label: "教学/科普", hint: "教学/科普角度：信息密度高、痛点直击、一图/一句记忆点。强调干货 + 实操步骤。" },
+  { key: "emotion", emoji: "💗", label: "情感共鸣", hint: "情感共鸣角度：故事化叙事、第一人称、生活场景代入感。强调情绪曲线 + 共鸣金句。" },
+  { key: "contrast", emoji: "⚡", label: "数据反差/争议", hint: "数据反差/争议角度：用对比数字或反常识结论开场，制造强 hook。强调好奇缺口 + 讨论欲。" },
+];
 type LogLine = { ts: number; text: string; status: "info" | "success" | "warn" | "error" | "running" };
 
 function nowTs() { return Date.now(); }
@@ -38,6 +45,12 @@ export default function AutopilotPage() {
   }, [platform, setLocation]);
 
   const [step, setStep] = useState<Step>("setup");
+  // HMR 保护：旧版本可能残留 step="approved" 等已删除值，启动时归一化
+  useEffect(() => {
+    const valid: Step[] = ["setup", "running", "review", "schedule", "done"];
+    if (!valid.includes(step)) setStep("setup");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [niche, setNiche] = useState("");
   const [region, setRegion] = useState("");
   const [extras, setExtras] = useState("");
@@ -59,8 +72,15 @@ export default function AutopilotPage() {
   // 多账号场景：用户必须明确选定"本次 AI 用哪个业务身份"，
   // 否则草稿会被绑到 backend 默认（前 5 个全用），用户无法预知归属
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
-  const [strategyResult, setStrategyResult] = useState<any | null>(null);
+  // 3 套候选策略（按 STRATEGY_ANGLES 顺序，可能含 null 如果某条生成失败）
+  const [strategyOptions, setStrategyOptions] = useState<Array<any | null>>([]);
+  const [selectedStrategyIdx, setSelectedStrategyIdx] = useState<number | null>(null);
   const [contentId, setContentId] = useState<number | null>(null);
+  // 排期相关
+  const [scheduledAt, setScheduledAt] = useState<string>("");  // datetime-local 字符串
+  const [scheduling, setScheduling] = useState(false);
+  // 兼容老逻辑（review 详情视图引用）：选中那条
+  const strategyResult = selectedStrategyIdx !== null ? strategyOptions[selectedStrategyIdx] : null;
   const [logs, setLogs] = useState<LogLine[]>([]);
   // 市场洞察 + 同行样本汇总（在审策略页展示）
   const [marketInsights, setMarketInsights] = useState<{
@@ -121,7 +141,8 @@ export default function AutopilotPage() {
 
     setLogs([]);
     setStep("running");
-    setStrategyResult(null);
+    setStrategyOptions([]);
+    setSelectedStrategyIdx(null);
     setContentId(null);
     setMarketInsights(null);
 
@@ -303,26 +324,51 @@ export default function AutopilotPage() {
       }
       const enrichedRequirements = [extras, ...marketContext].filter(Boolean).join("\n\n");
 
-      // ── Stage 3: AI 综合 ──
-      pushLog(`🧠 调用 GPT-5-mini 综合 ${competitorPool.length} 位同行 + ${trendingItems.length} 条市场样本 + 业务身份【${selectedAccount?.nickname ?? "(未选)"}】画像…`, "running");
+      // ── Stage 3: AI 综合 —— 同时跑 3 个不同 angle ──
+      pushLog(`🧠 调用 GPT-5-mini × 3，从 ${STRATEGY_ANGLES.map(a => a.label).join("、")} 三个角度同时生成方案…`, "running");
+      pushLog(`  · 综合 ${competitorPool.length} 位同行 + ${trendingItems.length} 条市场样本 + 业务身份【${selectedAccount?.nickname ?? "(未选)"}】画像`, "info");
+
       // 视频脚本要求注入 customRequirements，让策略生成器把脚本字段一并产出
-      const reqWithVideo = wantVideoScript
+      const baseReq = wantVideoScript
         ? `${enrichedRequirements ? enrichedRequirements + "\n\n" : ""}【视频脚本要求】每个方案必须额外产出：1) 前 3 秒 hook 字幕（6-12 字，制造好奇/反差）2) 3-5 个分镜描述（每个 1-2 秒）3) 完整字幕（按分镜分段）4) 封面首帧文字（大字，1 行）。${platform === "facebook" ? "" : "竖版 9:16。"}`
-        : enrichedRequirements;
+        : (enrichedRequirements || "");
 
-      const strat = await api.strategy.generate({
-        platform,
-        region: region || undefined,
-        niche: niche || undefined,
-        accountIds: selectedAccountId ? [selectedAccountId] : undefined,
-        customRequirements: reqWithVideo || undefined,
-      }, { signal: sig });
+      const stratPromises = STRATEGY_ANGLES.map((angle) =>
+        api.strategy.generate({
+          platform,
+          region: region || undefined,
+          niche: niche || undefined,
+          accountIds: selectedAccountId ? [selectedAccountId] : undefined,
+          customRequirements: `${baseReq}\n\n【本方案角度 - ${angle.label}】${angle.hint}`.trim(),
+        }, { signal: sig }),
+      );
+      const stratSettled = await Promise.allSettled(stratPromises);
       if (isStale()) return;
-      pushLog(`✓ 策略生成完成：${strat.strategy.theme}`, "success");
-      pushLog(`  · 数据模式：${strat.meta.dataMode} · 样本：${strat.meta.postsAnalyzed}`, "info");
-      if (strat.meta?.warning) pushLog(`⚠ ${strat.meta.warning}`, "warn");
 
-      setStrategyResult(strat);
+      const opts: Array<any | null> = stratSettled.map((s, i) => {
+        if (s.status === "fulfilled") {
+          const v = s.value as any;
+          v._angleKey = STRATEGY_ANGLES[i].key;
+          v._angleLabel = STRATEGY_ANGLES[i].label;
+          v._angleEmoji = STRATEGY_ANGLES[i].emoji;
+          pushLog(`  ✓ ${STRATEGY_ANGLES[i].emoji} ${STRATEGY_ANGLES[i].label}：${v.strategy.theme}`, "success");
+          return v;
+        } else {
+          pushLog(`  ⚠ ${STRATEGY_ANGLES[i].emoji} ${STRATEGY_ANGLES[i].label} 失败：${(s.reason as any)?.message ?? "skip"}`, "warn");
+          return null;
+        }
+      });
+      const okCount = opts.filter(Boolean).length;
+      if (okCount === 0) {
+        pushLog(`❌ 全部 3 个方案均失败，请稍后重试`, "error");
+        toast({ title: "AI 生成失败", description: "3 个角度全军覆没，可能是 API 限流", variant: "destructive" });
+        setStep("setup");
+        return;
+      }
+      pushLog(`✓ 共 ${okCount}/3 个方案就绪${customModeRef.current ? "，请挑选" : "（一键模式将自动选最优）"}`, "success");
+
+      setStrategyOptions(opts);
+      setSelectedStrategyIdx(null);
       setMarketInsights({
         trendingItems: trendingItems.slice(0, 6),
         trendingSource,
@@ -333,25 +379,63 @@ export default function AutopilotPage() {
         totalSamples,
       });
 
-      // 一键模式：跳过审核，自动批准 → 直接进草稿
-      if (!customModeRef.current) {
-        pushLog(`✓ 自动批准（已为你简化流程，如需手动审核请打开"自定义"）`, "success");
-        pushLog(`📝 生成草稿中…`, "running");
-        try {
-          const approved = await api.strategy.approve(strat.id);
-          if (isStale()) return;
-          setContentId(approved.contentId);
-          setStep("approved");
-          qc.invalidateQueries({ queryKey: ["content"] });
-          toast({ title: "草稿已就绪", description: `#${approved.contentId} 可直接编辑或定时发布` });
-        } catch (e: any) {
-          if (sig.aborted || isStale()) return;
-          pushLog(`⚠ 自动批准失败：${e?.message ?? "请手动审核"}`, "warn");
-          setStep("review");
-        }
-      } else {
-        setStep("review");
+      // 推荐发布时间预填（取本地下一个最佳时段）
+      let prefillIso: string | null = null;
+      if (bestTimes?.bestHours?.length) {
+        const now = new Date();
+        const target = new Date(now);
+        const sorted = [...bestTimes.bestHours].sort((a, b) => a - b);
+        let pickHour = sorted.find((h) => h > now.getHours() + 1) ?? sorted[0];
+        if (pickHour <= now.getHours() + 1) target.setDate(target.getDate() + 1);
+        target.setHours(pickHour, 0, 0, 0);
+        // 转 datetime-local 字符串（YYYY-MM-DDTHH:mm，本地时区）
+        const pad = (n: number) => String(n).padStart(2, "0");
+        setScheduledAt(`${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T${pad(target.getHours())}:${pad(target.getMinutes())}`);
+        prefillIso = target.toISOString();
       }
+
+      // 一键模式：自动选第一个存活方案 → approve → 自动排到推荐时间 → done
+      if (!customModeRef.current) {
+        const firstIdx = opts.findIndex((o) => o);
+        if (firstIdx >= 0) {
+          setSelectedStrategyIdx(firstIdx);
+          pushLog(`🤖 一键模式：自动采用 ${STRATEGY_ANGLES[firstIdx].emoji} ${STRATEGY_ANGLES[firstIdx].label} 方案`, "info");
+          try {
+            const approved = await api.strategy.approve(opts[firstIdx].id);
+            if (isStale()) return;
+            setContentId(approved.contentId);
+            qc.invalidateQueries({ queryKey: ["content"] });
+            pushLog(`✓ 草稿 #${approved.contentId} 已生成`, "success");
+
+            if (prefillIso && new Date(prefillIso).getTime() > Date.now()) {
+              pushLog(`📅 自动排期：${new Date(prefillIso).toLocaleString()}`, "running");
+              try {
+                await api.content.schedule(approved.contentId, prefillIso);
+                if (isStale()) return;
+                qc.invalidateQueries({ queryKey: ["schedules"] });
+                pushLog(`✓ 已排入计划`, "success");
+                setStep("done");
+                toast({ title: "一键完成", description: `草稿 #${approved.contentId} · 已排到 ${new Date(prefillIso).toLocaleString()}` });
+                return;
+              } catch (e: any) {
+                if (sig.aborted || isStale()) return;
+                pushLog(`⚠ 自动排期失败：${e?.message ?? "请手动排期"}`, "warn");
+                setStep("schedule"); // 退回排期步骤让用户手动确认
+                return;
+              }
+            } else {
+              setStep("schedule"); // 没有推荐时间，停在排期让用户挑
+              return;
+            }
+          } catch (e: any) {
+            if (sig.aborted || isStale()) return;
+            pushLog(`⚠ 自动批准失败：${e?.message ?? "请手动选方案"}`, "warn");
+            // fall through to review
+          }
+        }
+      }
+
+      setStep("review");
     } catch (err: any) {
       if (sig.aborted || isStale()) return;
       pushLog(`❌ 失败：${err?.message ?? "未知错误"}`, "error");
@@ -364,14 +448,71 @@ export default function AutopilotPage() {
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   const approveMut = useMutation({
-    mutationFn: () => api.strategy.approve(strategyResult.id),
+    mutationFn: (stratId: number) => api.strategy.approve(stratId),
     onSuccess: (data) => {
       setContentId(data.contentId);
-      setStep("approved");
-      toast({ title: "已批准", description: `已生成草稿 #${data.contentId}` });
+      setStep("schedule");
+      qc.invalidateQueries({ queryKey: ["content"] });
+      toast({ title: "已采用", description: `草稿 #${data.contentId} 已生成，下一步选发布时间` });
     },
-    onError: (err: any) => toast({ title: "批准失败", description: err?.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "采用失败", description: err?.message, variant: "destructive" }),
   });
+
+  // 排期：把已生成的草稿挂到指定时间
+  const scheduleMut = useMutation({
+    mutationFn: ({ id, iso }: { id: number; iso: string }) => api.content.schedule(id, iso),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["content"] });
+      setStep("done");
+      toast({ title: "已排入计划", description: "可在「排期表」查看与调整" });
+    },
+    onError: (err: any) => toast({ title: "排期失败", description: err?.message, variant: "destructive" }),
+  });
+
+  function handleAdoptStrategy(idx: number) {
+    if (approveMut.isPending) return; // 硬防抖：避免双击发起多次 approve 产生重复 content
+    const opt = strategyOptions[idx];
+    if (!opt) return;
+    setSelectedStrategyIdx(idx);
+    approveMut.mutate(opt.id);
+  }
+
+  function handleScheduleNow() {
+    if (scheduling || scheduleMut.isPending) return; // 硬防抖：避免重复排期
+    if (!contentId || !scheduledAt) {
+      toast({ title: "请选择发布时间", variant: "destructive" });
+      return;
+    }
+    // datetime-local → ISO
+    const d = new Date(scheduledAt);
+    if (isNaN(d.getTime()) || d.getTime() <= Date.now() - 30_000) {
+      toast({ title: "时间必须在未来", variant: "destructive" });
+      return;
+    }
+    setScheduling(true);
+    scheduleMut.mutate({ id: contentId, iso: d.toISOString() }, {
+      onSettled: () => setScheduling(false),
+    });
+  }
+
+  function quickPickTime(offset: "tonight" | "tomorrow_am" | "in_30min") {
+    const d = new Date();
+    if (offset === "in_30min") d.setMinutes(d.getMinutes() + 30);
+    else if (offset === "tonight") { d.setHours(20, 0, 0, 0); if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1); }
+    else if (offset === "tomorrow_am") { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setScheduledAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  }
+
+  function resetAll() {
+    setStep("setup");
+    setStrategyOptions([]);
+    setSelectedStrategyIdx(null);
+    setContentId(null);
+    setLogs([]);
+    setScheduledAt("");
+  }
 
   function handleStart() {
     if (!hasAccounts) {
@@ -418,12 +559,12 @@ export default function AutopilotPage() {
       <Card className="p-4">
         <div className="flex items-center justify-between gap-2">
           {[
-            { key: "setup", label: "需求", icon: FileEdit },
-            { key: "running", label: "AI 流水线", icon: Brain },
-            { key: "review", label: "审策略", icon: Sparkles },
-            { key: "approved", label: "草稿就绪", icon: CheckCircle2 },
+            { key: "setup", label: "1. 需求", icon: FileEdit },
+            { key: "running", label: "2. AI 跑数据", icon: Brain },
+            { key: "review", label: "3. 选方案", icon: Sparkles },
+            { key: "schedule", label: "4. 排期发布", icon: Send },
           ].map((s, i, arr) => {
-            const order = ["setup", "running", "review", "approved"];
+            const order = ["setup", "running", "review", "schedule", "done"];
             const currentIdx = order.indexOf(step);
             const myIdx = order.indexOf(s.key);
             const done = myIdx < currentIdx;
@@ -612,7 +753,7 @@ export default function AutopilotPage() {
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-start gap-2">
               <Sparkles className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
               <div className="flex-1 text-foreground/80">
-                <strong className="text-primary">一键模式：</strong>AI 会自动 [发现同行 → 抓爆款 → 生成策略 → <strong>自动批准</strong> → 草稿入库]，全程无需你点确认，完成后直接打开编辑器。
+                <strong className="text-primary">一键模式：</strong>AI 会自动 [发现同行 → 抓爆款 → 生成 3 个方案 → <strong>自动选最优</strong> → 草稿入库 → <strong>排到推荐发布时段</strong>]，全程无需你点确认。<span className="text-xs text-muted-foreground">（开自定义可手动审策略 + 自选时间）</span>
               </div>
             </div>
           )}
@@ -724,15 +865,18 @@ export default function AutopilotPage() {
       )}
 
       {/* Step 3: 策略卡 */}
-      {step === "review" && strategyResult && (
+      {step === "review" && strategyOptions.length > 0 && (() => {
+        const okOpts = strategyOptions.filter(Boolean);
+        const refOpt = okOpts[0]; // 任一存活方案的 meta 用作总览展示
+        return (
         <div className="space-y-4">
           {/* 折叠后的成功日志 */}
           <Card className="p-3 bg-emerald-50/50 border-emerald-200">
             <div className="flex items-center gap-2 text-sm text-emerald-800">
               <CheckCircle2 className="h-4 w-4" />
-              <span className="font-medium">流水线完成</span>
+              <span className="font-medium">流水线完成 · {okOpts.length}/3 个方案待选</span>
               <span className="text-xs text-emerald-600/80">
-                · 同行 {strategyResult.meta.competitorsAnalyzed} · 样本 {strategyResult.meta.postsAnalyzed} · 模式 {strategyResult.meta.dataMode}
+                · 同行 {refOpt.meta.competitorsAnalyzed} · 样本 {refOpt.meta.postsAnalyzed} · 模式 {refOpt.meta.dataMode}
               </span>
             </div>
           </Card>
@@ -812,112 +956,227 @@ export default function AutopilotPage() {
             </Card>
           )}
 
-          {strategyResult.meta?.warning && (
+          {refOpt.meta?.warning && (
             <Card className="p-3 border-amber-300 bg-amber-50">
               <div className="flex gap-2 text-sm text-amber-800">
                 <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <div>{strategyResult.meta.warning}</div>
+                <div>{refOpt.meta.warning}</div>
               </div>
             </Card>
           )}
 
-          <Card className="p-6 space-y-4">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">本期主题</div>
-              <div className="text-xl font-bold">{strategyResult.strategy.theme}</div>
+          {/* 3 方案卡片选择（点采用 → approve → 进排期步骤） */}
+          <div>
+            <div className="text-sm font-semibold mb-2 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              选择内容方案
+              <span className="text-xs text-muted-foreground font-normal">— 三选一，AI 已从不同角度生成</span>
             </div>
-
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="bg-muted/40 rounded p-2"><strong>BGM:</strong> {strategyResult.strategy.bgmStyle}</div>
-              <div className="bg-muted/40 rounded p-2"><strong>时长:</strong> {strategyResult.strategy.estimatedDuration}s</div>
-              <div className="bg-muted/40 rounded p-2"><strong>画幅:</strong> {strategyResult.strategy.aspectRatio}</div>
-              <div className="bg-muted/40 rounded p-2"><strong>发布:</strong> {strategyResult.strategy.bestPostingTime}</div>
-            </div>
-
-            <div>
-              <div className="text-sm font-semibold mb-1">钩子公式</div>
-              <div className="text-sm bg-primary/5 rounded p-3 italic">{strategyResult.strategy.hookFormula}</div>
-            </div>
-
-            <div>
-              <div className="text-sm font-semibold mb-2">剧本 / 场景</div>
-              <ol className="space-y-2">
-                {strategyResult.strategy.scriptOutline?.map((s: any) => (
-                  <li key={s.order} className="flex gap-3 text-sm border-l-2 border-primary/30 pl-3">
-                    <span className="font-bold text-primary">{s.order}</span>
-                    <div className="flex-1">
-                      <div className="font-medium">{s.description} <span className="text-xs text-muted-foreground">({s.duration}s)</span></div>
-                      <div className="text-muted-foreground text-xs mt-0.5">"{s.dialogue}"</div>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              {strategyOptions.map((opt, idx) => {
+                const angle = STRATEGY_ANGLES[idx];
+                const isSelected = selectedStrategyIdx === idx;
+                if (!opt) {
+                  return (
+                    <Card key={idx} className="p-4 border-dashed text-center text-xs text-muted-foreground bg-muted/20">
+                      <div className="text-2xl mb-1">{angle.emoji}</div>
+                      <div className="font-medium mb-1">{angle.label}</div>
+                      <div>本路生成失败，可点「重生成」重试</div>
+                    </Card>
+                  );
+                }
+                const s = opt.strategy;
+                return (
+                  <Card
+                    key={idx}
+                    className={`p-4 space-y-2.5 transition cursor-pointer hover:shadow-md ${
+                      isSelected ? "border-primary ring-2 ring-primary/20" : ""
+                    }`}
+                    onClick={() => setSelectedStrategyIdx(idx)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="text-[10px] gap-1">
+                        <span>{angle.emoji}</span> 方案 {idx + 1}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">{angle.label}</span>
                     </div>
-                  </li>
-                ))}
-              </ol>
+                    <div className="font-bold text-sm leading-tight line-clamp-2">{s.theme}</div>
+                    <div className="text-xs bg-primary/5 rounded p-2 italic line-clamp-3">
+                      <strong className="not-italic text-primary">钩子：</strong>{s.hookFormula}
+                    </div>
+                    {Array.isArray(s.scriptOutline) && s.scriptOutline.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground line-clamp-3 leading-relaxed">
+                        {s.scriptOutline.slice(0, 3).map((sc: any) => `${sc.order}. ${sc.description}`).join(" · ")}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {s.hashtags?.slice(0, 4).map((h: string, i: number) => (
+                        <span key={i} className="text-[10px] text-primary">#{h}</span>
+                      ))}
+                      {(s.hashtags?.length ?? 0) > 4 && (
+                        <span className="text-[10px] text-muted-foreground">+{s.hashtags.length - 4}</span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 text-[10px] text-muted-foreground pt-1 border-t">
+                      <div>⏱ {s.estimatedDuration}s</div>
+                      <div>🎵 {s.bgmStyle}</div>
+                      <div>📐 {s.aspectRatio}</div>
+                    </div>
+                    <Button
+                      className="w-full mt-1"
+                      size="sm"
+                      disabled={approveMut.isPending}
+                      onClick={(e) => { e.stopPropagation(); handleAdoptStrategy(idx); }}
+                    >
+                      {approveMut.isPending && isSelected
+                        ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />生成草稿中…</>
+                        : <><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />采用此方案</>
+                      }
+                    </Button>
+                  </Card>
+                );
+              })}
             </div>
 
-            {strategyResult.strategy.voiceoverScript && (
-              <div>
-                <div className="text-sm font-semibold mb-1">完整旁白 / 正文</div>
-                <Textarea
-                  value={strategyResult.strategy.voiceoverScript}
-                  readOnly
-                  rows={6}
-                  className="text-sm bg-muted/30"
-                />
-              </div>
+            {/* 选中方案的展开详情（剧本 + 旁白 + 同行） */}
+            {selectedStrategyIdx !== null && strategyResult && (
+              <Card className="p-4 mt-3 bg-muted/10 space-y-3">
+                <div className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                  <Search className="h-3.5 w-3.5" />
+                  方案 {selectedStrategyIdx + 1} 详情预览（采用前可先看完整内容）
+                </div>
+                {strategyResult.strategy.scriptOutline?.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold mb-1">完整剧本 / 分镜</div>
+                    <ol className="space-y-1.5">
+                      {strategyResult.strategy.scriptOutline.map((s: any) => (
+                        <li key={s.order} className="flex gap-2 text-xs border-l-2 border-primary/30 pl-2">
+                          <span className="font-bold text-primary">{s.order}</span>
+                          <div className="flex-1">
+                            <div className="font-medium">{s.description} <span className="text-[10px] text-muted-foreground">({s.duration}s)</span></div>
+                            {s.dialogue && <div className="text-muted-foreground text-[11px] mt-0.5">"{s.dialogue}"</div>}
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {strategyResult.strategy.voiceoverScript && (
+                  <div>
+                    <div className="text-xs font-semibold mb-1">完整旁白 / 正文</div>
+                    <Textarea value={strategyResult.strategy.voiceoverScript} readOnly rows={5} className="text-xs bg-background" />
+                  </div>
+                )}
+                {strategyResult.strategy.referenceCompetitors?.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold mb-1">参考同行</div>
+                    <ul className="space-y-0.5 text-xs">
+                      {strategyResult.strategy.referenceCompetitors.map((c: any, i: number) => (
+                        <li key={i}><strong>@{c.handle}</strong> <span className="text-muted-foreground">— {c.why}</span></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </Card>
             )}
+          </div>
 
-            <div>
-              <div className="text-sm font-semibold mb-2">推荐标签</div>
-              <div className="flex flex-wrap gap-1.5">
-                {strategyResult.strategy.hashtags?.map((h: string, i: number) => (
-                  <Badge key={i} variant="secondary">{h}</Badge>
-                ))}
-              </div>
-            </div>
-
-            {strategyResult.strategy.referenceCompetitors?.length > 0 && (
-              <div>
-                <div className="text-sm font-semibold mb-2">参考同行</div>
-                <ul className="space-y-1 text-sm">
-                  {strategyResult.strategy.referenceCompetitors.map((c: any, i: number) => (
-                    <li key={i}><strong>@{c.handle}</strong> <span className="text-muted-foreground">— {c.why}</span></li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <div className="flex gap-2 pt-3 border-t">
-              <Button variant="outline" onClick={() => { setStep("setup"); setStrategyResult(null); }}>
-                <RefreshCw className="h-4 w-4 mr-1.5" /> 重来
-              </Button>
-              <Button variant="outline" onClick={() => runPipeline()}>
-                <Sparkles className="h-4 w-4 mr-1.5" /> 重生成策略
-              </Button>
-              <Button className="flex-1 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90" onClick={() => approveMut.mutate()} disabled={approveMut.isPending}>
-                {approveMut.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
-                批准 → 进编辑器
-              </Button>
-            </div>
-          </Card>
+          <div className="flex gap-2 justify-center pt-2">
+            <Button variant="outline" size="sm" onClick={resetAll}>
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 改需求重来
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => runPipeline()}>
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" /> 重新生成 3 个方案
+            </Button>
+          </div>
         </div>
+        );
+      })()}
+
+      {/* Step 4: 排期发布 —— 草稿已生成，挑选发布时间 */}
+      {step === "schedule" && contentId && (
+        <Card className="p-6 space-y-5">
+          <div className="flex items-center gap-3 pb-3 border-b">
+            <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+            <div className="flex-1">
+              <div className="font-bold">草稿 #{contentId} 已生成</div>
+              <div className="text-xs text-muted-foreground">
+                {strategyResult?.strategy?.theme && <span>主题：{strategyResult.strategy.theme}</span>}
+              </div>
+            </div>
+            <Link href={`/content/${contentId}`}>
+              <Button size="sm" variant="outline"><FileEdit className="h-3.5 w-3.5 mr-1.5" />编辑器微调</Button>
+            </Link>
+          </div>
+
+          {/* 推荐时间 */}
+          {marketInsights?.bestTimes && (
+            <div className="rounded-md border bg-primary/5 p-3 text-sm">
+              <div className="font-medium mb-1 flex items-center gap-1.5">
+                ⏰ AI 推荐发布时段（{platformMeta.name}）
+              </div>
+              <div className="text-xs text-muted-foreground">
+                每天 <strong className="text-foreground">{marketInsights.bestTimes.bestHours.map((h) => `${h}:00`).join(" / ")}</strong>
+                {" · "}{marketInsights.bestTimes.insight}
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1">已为你预选下一个最佳时段，可直接采用或自定义</div>
+            </div>
+          )}
+
+          {/* 时间选择 */}
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">发布时间</div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => quickPickTime("in_30min")}>30 分钟后</Button>
+              <Button size="sm" variant="outline" onClick={() => quickPickTime("tonight")}>今晚 20:00</Button>
+              <Button size="sm" variant="outline" onClick={() => quickPickTime("tomorrow_am")}>明早 09:00</Button>
+            </div>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              className="w-full rounded-md border px-3 py-2 text-sm bg-background"
+            />
+          </div>
+
+          <div className="flex gap-2 pt-3 border-t flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={strategyOptions.filter(Boolean).length === 0}
+              onClick={() => setStep("review")}
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 返回重选方案
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setStep("done")}>
+              暂不排期，先去编辑器
+            </Button>
+            <Button
+              className="flex-1 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90"
+              onClick={handleScheduleNow}
+              disabled={scheduling || scheduleMut.isPending || !scheduledAt}
+            >
+              {(scheduling || scheduleMut.isPending) ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              确认排期发布
+            </Button>
+          </div>
+        </Card>
       )}
 
-      {/* Step 4: 完成 */}
-      {step === "approved" && contentId && (
+      {/* Step 5: 完成态 */}
+      {step === "done" && contentId && (
         <Card className="p-8 text-center space-y-4">
           <CheckCircle2 className="h-16 w-16 text-emerald-500 mx-auto" />
           <div>
-            <div className="text-xl font-bold">草稿已生成 ✨</div>
+            <div className="text-xl font-bold">已完成 ✨</div>
             <div className="text-sm text-muted-foreground mt-1">
-              下一步：在编辑器配图 / 微调文案，然后立即发布或定时发布
+              草稿 #{contentId} 已就绪 · 可在排期表查看 / 调整发布时间
             </div>
           </div>
-
-          {/* 一键模式下的策略简报 */}
           {strategyResult && (
             <div className="text-left bg-muted/30 rounded-lg p-4 space-y-2 text-sm border">
               <div className="font-semibold text-primary flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5" /> AI 已为你定制本期内容
+                <Sparkles className="h-3.5 w-3.5" /> 本次内容简报
               </div>
               <div><strong>主题：</strong>{strategyResult.strategy.theme}</div>
               <div className="text-muted-foreground text-xs">
@@ -928,9 +1187,6 @@ export default function AutopilotPage() {
                   <Badge key={i} variant="secondary" className="text-xs">{h}</Badge>
                 ))}
               </div>
-              <div className="text-xs text-muted-foreground pt-1">
-                参考 {strategyResult.meta.competitorsAnalyzed} 位同行 · {strategyResult.meta.postsAnalyzed} 条样本
-              </div>
             </div>
           )}
           <div className="flex gap-2 justify-center flex-wrap">
@@ -938,9 +1194,9 @@ export default function AutopilotPage() {
               <Button size="lg"><FileEdit className="h-4 w-4 mr-2" />打开编辑器</Button>
             </Link>
             <Link href="/schedules">
-              <Button size="lg" variant="outline"><Send className="h-4 w-4 mr-2" />定时发布</Button>
+              <Button size="lg" variant="outline"><Send className="h-4 w-4 mr-2" />查看排期表</Button>
             </Link>
-            <Button variant="ghost" onClick={() => { setStep("setup"); setStrategyResult(null); setContentId(null); setLogs([]); }}>
+            <Button variant="ghost" onClick={resetAll}>
               再来一条
             </Button>
           </div>
