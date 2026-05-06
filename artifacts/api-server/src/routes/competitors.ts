@@ -235,12 +235,14 @@ router.post("/competitors", async (req, res): Promise<void> => {
   }
 
   if (posts.length > 0) {
-    // 简单 upsert：先删后插（数量小）
-    await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, saved.id));
+    // 原子 upsert：先删后插包成事务，失败回滚不丢历史数据
     const tunedPosts = markViralByPercentile(posts);
-    await db.insert(competitorPostsTable).values(
-      tunedPosts.map(p => ({ ...p, competitorId: saved.id })),
-    );
+    await db.transaction(async (tx) => {
+      await tx.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, saved.id));
+      await tx.insert(competitorPostsTable).values(
+        tunedPosts.map(p => ({ ...p, competitorId: saved.id })),
+      );
+    });
   }
 
   // 触发该 platform × category 的全平台训练画像刷新（fire-and-forget）
@@ -321,17 +323,19 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
         lastSyncedAt: new Date(),
       }).where(eq(competitorProfilesTable.id, id));
       if (vids.length > 0) {
-        await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
         const tuned = markViralByPercentile(vids);
-        await db.insert(competitorPostsTable).values(tuned.map(v => ({
-          competitorId: id, platform: "tiktok", externalId: v.externalId, mediaType: "video",
-          description: v.description, coverUrl: v.coverUrl, mediaUrl: v.videoUrl,
-          mediaUrls: v.videoUrl ? [v.videoUrl] : [],
-          postUrl: `https://www.tiktok.com/@${p.handle}/video/${v.externalId}`,
-          viewCount: v.viewCount, likeCount: v.likeCount, commentCount: v.commentCount, shareCount: v.shareCount,
-          duration: v.duration, musicName: v.musicName, musicAuthor: v.musicAuthor, hashtags: v.hashtags,
-          publishedAt: v.publishedAt, isViral: v.isViral,
-        })));
+        await db.transaction(async (tx) => {
+          await tx.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
+          await tx.insert(competitorPostsTable).values(tuned.map(v => ({
+            competitorId: id, platform: "tiktok", externalId: v.externalId, mediaType: "video",
+            description: v.description, coverUrl: v.coverUrl, mediaUrl: v.videoUrl,
+            mediaUrls: v.videoUrl ? [v.videoUrl] : [],
+            postUrl: `https://www.tiktok.com/@${p.handle}/video/${v.externalId}`,
+            viewCount: v.viewCount, likeCount: v.likeCount, commentCount: v.commentCount, shareCount: v.shareCount,
+            duration: v.duration, musicName: v.musicName, musicAuthor: v.musicAuthor, hashtags: v.hashtags,
+            publishedAt: v.publishedAt, isViral: v.isViral,
+          })));
+        });
       }
       res.json({ ok: true, postsSynced: vids.length });
     } else if (profile.platform === "facebook") {
@@ -346,15 +350,17 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
         }).where(eq(competitorProfilesTable.id, id));
       }
       if (fbPosts.length > 0) {
-        await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
         const tuned = markViralByPercentile(fbPosts.map(p => ({ ...p, isViral: p.likeCount > 1000 })));
-        await db.insert(competitorPostsTable).values(tuned.map(p => ({
-          competitorId: id, platform: "facebook", externalId: p.externalId, mediaType: p.mediaType,
-          description: p.caption, coverUrl: p.mediaUrl, mediaUrl: p.mediaUrl,
-          mediaUrls: p.mediaUrl ? [p.mediaUrl] : [], postUrl: p.postUrl,
-          viewCount: 0, likeCount: p.likeCount, commentCount: p.commentCount, shareCount: p.shareCount,
-          publishedAt: p.publishedAt, isViral: p.isViral,
-        })));
+        await db.transaction(async (tx) => {
+          await tx.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
+          await tx.insert(competitorPostsTable).values(tuned.map(p => ({
+            competitorId: id, platform: "facebook", externalId: p.externalId, mediaType: p.mediaType,
+            description: p.caption, coverUrl: p.mediaUrl, mediaUrl: p.mediaUrl,
+            mediaUrls: p.mediaUrl ? [p.mediaUrl] : [], postUrl: p.postUrl,
+            viewCount: 0, likeCount: p.likeCount, commentCount: p.commentCount, shareCount: p.shareCount,
+            publishedAt: p.publishedAt, isViral: p.isViral,
+          })));
+        });
       }
       res.json({ ok: true, postsSynced: fbPosts.length });
     } else if (profile.platform === "instagram") {
@@ -371,15 +377,17 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
         postCount: resolved.profile.postCount, lastSyncedAt: new Date(),
       }).where(eq(competitorProfilesTable.id, id));
       if (igPosts.length > 0) {
-        await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
         const tuned = markViralByPercentile(igPosts.map(p => ({ ...p, isViral: p.likeCount > 5000 })));
-        await db.insert(competitorPostsTable).values(tuned.map(p => ({
-          competitorId: id, platform: "instagram", externalId: p.externalId, mediaType: p.mediaType,
-          description: p.caption, coverUrl: p.mediaUrl, mediaUrl: p.mediaUrl,
-          mediaUrls: p.mediaUrl ? [p.mediaUrl] : [], postUrl: p.postUrl,
-          viewCount: 0, likeCount: p.likeCount, commentCount: p.commentCount, shareCount: 0,
-          publishedAt: p.publishedAt, isViral: p.isViral,
-        })));
+        await db.transaction(async (tx) => {
+          await tx.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
+          await tx.insert(competitorPostsTable).values(tuned.map(p => ({
+            competitorId: id, platform: "instagram", externalId: p.externalId, mediaType: p.mediaType,
+            description: p.caption, coverUrl: p.mediaUrl, mediaUrl: p.mediaUrl,
+            mediaUrls: p.mediaUrl ? [p.mediaUrl] : [], postUrl: p.postUrl,
+            viewCount: 0, likeCount: p.likeCount, commentCount: p.commentCount, shareCount: 0,
+            publishedAt: p.publishedAt, isViral: p.isViral,
+          })));
+        });
       }
       res.json({ ok: true, postsSynced: igPosts.length });
     } else {

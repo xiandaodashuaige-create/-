@@ -58,7 +58,17 @@ export interface VideoJob {
   } | null;
 }
 
-const MAX_CONCURRENT = 2;
+// 全局视频任务并发上限：env 可调，但严格 clamp 到 1~8 整数；非法回退 4 并告警，避免 NaN 击穿调度器
+const MAX_CONCURRENT = (() => {
+  const raw = process.env.VIDEO_JOBS_MAX_CONCURRENT;
+  if (raw === undefined || raw === "") return 4;
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 1 || n > 8) {
+    logger.warn({ raw }, "VIDEO_JOBS_MAX_CONCURRENT invalid, falling back to 4 (allowed: 1~8)");
+    return 4;
+  }
+  return n;
+})();
 const STALE_RECLAIM_MS = 15 * 60 * 1000; // 中间态超过 15 分钟视为崩溃 → 回收
 const inFlight = new Set<string>();
 

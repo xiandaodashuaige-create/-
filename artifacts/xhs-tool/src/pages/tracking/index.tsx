@@ -84,10 +84,12 @@ export default function TrackingPage() {
     <div className="space-y-6">
       {!isXhs && (
         <div className={`rounded-xl border ${platformMeta.borderClass} ${platformMeta.bgClass} px-4 py-3 text-sm`}>
-          <p className={`font-medium ${platformMeta.textClass}`}>{platformMeta.name} · 表现追踪</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            互动数据将通过 {platformMeta.publishVia === "ayrshare" ? "Ayrshare 反向回拉" : "Meta Graph Insights API"} 抓取，正在接入中。
-            目前可在<button onClick={() => setActivePlatform("xhs")} className="underline mx-1">小红书</button>下使用完整追踪能力。
+          <p className={`font-medium ${platformMeta.textClass}`}>
+            {platformMeta.name} · 表现追踪 <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground align-middle">Coming Soon</span>
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            {platformMeta.name} 的互动数据回拉功能尚未上线，已添加的笔记仅作占位。
+            目前可在<button onClick={() => setActivePlatform("xhs")} className="underline mx-1">小红书</button>下使用完整的曲线 + 关键词排名追踪。
           </p>
         </div>
       )}
@@ -100,12 +102,16 @@ export default function TrackingPage() {
           <p className="text-muted-foreground text-sm mt-1">
             {isXhs
               ? "追踪自家笔记发布后的点赞/收藏/评论曲线 + 关键词搜索排名 · 全程公开数据，无需账号授权"
-              : `${platformMeta.name} 互动数据接入中，先以列表占位`}
+              : `${platformMeta.name} 互动数据回拉尚未上线（Coming Soon），先以列表占位`}
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(v) => { if (!isXhs) return; setOpen(v); }}>
           <DialogTrigger asChild>
-            <Button className="bg-red-500 hover:bg-red-600">
+            <Button
+              className="bg-red-500 hover:bg-red-600"
+              disabled={!isXhs}
+              title={!isXhs ? `${platformMeta.name} 追踪 Coming Soon，请切换到小红书` : undefined}
+            >
               <Plus className="h-4 w-4 mr-1" />添加追踪
             </Button>
           </DialogTrigger>

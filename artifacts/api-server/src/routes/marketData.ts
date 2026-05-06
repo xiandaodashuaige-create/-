@@ -202,7 +202,24 @@ const BEST_TIMES_FALLBACK: Record<string, { bestDays: string[]; bestHours: numbe
 
 const DOW_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-async function aggregatePerPlatform(userId: number, platform: string) {
+// region → IANA 时区映射（HK/MY 用户看 best-times 时按本地时区分桶，避免被 SGT 误导）
+const REGION_TZ: Record<string, string> = {
+  SG: "Asia/Singapore",
+  HK: "Asia/Hong_Kong",
+  MY: "Asia/Kuala_Lumpur",
+  CN: "Asia/Shanghai",
+  GLOBAL: "Asia/Singapore",
+};
+const TZ_LABELS: Record<string, string> = {
+  "Asia/Singapore": "SGT",
+  "Asia/Hong_Kong": "HKT",
+  "Asia/Kuala_Lumpur": "MYT",
+  "Asia/Shanghai": "CST",
+};
+// 严格白名单，防止 SQL 注入（sql.raw 用）
+const ALLOWED_TZ = new Set(Object.values(REGION_TZ));
+
+async function aggregatePerPlatform(userId: number, platform: string, tz: string) {
   // 拉用户在该平台的同行 ID 列表
   const profiles = await db
     .select({ id: competitorProfilesTable.id })
@@ -211,11 +228,12 @@ async function aggregatePerPlatform(userId: number, platform: string) {
   if (profiles.length === 0) return null;
   const ids = profiles.map((p) => p.id);
 
-  // 按 SGT (UTC+8) 聚合，更贴近东南亚用户使用习惯
+  // 按用户本地时区聚合（HK/MY/SG/CN 用对应 IANA 时区）
+  const safeTz = ALLOWED_TZ.has(tz) ? tz : "Asia/Singapore";
   const rows = await db.execute(sql`
     SELECT
-      EXTRACT(HOUR  FROM (published_at AT TIME ZONE 'Asia/Singapore'))::int AS hour,
-      EXTRACT(DOW   FROM (published_at AT TIME ZONE 'Asia/Singapore'))::int AS dow,
+      EXTRACT(HOUR  FROM (published_at AT TIME ZONE ${safeTz}))::int AS hour,
+      EXTRACT(DOW   FROM (published_at AT TIME ZONE ${safeTz}))::int AS dow,
       COUNT(*)::int AS posts,
       SUM(COALESCE(view_count,0) + COALESCE(like_count,0)*5 + COALESCE(comment_count,0)*10)::bigint AS score
     FROM competitor_posts
@@ -239,13 +257,18 @@ async function aggregatePerPlatform(userId: number, platform: string) {
   }
   const bestHours = [...byHour.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([h]) => h).sort((a, b) => a - b);
   const bestDays = [...byDow.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([d]) => DOW_NAMES[d]);
-  const insight = `基于您 ${profiles.length} 位 ${platform} 同行的 ${totalPosts} 条作品聚合（近 120 天，SGT 时区）`;
+  const tzLabel = TZ_LABELS[safeTz] ?? safeTz;
+  const insight = `基于您 ${profiles.length} 位 ${platform} 同行的 ${totalPosts} 条作品聚合（近 120 天，${tzLabel} 时区）`;
   return { bestDays, bestHours, insight };
 }
 
 router.get("/market-data/best-times", async (req, res): Promise<void> => {
   // 未登录也能看：直接返回常量 fallback（保留向后兼容）
   const user = await ensureUser(req).catch(() => null);
+  // 显式 ?tz= 优先；否则按 user.region 推；都没有兜底 SGT
+  const queryTz = typeof req.query.tz === "string" ? req.query.tz : "";
+  const userTz = user?.region ? (REGION_TZ[user.region.toUpperCase()] ?? "") : "";
+  const tz = ALLOWED_TZ.has(queryTz) ? queryTz : (userTz || "Asia/Singapore");
   const out: Record<string, { bestDays: string[]; bestHours: number[]; insight: string; source: "real" | "fallback" | "mock" }> = {};
   for (const platform of ["xhs", "tiktok", "instagram", "facebook"] as const) {
     if (!user) {
@@ -253,14 +276,14 @@ router.get("/market-data/best-times", async (req, res): Promise<void> => {
       continue;
     }
     try {
-      const real = await aggregatePerPlatform(user.id, platform);
+      const real = await aggregatePerPlatform(user.id, platform, tz);
       if (real) {
         out[platform] = { ...real, source: "real" };
       } else {
         out[platform] = { ...BEST_TIMES_FALLBACK[platform], source: "fallback" };
       }
     } catch (e: any) {
-      logger.warn({ err: e?.message, platform, userId: user.id }, "best-times aggregate failed, using fallback");
+      logger.warn({ err: e?.message, platform, userId: user.id, tz }, "best-times aggregate failed, using fallback");
       out[platform] = { ...BEST_TIMES_FALLBACK[platform], source: "fallback" };
     }
   }
