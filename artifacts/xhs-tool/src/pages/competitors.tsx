@@ -15,7 +15,7 @@ import { useLocation } from "wouter";
 import { setReturnToFlow } from "@/lib/return-to-flow";
 import {
   Users2, RefreshCw, Trash2, Search, Sparkles, Heart, MessageCircle, Eye, Plus, ExternalLink, Loader2,
-  TrendingUp, Hash, Music, Clock, BarChart3, Star, Compass, Calendar, CheckCircle2, XCircle,
+  TrendingUp, Hash, Music, Clock, BarChart3, Star, Compass, Calendar, CheckCircle2, XCircle, FileText, Mic,
 } from "lucide-react";
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -65,6 +65,25 @@ export default function CompetitorsPage() {
   const [postFilter, setPostFilter] = useState<"all" | "starred" | "viral">("all");
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [strategyNiche, setStrategyNiche] = useState("");
+  const [transcriptOpenPostId, setTranscriptOpenPostId] = useState<number | null>(null);
+
+  const transcribeMut = useMutation({
+    mutationFn: (postId: number) => api.competitors.transcribePost(postId),
+    onSuccess: (_data, postId) => {
+      qc.invalidateQueries({ queryKey: ["competitor-posts", openId] });
+      setTranscriptOpenPostId(postId);
+      toast({ title: "口播文案已提取", description: "已缓存到该帖，可直接查看或反复复用。" });
+    },
+    onError: (err: any) => {
+      const msg = err?.message || "提取失败";
+      const isNoMedia = /无媒体|no.*media|404/i.test(msg);
+      toast({
+        variant: "destructive",
+        title: "提取失败",
+        description: isNoMedia ? "该帖没有可下载的视频媒体" : msg,
+      });
+    },
+  });
 
   const { data: list = [], isLoading } = useQuery({
     queryKey: ["competitors", platform],
@@ -498,6 +517,32 @@ export default function CompetitorsPage() {
                         {isStarred && <Badge className="text-[9px] py-0 px-1 bg-amber-500">⭐ 精选</Badge>}
                       </div>
                     </a>
+                    {/* 口播文案提取（仅视频帖；耗 1 积分） */}
+                    {p.mediaUrl && /\.(mp4|mov|m3u8|webm)(\?|$|#|\/)/i.test(String(p.mediaUrl)) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (p.transcript) {
+                            setTranscriptOpenPostId(p.id);
+                          } else {
+                            transcribeMut.mutate(p.id);
+                          }
+                        }}
+                        disabled={transcribeMut.isPending && transcribeMut.variables === p.id}
+                        className="mt-1.5 w-full text-[10px] flex items-center justify-center gap-1 px-2 py-1 rounded border border-dashed hover:bg-muted/50 transition disabled:opacity-50"
+                        title={p.transcript ? "查看已提取的口播文案" : "用 Whisper 提取该视频的口播（约 1 积分）"}
+                      >
+                        {transcribeMut.isPending && transcribeMut.variables === p.id ? (
+                          <><Loader2 className="h-3 w-3 animate-spin" />提取中…</>
+                        ) : p.transcript ? (
+                          <><FileText className="h-3 w-3" />查看口播</>
+                        ) : (
+                          <><Mic className="h-3 w-3" />提取口播</>
+                        )}
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -507,6 +552,45 @@ export default function CompetitorsPage() {
       )}
 
       {/* 30 天运营策略弹窗 */}
+      {/* 口播文案查看弹窗 */}
+      <Dialog open={transcriptOpenPostId !== null} onOpenChange={(o) => !o && setTranscriptOpenPostId(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-amber-500" />
+              视频口播文案
+            </DialogTitle>
+            <DialogDescription>
+              由 Whisper 自动转写。可直接复制作为爆款 hook 灵感参考。
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const post = posts.find((p: any) => p.id === transcriptOpenPostId);
+            if (!post) return null;
+            return (
+              <div className="space-y-3 pt-2">
+                <div className="text-xs text-muted-foreground">{post.description || post.title || "(无描述)"}</div>
+                <div className="rounded-lg bg-muted/50 p-4 text-sm whitespace-pre-wrap leading-relaxed max-h-[50vh] overflow-y-auto">
+                  {post.transcript || <span className="text-muted-foreground italic">暂无转写文本</span>}
+                </div>
+                {post.transcript && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(post.transcript);
+                      toast({ title: "已复制到剪贴板" });
+                    }}
+                  >
+                    复制全文
+                  </Button>
+                )}
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={strategyOpen} onOpenChange={setStrategyOpen}>
         <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>

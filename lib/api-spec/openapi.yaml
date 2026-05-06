@@ -768,6 +768,9 @@ components:
           oneOf:
             - $ref: "#/components/schemas/AccountSummary"
             - type: "null"
+        accountDeleted:
+          type: boolean
+          description: 关联账号已删除（孤儿内容），前端展示灰色徽标
       required:
         - id
         - platform

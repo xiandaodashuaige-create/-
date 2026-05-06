@@ -1,10 +1,13 @@
-import { type AnyPgColumn, pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, pgTable, text, serial, timestamp, integer, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { accountsTable } from "./accounts";
+import { usersTable } from "./users";
 
 export const contentTable = pgTable("content", {
   id: serial("id").primaryKey(),
+  // 直接挂 owner，避免账号删除（accountId set null）后租户过滤失效导致历史内容"消失"
+  ownerUserId: integer("owner_user_id").references(() => usersTable.id, { onDelete: "cascade" }),
   accountId: integer("account_id").references(() => accountsTable.id, { onDelete: "set null" }),
   // platform 维度：默认 xhs，未来支持 tiktok/instagram/facebook
   platform: text("platform").notNull().default("xhs"),
@@ -31,7 +34,9 @@ export const contentTable = pgTable("content", {
   remotePostUrl: text("remote_post_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => ({
+  ownerIdx: index("content_owner_idx").on(t.ownerUserId),
+}));
 
 export const insertContentSchema = createInsertSchema(contentTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertContent = z.infer<typeof insertContentSchema>;

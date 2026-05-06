@@ -43,4 +43,6 @@ export interface Content {
   createdAt: Date;
   updatedAt: Date;
   account?: AccountSummary | null;
+  /** 关联账号已删除（孤儿内容），前端展示灰色徽标 */
+  accountDeleted?: boolean;
 }

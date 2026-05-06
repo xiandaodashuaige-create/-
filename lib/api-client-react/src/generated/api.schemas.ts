@@ -168,6 +168,8 @@ export interface Content {
   createdAt: string;
   updatedAt: string;
   account?: AccountSummary | null;
+  /** 关联账号已删除（孤儿内容），前端展示灰色徽标 */
+  accountDeleted?: boolean;
 }
 
 export type CreateContentBodyPlatform =

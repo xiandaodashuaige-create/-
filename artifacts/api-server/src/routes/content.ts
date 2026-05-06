@@ -52,6 +52,8 @@ function mapContentRow(row: any) {
       nickname: row.account_nickname || "Unknown",
       region: row.account_region || "SG",
     } : null,
+    // 账号已删除（account_id set null）时给前端一个明确标记，列表展示灰色徽标
+    accountDeleted: !row.account_id,
   };
 }
 
@@ -94,8 +96,8 @@ router.get("/content", async (req, res): Promise<void> => {
     }
 
     const query = ListContentQueryParams.safeParse(req.query);
-    // 租户隔离：只列出当前 user 拥有账号下的内容（或 accountId 为 NULL 但创建者是当前用户的——目前所有 content 必须挂账号；NULL 行视为孤儿不返回）
-    const conditions: SQL[] = [sql`a.owner_user_id = ${u.id}`];
+    // 租户隔离：以 c.owner_user_id 为准，LEFT JOIN accounts 保留账号已删除的孤儿内容
+    const conditions: SQL[] = [sql`c.owner_user_id = ${u.id}`];
 
     if (query.success) {
       if (query.data.accountId) {
@@ -108,6 +110,7 @@ router.get("/content", async (req, res): Promise<void> => {
         conditions.push(sql`c.status = ${query.data.status}`);
       }
       if (query.data.region && query.data.region !== "ALL") {
+        // 账号已删除的孤儿行没有 region，按用户筛选 region 时自然排除
         conditions.push(sql`a.region = ${query.data.region}`);
       }
     }
@@ -117,7 +120,7 @@ router.get("/content", async (req, res): Promise<void> => {
     const rows = await db.execute(sql`
       SELECT c.*, a.nickname as account_nickname, a.region as account_region, a.platform as account_platform
       FROM content c
-      INNER JOIN accounts a ON c.account_id = a.id
+      LEFT JOIN accounts a ON c.account_id = a.id
       ${whereClause}
       ORDER BY c.created_at DESC
     `);
@@ -138,13 +141,13 @@ async function loadOwnedAccount(accountId: number, userId: number) {
   return a ?? null;
 }
 
-// 内部辅助：根据 contentId 加载内容并验证归属（通过 account.ownerUserId）
+// 内部辅助：根据 contentId 加载内容并验证归属（以 c.owner_user_id 为准；LEFT JOIN 保留账号已删除的孤儿内容）
 async function loadOwnedContent(contentId: number, userId: number) {
   const rows = await db.execute(sql`
     SELECT c.*, a.nickname as account_nickname, a.region as account_region, a.platform as account_platform, a.owner_user_id as account_owner_user_id
     FROM content c
-    INNER JOIN accounts a ON c.account_id = a.id
-    WHERE c.id = ${contentId} AND a.owner_user_id = ${userId}
+    LEFT JOIN accounts a ON c.account_id = a.id
+    WHERE c.id = ${contentId} AND c.owner_user_id = ${userId}
     LIMIT 1
   `);
   return rows.rows[0] ?? null;
@@ -180,6 +183,7 @@ router.post("/content", requireCredits("content-create"), async (req, res): Prom
     const [content] = await db
       .insert(contentTable)
       .values({
+        ownerUserId: u.id,
         accountId: accountIdVal,
         platform,
         mediaType,

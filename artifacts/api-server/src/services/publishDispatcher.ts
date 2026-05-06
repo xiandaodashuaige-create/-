@@ -139,8 +139,13 @@ async function publishOne(row: DueRow): Promise<void> {
         mediaUrls: [mediaUrl],
         caption,
         isVideo,
-        // 多账号场景必须透传 profileKey，否则 Ayrshare 会发到默认 profile
-        profileKey: row.ayrshare_profile_key ?? undefined,
+        // 多账号场景必须透传 profileKey，否则 Ayrshare 会发到默认 profile。
+        // 但 "default" 是 sync 路径写入的哨兵值，表示"走 Ayrshare 的默认 profile"，
+        // 不能当真实 Profile-Key 透传（Ayrshare 会 404）。
+        profileKey:
+          row.ayrshare_profile_key && row.ayrshare_profile_key !== "default"
+            ? row.ayrshare_profile_key
+            : undefined,
       });
       if (!result.success) throw new Error(result.errorMessage || "Ayrshare publish failed");
       await markPublished(row.schedule_id, row.content_id, result.postId || "ayrshare");

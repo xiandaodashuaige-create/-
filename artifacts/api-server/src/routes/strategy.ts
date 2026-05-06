@@ -172,6 +172,7 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
   const tags = Array.isArray(card?.hashtags) ? card.hashtags.map((h: string) => h.replace(/^#/, "")) : [];
 
   const [content] = await db.insert(contentTable).values({
+    ownerUserId: user.id,
     accountId: acc.id,
     platform: s.platform,
     mediaType,

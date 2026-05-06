@@ -171,6 +171,10 @@ export const ListContentResponseItem = zod.object({
       zod.null(),
     ])
     .optional(),
+  accountDeleted: zod
+    .boolean()
+    .optional()
+    .describe("关联账号已删除（孤儿内容），前端展示灰色徽标"),
 });
 export const ListContentResponse = zod.array(ListContentResponseItem);
 
@@ -231,6 +235,10 @@ export const GetContentResponse = zod.object({
       zod.null(),
     ])
     .optional(),
+  accountDeleted: zod
+    .boolean()
+    .optional()
+    .describe("关联账号已删除（孤儿内容），前端展示灰色徽标"),
 });
 
 /**
@@ -285,6 +293,10 @@ export const UpdateContentResponse = zod.object({
       zod.null(),
     ])
     .optional(),
+  accountDeleted: zod
+    .boolean()
+    .optional()
+    .describe("关联账号已删除（孤儿内容），前端展示灰色徽标"),
 });
 
 /**
@@ -338,6 +350,10 @@ export const ScheduleContentResponse = zod.object({
       zod.null(),
     ])
     .optional(),
+  accountDeleted: zod
+    .boolean()
+    .optional()
+    .describe("关联账号已删除（孤儿内容），前端展示灰色徽标"),
 });
 
 /**
@@ -380,6 +396,10 @@ export const MarkContentPublishedResponse = zod.object({
       zod.null(),
     ])
     .optional(),
+  accountDeleted: zod
+    .boolean()
+    .optional()
+    .describe("关联账号已删除（孤儿内容），前端展示灰色徽标"),
 });
 
 /**

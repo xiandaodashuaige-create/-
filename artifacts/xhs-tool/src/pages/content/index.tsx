@@ -157,14 +157,22 @@ export default function ContentList() {
                         {item.body}
                       </p>
                       <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        {item.account && (
+                        {item.account ? (
                           <span className="flex items-center gap-1">
                             <span className="w-4 h-4 rounded-full bg-primary/10 flex items-center justify-center text-[10px] text-primary font-bold">
                               {item.account.nickname?.charAt(0)}
                             </span>
                             {item.account.nickname}
                           </span>
-                        )}
+                        ) : (item as any).accountDeleted ? (
+                          <span
+                            className="flex items-center gap-1 text-muted-foreground/70 italic"
+                            title="原账号已被删除，历史内容保留供回顾"
+                          >
+                            <span className="w-4 h-4 rounded-full bg-muted flex items-center justify-center text-[10px]">×</span>
+                            账号已删除
+                          </span>
+                        ) : null}
                         {item.tags?.length > 0 && (
                           <span>
                             {item.tags.slice(0, 3).map((t: string) => `#${t}`).join(" ")}

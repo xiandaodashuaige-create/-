@@ -305,6 +305,8 @@ export const api = {
     },
     starPost: (postId: number, starred: boolean) =>
       request<any>(`/competitor-posts/${postId}/star`, { method: "PATCH", body: JSON.stringify({ starred }) }),
+    transcribePost: (postId: number) =>
+      request<{ transcript: string; cached?: boolean }>(`/competitor-posts/${postId}/transcribe`, { method: "POST" }),
     operationsStrategy: (platform: string, niche?: string, opts?: { signal?: AbortSignal }) => {
       const q = new URLSearchParams({ platform });
       if (niche) q.set("niche", niche);
