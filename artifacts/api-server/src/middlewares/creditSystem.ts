@@ -15,6 +15,7 @@ export const CREDIT_COSTS: Record<string, number> = {
   "ai-generate-image-prompt": 1,
   "ai-generate-video-plan": 2,
   "ai-generate-video": 15,
+  "ai-generate-video-sora": 250,
   "ai-guide": 1,
   "ai-check-sensitivity": 1,
   "content-publish": 2,
@@ -34,6 +35,7 @@ const ROUTE_TO_OPERATION: Record<string, string> = {
   "POST:/ai/generate-image-pipeline": "ai-generate-image",
   "POST:/ai/generate-video-plan": "ai-generate-video-plan",
   "POST:/ai/generate-video": "ai-generate-video",
+  "POST:/ai/generate-video-sora": "ai-generate-video-sora",
   "POST:/ai/guide": "ai-guide",
   "POST:/ai/check-sensitivity": "ai-check-sensitivity",
 };
@@ -193,6 +195,7 @@ function getOperationLabel(op: string): string {
     "ai-generate-image": "AI生成配图",
     "ai-generate-video-plan": "AI视频创意 brief",
     "ai-generate-video": "AI生成视频（豆包Seedance）",
+    "ai-generate-video-sora": "AI生成高清电影级视频（Sora 2 Pro）",
     "ai-guide": "AI运营向导",
     "ai-check-sensitivity": "敏感词检测",
     "content-publish": "发布内容",

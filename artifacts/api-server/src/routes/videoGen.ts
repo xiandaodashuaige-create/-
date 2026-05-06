@@ -90,6 +90,53 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
   });
 });
 
+// ── POST /api/ai/generate-video-sora ────────────────────────────────────
+// 高清电影级（OpenAI Sora 2 Pro · 1080p · 12s）—— 仅 pro 用户可用，250 积分
+router.post("/ai/generate-video-sora", requireCredits("ai-generate-video-sora"), async (req, res): Promise<void> => {
+  const user = await ensureUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (user.plan !== "pro") {
+    res.status(403).json({ error: "pro_only", message: "Sora 高清电影级视频仅对 Pro 套餐用户开放，请先升级套餐。" });
+    return;
+  }
+  const b = req.body ?? {};
+  if (!b.newTopic || typeof b.newTopic !== "string") { res.status(400).json({ error: "newTopic is required" }); return; }
+  const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
+
+  const { job, created } = await enqueueVideoJob(user.id, {
+    userId: user.id,
+    platform,
+    newTopic: b.newTopic,
+    newTitle: typeof b.newTitle === "string" ? b.newTitle : undefined,
+    newKeyPoints: Array.isArray(b.newKeyPoints) ? b.newKeyPoints.filter((x: any) => typeof x === "string") : undefined,
+    niche: typeof b.niche === "string" ? b.niche : null,
+    region: typeof b.region === "string" ? b.region : null,
+    mimicStrength: b.mimicStrength === "full" || b.mimicStrength === "minimal" ? b.mimicStrength : "partial",
+    referenceVideo: b.referenceVideo && typeof b.referenceVideo === "object" ? b.referenceVideo : null,
+    customSubtitles: Array.isArray(b.customSubtitles) ? b.customSubtitles : null,
+    customEmojis: Array.isArray(b.customEmojis) ? b.customEmojis.filter((x: any) => typeof x === "string") : null,
+    customBgmMood: typeof b.customBgmMood === "string" ? b.customBgmMood : null,
+    preferredAspect: isAspect(b.aspect) ? b.aspect : null,
+    preferredDurationSec: b.durationSec === 5 || b.durationSec === 10 ? b.durationSec : null,
+    extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
+    provider: "sora-pro",
+    burnSubtitles: b.burnSubtitles === true, // Sora 默认不烧字幕，保留电影感
+  });
+
+  if (created) {
+    await deductCredits(req, "ai-generate-video-sora");
+  }
+
+  res.status(202).json({
+    jobId: job.id,
+    status: job.status,
+    deduplicated: !created,
+    message: created
+      ? `Sora 高清视频任务已入队，请轮询 /api/ai/video-job?jobId=${job.id}（一般 2-5 分钟）`
+      : `已有进行中的视频任务（jobId=${job.id}），未重复扣费`,
+  });
+});
+
 // ── GET /api/ai/video-job?jobId=xxx ─────────────────────────────────────
 router.get("/ai/video-job", async (req, res): Promise<void> => {
   const user = await ensureUser(req);

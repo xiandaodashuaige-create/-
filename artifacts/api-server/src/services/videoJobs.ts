@@ -3,10 +3,13 @@ import { eq, and, inArray, lt } from "drizzle-orm";
 import { db, videoJobsTable, type VideoJobRow } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { SeedanceClient, type SeedanceAspect } from "./seedance.js";
+import { SoraClient, type SoraSize } from "./sora.js";
 import { generateVideoCreativePlan, type GenerateVideoPlanInput, type VideoCreativePlan } from "./videoPipeline.js";
 import { burnSubtitles } from "./videoComposer.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
 import { refundCredits, CREDIT_COSTS } from "../middlewares/creditSystem.js";
+
+export type VideoProvider = "seedance" | "sora-pro";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -39,7 +42,7 @@ export interface VideoJob {
   startedAt: number | null;
   finishedAt: number | null;
   error: string | null;
-  input: GenerateVideoPlanInput & { tier?: "lite" | "pro"; burnSubtitles?: boolean };
+  input: GenerateVideoPlanInput & { tier?: "lite" | "pro"; burnSubtitles?: boolean; provider?: VideoProvider };
   plan: VideoCreativePlan | null;
   result: {
     videoUrl: string;
@@ -81,41 +84,73 @@ async function patchJob(id: string, patch: Partial<VideoJobRow>): Promise<void> 
 }
 
 async function processJob(jobId: string): Promise<void> {
-  const seedance = SeedanceClient.fromEnv();
-  if (!seedance) throw new Error("ARK_API_KEY 未配置，无法使用豆包 Seedance 视频生成");
-
   const [row0] = await db.select().from(videoJobsTable).where(eq(videoJobsTable.id, jobId));
   if (!row0) throw new Error("job_not_found");
   const input = row0.input as unknown as VideoJob["input"];
+  const provider: VideoProvider = input.provider ?? "seedance";
 
   await patchJob(jobId, { status: "planning", progress: 10, startedAt: row0.startedAt ?? new Date() });
   const plan = await generateVideoCreativePlan(input);
   await patchJob(jobId, { plan: plan as any, progress: 30, status: "generating" });
 
-  const refUrlAbs = absolutizePublicUrl(input.referenceVideo?.coverImageUrl ?? null);
-  const seedRes = await seedance.generate({
-    prompt: plan.videoPrompt,
-    referenceImageUrl: refUrlAbs,
-    aspect: plan.aspectRatio,
-    durationSec: plan.durationSec,
-    tier: input.tier ?? "lite",
-    cameraFixed: plan.recommendedCameraFixed,
-    watermark: false,
-  });
-  await patchJob(jobId, { progress: 70 });
+  let videoBuf: Buffer;
+  let rawVideoUrl: string;
+  let providerTaskId: string;
+  let providerModel: string;
+  let aspect: SeedanceAspect = plan.aspectRatio;
+  let durationSec: number = plan.durationSec;
+  let costYuanEstimate: number;
 
-  const rawRes = await fetch(seedRes.videoUrl);
-  if (!rawRes.ok) throw new Error(`下载 Seedance 视频失败: ${rawRes.status}`);
-  let videoBuf: Buffer = Buffer.from(new Uint8Array(await rawRes.arrayBuffer()));
+  if (provider === "sora-pro") {
+    const sora = SoraClient.fromEnv();
+    if (!sora) throw new Error("OPENAI_API_KEY 未配置，无法使用 Sora 2 Pro 视频生成");
+    // Sora 高清档：默认 12s 1080p；竖屏(9:16) → 1024x1792；横屏(16:9) → 1792x1024；其它 → 竖屏兜底
+    const isLandscape = plan.aspectRatio === "16:9" || plan.aspectRatio === "4:3";
+    const soraSize: SoraSize = isLandscape ? "1792x1024" : "1024x1792";
+    const soraSeconds = 12;
+    const soraRes = await sora.generate({ prompt: plan.videoPrompt, seconds: soraSeconds, size: soraSize });
+    videoBuf = soraRes.videoBuffer;
+    rawVideoUrl = `openai://videos/${soraRes.taskId}`;
+    providerTaskId = soraRes.taskId;
+    providerModel = soraRes.model;
+    durationSec = soraRes.videoDurationSec;
+    aspect = isLandscape ? "16:9" : "9:16";
+    // Sora $0.50/s @ 1080p ≈ 3.6 RMB/s → 12s ≈ 43 元
+    costYuanEstimate = +(soraRes.costUsdEstimate * 7.2).toFixed(2);
+  } else {
+    const seedance = SeedanceClient.fromEnv();
+    if (!seedance) throw new Error("ARK_API_KEY 未配置，无法使用豆包 Seedance 视频生成");
+    const refUrlAbs = absolutizePublicUrl(input.referenceVideo?.coverImageUrl ?? null);
+    const seedRes = await seedance.generate({
+      prompt: plan.videoPrompt,
+      referenceImageUrl: refUrlAbs,
+      aspect: plan.aspectRatio,
+      durationSec: plan.durationSec,
+      tier: input.tier ?? "lite",
+      cameraFixed: plan.recommendedCameraFixed,
+      watermark: false,
+    });
+    const rawRes = await fetch(seedRes.videoUrl);
+    if (!rawRes.ok) throw new Error(`下载 Seedance 视频失败: ${rawRes.status}`);
+    videoBuf = Buffer.from(new Uint8Array(await rawRes.arrayBuffer()));
+    rawVideoUrl = seedRes.videoUrl;
+    providerTaskId = seedRes.taskId;
+    providerModel = seedRes.model;
+    aspect = seedRes.aspect;
+    durationSec = seedRes.videoDurationSec;
+    costYuanEstimate = seedRes.costYuanEstimate;
+  }
+  await patchJob(jobId, { progress: 70 });
 
   let burned = false;
   let burnFallbackReason: string | undefined;
+  // Sora 自带电影级镜头与无字幕原片，按客户偏好仍可烧字幕；默认开启
   if (input.burnSubtitles !== false && plan.subtitleSegments.length > 0) {
     await patchJob(jobId, { status: "composing", progress: 80 });
     const composed = await burnSubtitles({
       rawVideoBuffer: videoBuf,
       subtitleSegments: plan.subtitleSegments,
-      aspectRatio: plan.aspectRatio,
+      aspectRatio: aspect,
     });
     videoBuf = composed.videoBuffer;
     burned = composed.burned;
@@ -135,15 +170,15 @@ async function processJob(jobId: string): Promise<void> {
 
   const result = {
     videoUrl: storedUrl,
-    rawVideoUrl: seedRes.videoUrl,
+    rawVideoUrl,
     objectPath,
-    provider: seedRes.model,
-    seedanceTaskId: seedRes.taskId,
-    aspect: seedRes.aspect,
-    durationSec: seedRes.videoDurationSec,
+    provider: providerModel,
+    seedanceTaskId: providerTaskId,
+    aspect,
+    durationSec,
     burnedSubtitles: burned,
     burnFallbackReason,
-    costYuanEstimate: seedRes.costYuanEstimate,
+    costYuanEstimate,
     plan,
   };
 
@@ -167,9 +202,11 @@ async function tryRunJob(jobId: string, userId: number): Promise<void> {
       // 失败自动退款（幂等：credits_refunded 已置位则跳过）
       const [cur] = await db.select().from(videoJobsTable).where(eq(videoJobsTable.id, jobId));
       if (cur && cur.creditsRefunded === 0) {
-        const refundAmount = CREDIT_COSTS["ai-generate-video"] ?? 0;
+        const curInput = cur.input as unknown as VideoJob["input"];
+        const opKey = curInput?.provider === "sora-pro" ? "ai-generate-video-sora" : "ai-generate-video";
+        const refundAmount = CREDIT_COSTS[opKey] ?? 0;
         if (refundAmount > 0) {
-          await refundCredits(userId, refundAmount, "ai-generate-video", String(msg).slice(0, 80));
+          await refundCredits(userId, refundAmount, opKey, String(msg).slice(0, 80));
         }
         await patchJob(jobId, { creditsRefunded: 1 });
       }
@@ -218,7 +255,7 @@ export async function runVideoJobsTick(): Promise<void> {
 
 export async function enqueueVideoJob(
   userId: number,
-  input: GenerateVideoPlanInput & { tier?: "lite" | "pro"; burnSubtitles?: boolean },
+  input: GenerateVideoPlanInput & { tier?: "lite" | "pro"; burnSubtitles?: boolean; provider?: VideoProvider },
 ): Promise<{ job: VideoJob; created: boolean }> {
   // 单用户去重：找到 in-flight 任务直接返回
   const inflightRows = await db

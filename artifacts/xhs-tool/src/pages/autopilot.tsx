@@ -227,6 +227,76 @@ export default function AutopilotPage() {
     queryKey: ["autopilot-accounts", platform],
     queryFn: () => api.accounts.list({ platform }),
   });
+  const meQ = useQuery({ queryKey: ["me"], queryFn: () => api.user.me() });
+  const isPro = meQ.data?.plan === "pro";
+
+  // Sora 高清电影级视频生成（仅 Pro 用户）
+  const [soraJobId, setSoraJobId] = useState<string | null>(null);
+  const [soraStatus, setSoraStatus] = useState<string | null>(null);
+  const [soraProgress, setSoraProgress] = useState(0);
+  const soraGenerating = soraJobId != null && soraStatus !== "succeeded" && soraStatus !== "failed";
+
+  useEffect(() => {
+    if (!soraJobId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.ai.videoJob(soraJobId);
+        if (cancelled) return;
+        setSoraStatus(r.status);
+        setSoraProgress(r.progress);
+        if (r.status === "succeeded" && r.result?.videoUrl) {
+          setEditForm((p) => ({ ...p, videoUrl: r.result!.videoUrl }));
+          toast({ title: "Sora 高清视频已生成 ✨", description: `时长 ${r.result.durationSec}s · 已自动填入视频区` });
+          setSoraJobId(null);
+        } else if (r.status === "failed") {
+          toast({ title: "Sora 生成失败，已自动退还 250 积分", description: r.error?.slice(0, 200) ?? "未知错误", variant: "destructive" });
+          setSoraJobId(null);
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        // 轮询失败先不打断，继续重试
+        // eslint-disable-next-line no-console
+        console.warn("[sora poll] failed:", err?.message);
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [soraJobId]);
+
+  async function handleGenerateSora() {
+    if (!isPro) {
+      toast({
+        title: "仅 Pro 套餐可用",
+        description: "Sora 高清电影级视频是 Pro 专享功能，请联系顾问升级套餐。",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!editForm.title && !editForm.body) {
+      toast({ title: "请先填写标题或正文", description: "Sora 需要文案作为画面 prompt", variant: "destructive" });
+      return;
+    }
+    if (!confirm("本次将消耗 250 积分（≈ 43 元）生成 1080P 12 秒高清电影级视频。\n生成约需 2-5 分钟，失败会自动退款。\n\n确认继续？")) return;
+    try {
+      const r = await api.ai.generateVideoSora({
+        platform,
+        newTopic: editForm.title || editForm.body.slice(0, 60),
+        newTitle: editForm.title || undefined,
+        newKeyPoints: editForm.body ? [editForm.body.slice(0, 200)] : undefined,
+        niche: niche || null,
+        region: region || null,
+        mimicStrength: "partial",
+      });
+      setSoraJobId(r.jobId);
+      setSoraStatus(r.status);
+      setSoraProgress(0);
+      toast({ title: r.deduplicated ? "已有进行中的视频任务" : "Sora 高清视频任务已入队", description: r.message });
+    } catch (err: any) {
+      toast({ title: "Sora 任务创建失败", description: err?.message ?? "请稍后重试", variant: "destructive" });
+    }
+  }
 
   const hasAccounts = (accountsQ.data?.length ?? 0) > 0;
   const existingCompetitors = competitorsQ.data ?? [];
@@ -1604,7 +1674,7 @@ export default function AutopilotPage() {
                     )}
                   </Label>
                   {!editForm.videoUrl && (
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <AssetPicker
                         type="video" multiple={false} triggerLabel={t("autopilot.edit.assets")} triggerSize="sm"
                         onPick={(urls) => { if (urls[0]) setEditForm((p) => ({ ...p, videoUrl: urls[0] })); }}
@@ -1618,9 +1688,27 @@ export default function AutopilotPage() {
                       >
                         <Upload className="h-3 w-3 mr-1" />{t("autopilot.edit.uploadShort")}
                       </ObjectUploader>
+                      {isPro && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs border-purple-300 bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 text-purple-700"
+                          onClick={handleGenerateSora}
+                          disabled={soraGenerating}
+                          title="OpenAI Sora 2 Pro · 1080P · 12s · 250 积分"
+                        >
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          {soraGenerating ? `Sora 生成中 ${soraProgress}%` : "Sora 高清电影级 (Pro · 250)"}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
+                {soraGenerating && (
+                  <div className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1.5 mt-1">
+                    🎬 Sora 2 Pro 高清生成中（{soraStatus} · {soraProgress}%）—— 通常 2-5 分钟，请保持本页打开。完成后会自动填入下方视频区。
+                  </div>
+                )}
                 {editForm.videoUrl && (
                   <div className="relative group rounded-md overflow-hidden border bg-muted">
                     <video src={editForm.videoUrl} controls className="w-full max-h-40 object-contain" />

@@ -190,6 +190,29 @@ export const api = {
         "/ai/generate-weekly-plan",
         { method: "POST", body: JSON.stringify(data) },
       ),
+    generateVideoSora: (data: {
+      platform: "xhs" | "tiktok" | "instagram" | "facebook";
+      newTopic: string;
+      newTitle?: string;
+      newKeyPoints?: string[];
+      niche?: string | null;
+      region?: string | null;
+      mimicStrength?: "full" | "partial" | "minimal";
+      extraInstructions?: string | null;
+      burnSubtitles?: boolean;
+    }) =>
+      request<{ jobId: string; status: string; deduplicated: boolean; message: string }>(
+        "/ai/generate-video-sora",
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+    videoJob: (jobId: string) =>
+      request<{
+        jobId: string;
+        status: "queued" | "planning" | "generating" | "composing" | "uploading" | "succeeded" | "failed";
+        progress: number;
+        result: { videoUrl: string; durationSec: number; provider: string; costYuanEstimate: number } | null;
+        error: string | null;
+      }>(`/ai/video-job?jobId=${encodeURIComponent(jobId)}`),
     myContentProfile: () =>
       request<{
         sampleSize: number;
