@@ -444,20 +444,13 @@ export interface DashboardStats {
   contentToday: number;
 }
 
-export type ActivityItemType =
-  (typeof ActivityItemType)[keyof typeof ActivityItemType];
-
-export const ActivityItemType = {
-  content_created: "content_created",
-  content_published: "content_published",
-  content_scheduled: "content_scheduled",
-  account_added: "account_added",
-  sensitivity_flagged: "sensitivity_flagged",
-} as const;
-
 export interface ActivityItem {
   id: number;
-  type: ActivityItemType;
+  /** 活动类型字符串。历史值包括 content_created / content_published / content_scheduled /
+account_added / sensitivity_flagged / strategy.generated / strategy.approved 等。
+后端 logActivity() 写入字段为自由 string,前端按前缀分组渲染即可,不要硬编码 enum。
+ */
+  type: string;
   description: string;
   /** @nullable */
   contentId?: number | null;

@@ -70,6 +70,10 @@ export interface GenerateVideoPlanInput {
   preferredAspect?: SeedanceAspect | null;
   preferredDurationSec?: 5 | 10 | null;
   extraInstructions?: string | null;
+  // 品牌画像 prompt 片段（含 [品牌画像 — 必须严格遵守] 头 + 禁用宣称）。
+  // 由调用方 (videoGen.ts / autoMediaForDraft / strategy approve) 在 enqueue 前
+  // await loadBrandContext() 拼好,序列化进 video_jobs.input,worker 跑 plan 时透传到 prompt。
+  brandBlock?: string | null;
 }
 
 const PLATFORM_VIDEO_PRESET: Record<string, { aspect: SeedanceAspect; defaultDur: 5 | 10; styleHint: string }> = {
@@ -205,9 +209,12 @@ export async function generateVideoCreativePlan(
     ? `\n【客户指定 BGM 风格】：${input.customBgmMood}`
     : "";
 
+  const brandBlock = input.brandBlock ?? "";
+
   const userMsg = `${viral.promptBlock}
 ${refBlock}
 ${styleBlock}
+${brandBlock}
 
 【新视频主题】 ${input.newTopic}
 ${input.newTitle ? `【建议标题】 ${input.newTitle}` : ""}
@@ -219,7 +226,7 @@ ${input.newKeyPoints?.length ? `【卖点】 ${input.newKeyPoints.join("、")}` 
 ${customSubsBlock}${customEmojiBlock}${customBgmBlock}
 ${input.extraInstructions ? `\n【额外指令】 ${input.extraInstructions}` : ""}
 
-请输出严格 JSON 视频生成 brief（必须覆盖 0~${dur}s 的字幕时间轴）。`;
+请输出严格 JSON 视频生成 brief（必须覆盖 0~${dur}s 的字幕时间轴）。${brandBlock ? "\n字幕段(subtitleSegments) 与 hookText 必须严格遵守上方品牌画像的调性与【禁用宣称】,任何禁用词及其同义词都不能出现在字幕里。" : ""}`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",

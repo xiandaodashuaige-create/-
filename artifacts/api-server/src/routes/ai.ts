@@ -24,6 +24,7 @@ import { loadUserContentProfile, renderContentProfileForPrompt } from "../servic
 import { chatWithAssistant, type AssistantImageContext } from "../services/assistant.js";
 import { generateWeeklyPlan, type GenerateWeeklyPlanInput } from "../services/planGenerator.js";
 import { loadViralContext } from "../services/viralContext.js";
+import { loadBrandContext, brandStyleHint } from "../services/brandContext.js";
 import { tryFetchXhsData } from "./xhs";
 import { getPlatformPromptContext, buildRegionContext } from "../lib/platformPrompts.js";
 
@@ -51,17 +52,22 @@ router.post("/ai/rewrite", requireCredits("ai-rewrite"), async (req, res): Promi
     const regionContext = buildRegionContext(region, ctx);
     const styleContext = style ? `Writing style: ${style}.` : "Writing style: casual and engaging.";
 
-    // 注入用户已收集的爆款上下文（失败不阻断主流程）
+    // 注入用户已收集的爆款上下文 + 品牌画像（失败不阻断主流程）
     let viralBlock = "";
+    let brandBlock = "";
     try {
       const u = await ensureUser(req);
       const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
       if (u) {
-        const viral = await loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 8 });
+        const [viral, brand] = await Promise.all([
+          loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 8 }),
+          loadBrandContext(u.id, platform),
+        ]);
         viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
+        brandBlock = brand.promptBlock;
       }
     } catch (e: any) {
-      req.log?.warn({ err: e?.message }, "loadViralContext failed in /ai/rewrite, continuing without it");
+      req.log?.warn({ err: e?.message }, "loadViralContext/brand failed in /ai/rewrite, continuing without it");
     }
 
     const response = await openai.chat.completions.create({
@@ -81,7 +87,7 @@ Respond in JSON format:
   "rewrittenTitle": "catchy title / hook here",
   "rewrittenBody": "rewritten content / script here",
   "suggestedTags": ["tag1", "tag2", "tag3"]
-}${viralBlock}`,
+}${brandBlock}${viralBlock}`,
         },
         {
           role: "user",
@@ -267,19 +273,24 @@ router.post("/ai/generate-title", requireCredits("ai-generate-title"), async (re
 
     let titlesHint = "";
     let viralBlock = "";
+    let brandBlock = "";
     try {
       const u = await ensureUser(req);
       const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
       const region = typeof (req.body as any)?.region === "string" ? (req.body as any).region : undefined;
       if (u) {
-        const viral = await loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 8 });
+        const [viral, brand] = await Promise.all([
+          loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 8 }),
+          loadBrandContext(u.id, platform),
+        ]);
         if (viral.topTitles.length > 0) {
           titlesHint = `\n\n📚 已收集爆款标题样本（必须借鉴其钩子结构、句式节奏，但主题改写到当前内容）：\n${viral.topTitles.slice(0, 6).map((t, i) => `${i + 1}. "${t.slice(0, 60)}"`).join("\n")}`;
         }
         viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
+        brandBlock = brand.promptBlock;
       }
     } catch (e: any) {
-      req.log?.warn({ err: e?.message }, "loadViralContext failed in /ai/generate-title");
+      req.log?.warn({ err: e?.message }, "loadViralContext/brand failed in /ai/generate-title");
     }
 
     const response = await openai.chat.completions.create({
@@ -295,7 +306,7 @@ ${ctx.titleRules}
 Respond in JSON format:
 {
   "titles": ["title1", "title2", ...]
-}${titlesHint}${viralBlock}`,
+}${brandBlock}${titlesHint}${viralBlock}`,
         },
         {
           role: "user",
@@ -339,19 +350,24 @@ router.post("/ai/generate-hashtags", requireCredits("ai-generate-hashtags"), asy
 
     let hashtagSeed = "";
     let viralBlock = "";
+    let brandBlock = "";
     try {
       const u = await ensureUser(req);
       const niche = typeof (req.body as any)?.niche === "string" ? (req.body as any).niche : undefined;
       const region = typeof (req.body as any)?.region === "string" ? (req.body as any).region : undefined;
       if (u) {
-        const viral = await loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 10 });
+        const [viral, brand] = await Promise.all([
+          loadViralContext({ userId: u.id, platform: platform as any, niche, region, maxPosts: 10 }),
+          loadBrandContext(u.id, platform),
+        ]);
         if (viral.topHashtags.length > 0) {
           hashtagSeed = `\n\n🔥 已收集高频/热门 hashtags（**必须从下面挑至少 ${Math.ceil(tagCount * 0.5)} 个，再补充长尾词；不要凭空生造**）：\n${viral.topHashtags.map((h) => `#${h}`).join(" ")}`;
         }
         viralBlock = viral.promptBlock ? `\n\n${viral.promptBlock}` : "";
+        brandBlock = brand.promptBlock;
       }
     } catch (e: any) {
-      req.log?.warn({ err: e?.message }, "loadViralContext failed in /ai/generate-hashtags");
+      req.log?.warn({ err: e?.message }, "loadViralContext/brand failed in /ai/generate-hashtags");
     }
 
     const response = await openai.chat.completions.create({
@@ -368,7 +384,7 @@ ${ctx.hashtagRules}
 Respond in JSON format:
 {
   "hashtags": ["hashtag1", "hashtag2", ...]
-}${hashtagSeed}${viralBlock}`,
+}${brandBlock}${hashtagSeed}${viralBlock}`,
         },
         {
           role: "user",
@@ -400,28 +416,46 @@ Respond in JSON format:
 
 router.post("/ai/generate-image", requireCredits("ai-generate-image"), async (req, res): Promise<void> => {
   try {
-    const { prompt, style, size } = req.body;
+    const { prompt, style, size, platform: rawPlatform } = req.body;
 
     if (!prompt || typeof prompt !== "string") {
       res.status(400).json({ error: "prompt is required" });
       return;
     }
 
+    // 加载品牌画像 → 替换原本写死的"小红书爆款封面/温暖治愈"风格 hint,让画风跟着客户调性走
+    let brandBlock = "";
+    let brandStyleAddon = "";
+    let resolvedPlatform = "xhs";
+    try {
+      const u = await ensureUser(req);
+      const platform = typeof rawPlatform === "string" && ["xhs", "tiktok", "instagram", "facebook"].includes(rawPlatform) ? rawPlatform : "xhs";
+      resolvedPlatform = platform;
+      if (u) {
+        const brand = await loadBrandContext(u.id, platform);
+        brandBlock = brand.promptBlock;
+        brandStyleAddon = brandStyleHint(brand.brand);
+      }
+    } catch (e: any) {
+      req.log?.warn({ err: e?.message }, "loadBrandContext failed in /ai/generate-image, continuing");
+    }
+
     const validSizes = ["1024x1024", "1024x1536", "1536x1024", "auto"];
     const imageSize = validSizes.includes(size) ? size : "1024x1536";
-    const imageStyle = style || "小红书爆款封面风格";
-    const fullPrompt = `创作一张小红书爆款封面配图。
+    const platformLabel = resolvedPlatform === "tiktok" ? "TikTok" : resolvedPlatform === "instagram" ? "Instagram" : resolvedPlatform === "facebook" ? "Facebook" : "小红书";
+    const imageStyle = style || `${platformLabel}爆款封面风格`;
+    const fullPrompt = `创作一张${platformLabel}爆款封面配图。
 
 主题：${prompt}
 
 风格要求：${imageStyle}
 - 画面精致、高级感、色彩鲜明饱满
 - 构图专业，视觉冲击力强，让人一眼就想点进来
-- 适合作为小红书笔记封面图
+- 适合作为${platformLabel}内容封面图
 - 如果涉及产品/美食/场景，要有真实质感和细节
 - 如果涉及人物，要自然大方、有亲和力
-- 整体氛围要温暖、治愈或高端，符合小红书爆款审美
-- 不要出现任何文字、水印或logo`;
+- 整体氛围紧贴品牌调性，不要套用通用模板
+- 不要出现任何文字、水印或logo${brandStyleAddon}${brandBlock}`;
 
     const response = await openai.images.generate({
       model: "gpt-image-1",
@@ -696,6 +730,7 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
       // not auth'd or no user — skip personalization
     }
     const styleProfile = userIdForLearning ? await loadStyleProfileForPrompt(userIdForLearning) : null;
+    const brandCtx = userIdForLearning ? await loadBrandContext(userIdForLearning, platform) : null;
     const promptResult = await generateImagePrompt({
       analysis,
       newTopic,
@@ -705,6 +740,7 @@ router.post("/ai/generate-image-pipeline", requireCredits("ai-generate-image"), 
       customTextOverlays: Array.isArray(customTextOverlays) ? customTextOverlays : undefined,
       styleProfile,
       extraInstructions: typeof extraInstructions === "string" ? extraInstructions : undefined,
+      brandBlock: brandCtx?.promptBlock,
     });
 
     // 用户/助手指定的 emoji 优先于模型自动生成的
@@ -1594,11 +1630,24 @@ router.post("/ai/refine-schedule-item", requireCredits("ai-rewrite"), async (req
       return;
     }
     const platformLabel = platform === "tiktok" ? "TikTok" : platform === "instagram" ? "Instagram" : platform === "facebook" ? "Facebook" : "小红书";
+
+    // 注入品牌画像（per-platform）— 微调时也必须遵守禁用宣称/调性
+    let brandBlock = "";
+    try {
+      const u = await ensureUser(req);
+      if (u && platform) {
+        const brand = await loadBrandContext(u.id, platform);
+        brandBlock = brand.promptBlock;
+      }
+    } catch (e: any) {
+      req.log?.warn({ err: e?.message }, "loadBrandContext failed in /ai/refine-schedule-item");
+    }
+
     const sys = `你是${platformLabel}爆款内容编辑。用户已经有一条已排程的内容，现在只想按指令"局部微调"这一条 — 不要扩写到不相关方向，保持与原意一致。
 输出严格 JSON：{"title": string, "body": string, "tags": string[]}。
 - title <= 30 字，吸睛
 - body 保留原本的核心信息，按指令调整语气/长度/卖点
-- tags 3-8 个，去 # 号`;
+- tags 3-8 个，去 # 号${brandBlock}`;
 
     const userMsg = `${niche ? `行业：${niche}\n` : ""}原标题：${current.title || ""}
 原正文：

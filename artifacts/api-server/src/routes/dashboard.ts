@@ -102,10 +102,13 @@ router.get("/dashboard/recent-activity", async (req, res): Promise<void> => {
       LIMIT ${limit}
     `);
 
+    // 注意：DB 字段名是 `type`（见 activityLogTable schema），早期版本误写成 `row.action`
+    // 直接 undefined 透传 → zod parse 必崩 → 500。同时 description 在 DB 是 notNull，
+    // 但历史脏数据可能为空字符串,做兜底。
     res.json(GetRecentActivityResponse.parse(activities.rows.map((row: any) => ({
       id: row.id,
-      action: row.action,
-      description: row.description,
+      type: typeof row.type === "string" && row.type.length > 0 ? row.type : "unknown",
+      description: typeof row.description === "string" ? row.description : "",
       contentId: row.content_id,
       accountId: row.account_id,
       createdAt: row.created_at,

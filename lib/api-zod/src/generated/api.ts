@@ -588,13 +588,11 @@ export const GetRecentActivityQueryParams = zod.object({
 
 export const GetRecentActivityResponseItem = zod.object({
   id: zod.number(),
-  type: zod.enum([
-    "content_created",
-    "content_published",
-    "content_scheduled",
-    "account_added",
-    "sensitivity_flagged",
-  ]),
+  type: zod
+    .string()
+    .describe(
+      "活动类型字符串。历史值包括 content_created \/ content_published \/ content_scheduled \/\naccount_added \/ sensitivity_flagged \/ strategy.generated \/ strategy.approved 等。\n后端 logActivity() 写入字段为自由 string,前端按前缀分组渲染即可,不要硬编码 enum。\n",
+    ),
   description: zod.string(),
   contentId: zod.number().nullish(),
   accountId: zod.number().nullish(),

@@ -117,6 +117,8 @@ export interface PromptGenerationInput {
   customTextOverlays?: Array<{ text: string; position: string }>;
   styleProfile?: UserStyleProfile | null;
   extraInstructions?: string;
+  // 品牌画像 prompt 片段（已带 [品牌画像 — 必须严格遵守] 头）。由 brandContext.loadBrandContext() 生成。
+  brandBlock?: string;
 }
 
 export interface GeneratedImagePrompt {
@@ -264,8 +266,9 @@ ${input.newKeyPoints?.length ? `卖点: ${input.newKeyPoints.join("、")}` : ""}
 ${input.customTextOverlays?.length ? `\n【用户指定要叠加的文字】\n${input.customTextOverlays.map((t) => `[${t.position}] "${t.text}"`).join("\n")}` : ""}
 ${styleProfileText}
 ${input.extraInstructions ? `\n【用户额外指令】\n${input.extraInstructions}` : ""}
+${input.brandBlock ?? ""}
 
-请生成图像 prompt + 文字叠加方案 + emoji 建议。`;
+请生成图像 prompt + 文字叠加方案 + emoji 建议。注意:文字叠加内容(textToOverlay) 与 emoji 必须符合"品牌画像"的调性,且【禁用宣称】绝不能出现在 textToOverlay 任何字段。`;
 
   const response = await openai.chat.completions.create({
     model: "gpt-4o",

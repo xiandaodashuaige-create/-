@@ -15,7 +15,9 @@ export const CREDIT_COSTS: Record<string, number> = {
   "ai-generate-image-prompt": 1,
   "ai-generate-video-plan": 2,
   "ai-generate-video": 15,
-  "ai-generate-video-sora": 250,
+  // Sora 2 Pro 1080p 12s ≈ $6 ≈ 43 RMB 上游成本。1 RMB ≈ 10 积分粗算 → 必须 ≥ 500 防亏本。
+  // 同时 routes/videoGen.ts 内每用户每日 ≤ SORA_DAILY_LIMIT_PER_USER (默认 3) 条做硬上限。
+  "ai-generate-video-sora": 500,
   "ai-guide": 1,
   "ai-check-sensitivity": 1,
   "content-publish": 2,

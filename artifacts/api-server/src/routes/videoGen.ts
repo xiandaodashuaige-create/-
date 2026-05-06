@@ -1,8 +1,11 @@
 import { Router, type IRouter } from "express";
+import { and, eq, sql, count as sqlCount } from "drizzle-orm";
+import { db, videoJobsTable } from "@workspace/db";
 import { ensureUser } from "../middlewares/creditSystem.js";
 import { requireCredits, deductCredits } from "../middlewares/creditSystem.js";
 import { enqueueVideoJob, getVideoJob, InsufficientCreditsError } from "../services/videoJobs.js";
 import { generateVideoCreativePlan } from "../services/videoPipeline.js";
+import { loadBrandContext } from "../services/brandContext.js";
 import type { SeedanceAspect } from "../services/seedance.js";
 
 const router: IRouter = Router();
@@ -56,6 +59,7 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
 
   try {
+    const brand = await loadBrandContext(user.id, platform);
     const { job, created } = await enqueueVideoJob(user.id, {
       userId: user.id,
       platform,
@@ -74,6 +78,7 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
       extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
       tier: b.tier === "pro" ? "pro" : "lite",
       burnSubtitles: b.burnSubtitles !== false,
+      brandBlock: brand.promptBlock || null,
     }, {
       amount: req.creditCost ?? 0,
       opKey: "ai-generate-video",
@@ -118,7 +123,37 @@ router.post("/ai/generate-video-sora", proOnlyGate, requireCredits("ai-generate-
   if (!b.newTopic || typeof b.newTopic !== "string") { res.status(400).json({ error: "newTopic is required" }); return; }
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
 
+  // ── Sora 每日硬上限 ────────────────────────────────────────────────
+  // Sora 2 Pro 1080p 12s ≈ $6 ≈ 43 RMB 上游成本(单价控制由 CREDIT_COSTS 兜底,
+  // 但有 admin/促销/Bug 绕开扣费的可能),这里再加一道按用户/24h 的硬上限
+  // 防止单个 pro 用户一晚跑 100 条把账户打爆。
+  // 通过 video_jobs.input->>'provider' = 'sora-pro' 计数,管理员豁免。
+  const limitPerDay = Math.max(1, Number(process.env.SORA_DAILY_LIMIT_PER_USER) || 3);
+  if (user.role !== "admin") {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const cnt = await db
+      .select({ c: sqlCount() })
+      .from(videoJobsTable)
+      .where(and(
+        eq(videoJobsTable.ownerUserId, user.id),
+        sql`${videoJobsTable.input}->>'provider' = 'sora-pro'`,
+        sql`${videoJobsTable.createdAt} >= ${since}`,
+      ));
+    const used = Number(cnt[0]?.c ?? 0);
+    if (used >= limitPerDay) {
+      res.status(429).json({
+        error: "sora_daily_limit",
+        // 实现是滚动 24 小时窗口(createdAt >= now-24h),不是日历日,不要写"明日 0 点重置"
+        message: `Sora 高清视频生成已达上限(${used}/${limitPerDay}),采用滚动 24 小时窗口,请等待最早一条任务超过 24 小时后重试;如有特殊需求请联系运营。`,
+        used,
+        limit: limitPerDay,
+      });
+      return;
+    }
+  }
+
   try {
+    const brand = await loadBrandContext(user.id, platform);
     const { job, created } = await enqueueVideoJob(user.id, {
       userId: user.id,
       platform,
@@ -137,6 +172,7 @@ router.post("/ai/generate-video-sora", proOnlyGate, requireCredits("ai-generate-
       extraInstructions: typeof b.extraInstructions === "string" ? b.extraInstructions : null,
       provider: "sora-pro",
       burnSubtitles: b.burnSubtitles === true, // Sora 默认不烧字幕，保留电影感
+      brandBlock: brand.promptBlock || null,
     }, {
       amount: req.creditCost ?? 0,
       opKey: "ai-generate-video-sora",

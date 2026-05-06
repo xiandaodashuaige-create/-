@@ -11,7 +11,6 @@ export * from "./accountPlatform";
 export * from "./accountStatus";
 export * from "./accountSummary";
 export * from "./activityItem";
-export * from "./activityItemType";
 export * from "./aiCheckSensitivityBody";
 export * from "./aiCheckSensitivityBodyPlatform";
 export * from "./aiCheckSensitivityResponse";

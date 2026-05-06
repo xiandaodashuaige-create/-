@@ -15,6 +15,7 @@ import { generateStrategyCard } from "../services/strategyGenerator";
 import { logActivity } from "../lib/activity";
 import { kickOffImageForDraft } from "../services/autoMediaForDraft";
 import { enqueueVideoJob } from "../services/videoJobs";
+import { loadBrandContext } from "../services/brandContext";
 
 const router: IRouter = Router();
 type Platform = "xhs" | "tiktok" | "instagram" | "facebook";
@@ -259,6 +260,8 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
 
   if (mediaType === "video") {
     try {
+      // 注入品牌画像 → worker 跑 generateVideoCreativePlan 时透传到 prompt
+      const brand = await loadBrandContext(user.id, s.platform);
       const { job } = await enqueueVideoJob(user.id, {
         userId: user.id,
         platform: s.platform as Platform,
@@ -271,6 +274,7 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
         provider: "seedance",
         tier: "lite",
         burnSubtitles: true,
+        brandBlock: brand.promptBlock || null,
       }, {
         amount: 0, // autopilot 自动驾驶免费送 Seedance Lite，不动用户积分
         opKey: "autopilot-auto-video",
@@ -289,6 +293,7 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
         topic: s.niche || title,
         title,
         competitorPostIds: Array.isArray(s.competitorPostIds) ? (s.competitorPostIds as number[]) : [],
+        userId: user.id, // 让 autoMedia 也加载该用户的品牌画像注入 prompt
       }).catch((err) => logger.warn({ err: err?.message, contentId: content.id }, "auto-media background task crashed"));
     });
   }

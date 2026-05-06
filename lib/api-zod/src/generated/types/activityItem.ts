@@ -5,11 +5,14 @@
  * LuLian XHS Viral Creator API
  * OpenAPI spec version: 0.1.0
  */
-import type { ActivityItemType } from "./activityItemType";
 
 export interface ActivityItem {
   id: number;
-  type: ActivityItemType;
+  /** 活动类型字符串。历史值包括 content_created / content_published / content_scheduled /
+account_added / sensitivity_flagged / strategy.generated / strategy.approved 等。
+后端 logActivity() 写入字段为自由 string,前端按前缀分组渲染即可,不要硬编码 enum。
+ */
+  type: string;
   description: string;
   /** @nullable */
   contentId?: number | null;

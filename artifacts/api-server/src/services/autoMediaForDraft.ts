@@ -9,6 +9,7 @@ import {
   buildSeedreamPrompt,
   PLATFORM_VISUAL_PRESET,
 } from "./imagePipeline";
+import { loadBrandContext, brandStyleHint } from "./brandContext";
 
 const objectStorageService = new ObjectStorageService();
 
@@ -44,6 +45,7 @@ async function tryAdvancedPipeline(opts: {
   topic: string;
   title?: string;
   competitorImageUrl: string;
+  brandBlock?: string;
 }): Promise<string | null> {
   try {
     const analysis = await analyzeCompetitorImage(opts.competitorImageUrl);
@@ -52,6 +54,7 @@ async function tryAdvancedPipeline(opts: {
       newTopic: opts.topic,
       newTitle: opts.title,
       mimicStrength: "partial",
+      brandBlock: opts.brandBlock,
     });
     const preset = PLATFORM_VISUAL_PRESET[opts.platform] || PLATFORM_VISUAL_PRESET.xhs;
     const finalPrompt = buildSeedreamPrompt(
@@ -96,7 +99,18 @@ export async function kickOffImageForDraft(opts: {
   topic: string;
   title?: string;
   competitorPostIds: number[];
+  // 新增:用户 ID,用来加载该用户该平台的品牌画像 → 注入到 prompt,让自动出图也 brand-aware
+  // 兼容旧调用方:undefined 时跳过 brand 注入,行为与之前一致
+  userId?: number;
 }): Promise<void> {
+  // 加载品牌画像（失败/缺省直接跳过,不阻断主流程）
+  let brandBlock = "";
+  let brandHint = "";
+  if (opts.userId) {
+    const brand = await loadBrandContext(opts.userId, opts.platform);
+    brandBlock = brand.promptBlock;
+    brandHint = brandStyleHint(brand.brand);
+  }
   // 取第一张同行爆款图做 vision 参考
   let competitorImg: string | undefined;
   if (opts.competitorPostIds.length > 0) {
@@ -123,10 +137,11 @@ export async function kickOffImageForDraft(opts: {
       topic: opts.topic,
       title: opts.title,
       competitorImageUrl: competitorImg,
+      brandBlock,
     });
   }
 
-  // 降级到简单 prompt
+  // 降级到简单 prompt（也注入 brand styleHint,让画风随客户调性走）
   if (!url) {
     const platformHint = opts.platform === "tiktok"
       ? "TikTok 9:16 短视频封面，hook 强、人物/产品居中"
@@ -135,7 +150,7 @@ export async function kickOffImageForDraft(opts: {
         : opts.platform === "facebook"
           ? "Facebook 16:9 故事图配图风格"
           : "小红书 3:4 爆款封面，色彩饱满有冲击力";
-    const simplePrompt = `${opts.topic}${opts.title ? `，主题：${opts.title}` : ""}。${platformHint}，画面精致饱满、构图专业。no text, no words, no logo, no letters.`;
+    const simplePrompt = `${opts.topic}${opts.title ? `，主题：${opts.title}` : ""}。${platformHint}，画面精致饱满、构图专业。${brandHint}no text, no words, no logo, no letters.`;
     const size: "1024x1024" | "1024x1536" | "1536x1024" = opts.platform === "instagram" ? "1024x1024" : opts.platform === "facebook" ? "1536x1024" : "1024x1536";
     url = await generateGptImage(simplePrompt, size);
   }
