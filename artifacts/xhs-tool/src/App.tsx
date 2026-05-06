@@ -221,9 +221,9 @@ function ClerkProviderWithRoutes() {
             <Route path="/accounts">{() => <ProtectedRoute component={Accounts} />}</Route>
             <Route path="/workflow">{() => <ProtectedRoute component={WorkflowWizard} guard="xhs-only" />}</Route>
             <Route path="/autopilot">{() => <ProtectedRoute component={AutopilotPage} guard="needs-auth" />}</Route>
-            <Route path="/quick-publish">{() => <ProtectedRoute component={QuickPublishPage} guard="needs-auth" />}</Route>
-            <Route path="/competitors">{() => <ProtectedRoute component={CompetitorsPage} guard="needs-auth" />}</Route>
-            <Route path="/market-data">{() => <ProtectedRoute component={MarketDataPage} guard="needs-auth" />}</Route>
+            <Route path="/quick-publish">{() => <ProtectedRoute component={QuickPublishPage} />}</Route>
+            <Route path="/competitors">{() => <ProtectedRoute component={CompetitorsPage} />}</Route>
+            <Route path="/market-data">{() => <ProtectedRoute component={MarketDataPage} />}</Route>
             <Route path="/tracking">{() => <ProtectedRoute component={TrackingPage} guard="xhs-only" />}</Route>
             <Route path="/tracking/:id">{() => <ProtectedRoute component={TrackingDetail} guard="xhs-only" />}</Route>
             <Route path="/content">{() => <ProtectedRoute component={ContentList} />}</Route>

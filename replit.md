@@ -86,6 +86,8 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Multi-instance Warning:** `REPLIT_DEPLOYMENT=1 && !REDIS_URL` triggers a warning about single-instance semantics for rate limiting and cron jobs, advising `maxInstances=1` or Redis for autoscale.
 - **Upstream Retries:** `fetchWithRetry` (`lib/retry.ts`) is used only for idempotent polling/download paths (e.g., Sora, Seedance). Non-idempotent POST requests (`createTask`) are not retried.
 - **Autopilot Auto Media Generation:** `approve` returns `mediaJobs` status. Images are fire-and-forget; videos are enqueued with free `seedance/lite` for autopilot users. Pro users can upgrade to Sora Pro. Frontend polls for media job status.
+- **`needs-auth` PlatformGuard 慎用:** `<ProtectedRoute guard="needs-auth">` 走 `PlatformGuard → NeedsAuthGate`,在该平台 0 账号时**整页 takeover**(XHS 强制内嵌 Quick-Add 表单 / 其他平台跳 OAuth),会盖掉页面本身的渲染。**仅当页面在没账号时确实完全不可用才加**(目前只剩 `/autopilot`)。**信息聚合页 `/market-data`、有 inline 空态的 `/quick-publish` `/competitors` 已移除该 guard**(它们后端各自有 mock fallback / inline "去授权" 引导)。新增路由若考虑 `needs-auth`,先确认页面没有 inline 空态再加,或参考 `competitors.ts` L110 / `quick-publish.tsx` L250 模式自己处理。
+- **i18n key 缺失静默 fallback:** `useI18n().t(key)` 在 key 未定义时返回 raw key string(在 UI 上肉眼可见,如 `"settings.title"`)。新增 `t()` 调用后必须三个 locale (zh / en / zh-HK) 同步加 key。可用 `rg -oN 't\(\"([a-z][a-zA-Z0-9_.]+)"' artifacts/xhs-tool/src -r '$1' | sort -u` 配合 `rg -oN '"([a-z][a-zA-Z0-9_.]+)":' artifacts/xhs-tool/src/lib/i18n.tsx -r '$1' | sort -u` 做 diff(注意 api.ts 中 URLSearchParams 的 `t("status")` 等会误报)。
 
 ## Pointers
 
