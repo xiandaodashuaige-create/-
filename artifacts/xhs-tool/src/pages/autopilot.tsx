@@ -1469,11 +1469,6 @@ export default function AutopilotPage() {
             <Button variant="ghost" size="sm" onClick={() => setStep("review")}>
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 返回重选方案
             </Button>
-            <Link href={`/content/${contentId}`}>
-              <Button variant="ghost" size="sm">
-                <FileEdit className="h-3.5 w-3.5 mr-1.5" /> 去完整编辑器
-              </Button>
-            </Link>
             <Button
               className="flex-1 h-11 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90"
               onClick={handleSaveEditAndProceed}
@@ -1497,9 +1492,9 @@ export default function AutopilotPage() {
                 {strategyResult?.strategy?.theme && <span>主题：{strategyResult.strategy.theme}</span>}
               </div>
             </div>
-            <Link href={`/content/${contentId}`}>
-              <Button size="sm" variant="outline"><FileEdit className="h-3.5 w-3.5 mr-1.5" />编辑器微调</Button>
-            </Link>
+            <Button size="sm" variant="outline" onClick={() => setStep("edit")}>
+              <FileEdit className="h-3.5 w-3.5 mr-1.5" />返回微调内容
+            </Button>
           </div>
 
           {/* 推荐时间 */}
@@ -1541,8 +1536,8 @@ export default function AutopilotPage() {
             >
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> 返回重选方案
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setStep("done")}>
-              暂不排期，先去编辑器
+            <Button variant="ghost" size="sm" onClick={() => setStep("edit")}>
+              <FileEdit className="h-3.5 w-3.5 mr-1.5" />返回微调内容
             </Button>
             <Button
               className="flex-1 bg-gradient-to-r from-primary to-purple-500 hover:opacity-90"
@@ -1606,9 +1601,9 @@ export default function AutopilotPage() {
             </div>
           )}
           <div className="flex gap-2 justify-center flex-wrap">
-            <Link href={`/content/${contentId}`}>
-              <Button size="lg"><FileEdit className="h-4 w-4 mr-2" />打开编辑器</Button>
-            </Link>
+            <Button size="lg" onClick={() => setStep("edit")}>
+              <FileEdit className="h-4 w-4 mr-2" />返回微调内容
+            </Button>
             <Link href="/schedules">
               <Button size="lg" variant="outline"><Send className="h-4 w-4 mr-2" />查看排期表</Button>
             </Link>
