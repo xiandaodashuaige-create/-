@@ -32,14 +32,21 @@ export class SeedreamClient {
     if (["1K", "2K", "4K"].includes(size)) return size;
     // Map our standard logical sizes to Ark-friendly dimensions
     if (size === "1024x1024") return "2K";
-    if (size === "1024x1536") return "1536x2048";
-    if (size === "1536x1024") return "2048x1536";
+    if (size === "1024x1536") return "1728x2304";
+    if (size === "1536x1024") return "2304x1728";
     // Pass through any other explicit WxH (Ark accepts arbitrary supported dims)
     const m = /^(\d+)x(\d+)$/.exec(size);
     if (m) {
       const w = Number(m[1]);
       const h = Number(m[2]);
-      if (w >= 512 && w <= 4096 && h >= 512 && h <= 4096) return size;
+      const MIN_PIXELS = 3_686_400;
+      if (w >= 512 && w <= 4096 && h >= 512 && h <= 4096 && w * h >= MIN_PIXELS) return size;
+      if (w >= 512 && w <= 4096 && h >= 512 && h <= 4096) {
+        const ratio = w / h;
+        if (ratio >= 0.95 && ratio <= 1.05) return "2K";
+        if (ratio < 0.95) return "1728x2304";
+        return "2304x1728";
+      }
     }
     return "2K";
   }

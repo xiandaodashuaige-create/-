@@ -88,6 +88,8 @@ export default function WorkflowWizard() {
   
   const [aiResult, setAiResult] = useState<any>(null);
   const [sensitivityResult, setSensitivityResult] = useState<any>(null);
+  const [imageGenError, setImageGenError] = useState<string | null>(null);
+  const [isRegeneratingImage, setIsRegeneratingImage] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageSize, setImageSize] = useState("1024x1536");
   const [referenceImageUrl, setReferenceImageUrl] = useState("");
@@ -320,6 +322,7 @@ export default function WorkflowWizard() {
   }
 
   const runAiProgressSequence = useCallback(async (suggestion: any) => {
+    setImageGenError(null);
     const steps: AiProgressStep[] = [
       { label: "正在应用内容方案...", status: "running" },
       { label: "AI正在优化文案...", status: "pending" },
@@ -425,8 +428,10 @@ export default function WorkflowWizard() {
           }
         }
       } catch (err: any) {
+        const msg = err?.body?.error || err?.message || "AI 配图生成失败";
+        setImageGenError(msg);
         if (err?.status === 403) { handleCreditError(err); }
-        else { toast({ title: "配图生成暂时不可用，可在编辑页手动重新生成", variant: "destructive" }); }
+        else { toast({ title: "配图生成失败", description: msg, variant: "destructive" }); }
       }
     }
 
@@ -444,6 +449,45 @@ export default function WorkflowWizard() {
     if (!suggestion) return;
     setSelectedSuggestion(index);
     runAiProgressSequence(suggestion);
+  }
+
+  async function handleRegenerateImageInReview() {
+    const suggestion = selectedSuggestion !== null ? researchResult?.suggestions?.[selectedSuggestion] : null;
+    const prompt = suggestion?.imagePrompt || imagePrompt || form.title || "小红书爆款封面";
+    setImageGenError(null);
+    setIsRegeneratingImage(true);
+    try {
+      const competitorCovers = (researchResult?.competitorNotes || [])
+        .filter((n: any) => n.cover_url)
+        .sort((a: any, b: any) => (b.liked_count || 0) - (a.liked_count || 0));
+      const topCover = competitorCovers[0];
+      const proxiedRef = topCover?.cover_url ? proxyXhsImage(topCover.cover_url) : undefined;
+
+      if (proxiedRef) {
+        const pipelineRes = await api.ai.generateImagePipeline({
+          referenceImageUrl: proxiedRef,
+          newTopic: suggestion?.title || form.title || "内容",
+          newTitle: suggestion?.title || form.title,
+          mimicStrength: "partial",
+          extraInstructions: prompt,
+          platform: activePlatform,
+        });
+        const url = pipelineRes.storedUrl || pipelineRes.imageUrl;
+        if (url) setForm((prev) => ({ ...prev, imageUrls: [url, ...prev.imageUrls] }));
+      } else {
+        const imageRes = await api.ai.generateImage({ prompt });
+        const url = imageRes.storedUrl || imageRes.imageUrl;
+        if (url) setForm((prev) => ({ ...prev, imageUrls: [url, ...prev.imageUrls] }));
+      }
+      toast({ title: "AI 配图生成成功" });
+    } catch (err: any) {
+      const msg = err?.body?.error || err?.message || "AI 配图生成失败";
+      setImageGenError(msg);
+      if (err?.status === 403) handleCreditError(err);
+      else toast({ title: "配图重新生成失败", description: msg, variant: "destructive" });
+    } finally {
+      setIsRegeneratingImage(false);
+    }
   }
 
   function handleRewrite() {
@@ -1362,9 +1406,34 @@ export default function WorkflowWizard() {
               </CardHeader>
               <CardContent>
                 <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-                  {form.imageUrls.length > 0 && (
+                  {form.imageUrls.length > 0 ? (
                     <div className="aspect-[4/3] bg-muted overflow-hidden">
                       <img src={form.imageUrls[0]} alt="封面" className="w-full h-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className={`aspect-[4/3] flex flex-col items-center justify-center gap-3 p-4 text-center ${imageGenError ? "bg-red-50 border-b border-red-200" : "bg-amber-50 border-b border-amber-200"}`}>
+                      <ImageIcon className={`h-10 w-10 ${imageGenError ? "text-red-400" : "text-amber-400"}`} />
+                      <div className="space-y-1">
+                        <p className={`text-sm font-medium ${imageGenError ? "text-red-700" : "text-amber-700"}`}>
+                          {imageGenError ? "AI 配图生成失败" : "本次未生成 AI 配图"}
+                        </p>
+                        {imageGenError && (
+                          <p className="text-xs text-red-600 max-w-xs break-words">{imageGenError}</p>
+                        )}
+                        <p className="text-[11px] text-muted-foreground">点下方按钮立即重新生成，或在编辑页手动调整</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={imageGenError ? "destructive" : "default"}
+                        onClick={handleRegenerateImageInReview}
+                        disabled={isRegeneratingImage}
+                      >
+                        {isRegeneratingImage ? (
+                          <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />生成中...</>
+                        ) : (
+                          <><Sparkles className="h-3.5 w-3.5 mr-1.5" />立即重新生成 AI 配图</>
+                        )}
+                      </Button>
                     </div>
                   )}
                   <div className="p-4 space-y-2.5">
