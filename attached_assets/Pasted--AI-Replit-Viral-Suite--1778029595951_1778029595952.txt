@@ -1,0 +1,84 @@
+我有一个 AI 多平台社交内容创作 + 自动发布系统的代码合并审查任务，请你帮我做详细分析。
+
+【背景】
+我把三个独立的 Replit 项目合并成了一个统一系统「鹿联 Viral Suite」，
+目标是：单一产品 + 平台作为维度（XHS / TikTok / Instagram / Facebook），
+而不是三个独立工具的拼凑。
+
+【三个 GitHub 仓库】
+
+1. 当前主仓库（合并后的成果，需要审查的对象）：
+   https://github.com/xiandaodashuaige-create/-
+   原始定位：小红书 AI 内容创作工具（xhs-tool）
+   现在应该已经吸收了下面两个老系统的全部能力。
+
+2. 老系统 A —— FB/IG/TikTok 自动发布系统（socialAuto）：
+   https://github.com/xiandaodashuaige-create/fbHe-insYi-Ji-tkDe-Zi-Dong-Fa-Bu-Nei-Rong
+   核心能力：Meta OAuth、TikTok OAuth、Ayrshare 集成、定时发布调度、
+   多账号管理、跨平台账号绑定。
+
+3. 老系统 B —— TikTok 爬取与内容分析系统（tiktok-ai）：
+   https://github.com/xiandaodashuaige-create/tkTong-Xing-Pa-Qu-He-Nei-Rong-Fen-Xi
+   核心能力：TikHub 爬取、Gemini AI 分析、TTS 语音合成、Whisper 转录、
+   AdForge 视频/广告创意生成、竞品挖掘。
+
+【请你做的事】
+
+第 1 步：逐一阅读三个仓库的代码结构（先看 README / replit.md / package.json / 
+artifacts 目录 / lib 目录），列出每个老系统的完整功能清单。
+
+第 2 步：基于功能清单，制作一张【功能融合矩阵表】（Markdown 表格），列：
+| 老系统功能 | 来源仓库 | 在主仓库中是否存在 | 实现位置（文件路径） | 完整度 (完整/部分/缺失) | 备注 |
+
+第 3 步：从下面 8 个维度评估融合质量，每条给出：
+   - 现状描述
+   - 严重程度（🔴 阻塞 / 🟡 待改进 / 🟢 良好）
+   - 具体修复建议（含代码位置和改动思路）
+
+   维度 1: **功能完整性** —— 老系统的核心功能是否一个不漏地搬到主仓库？
+                              有没有"看着搬了但实际跑不通"的死代码？
+   维度 2: **UI/UX 统一性** —— 主仓库是不是真的「单产品 + 平台维度」？
+                              还是三套 UI 拼在一起？平台切换是否通过 
+                              PlatformProvider 统一管理？
+   维度 3: **数据库 schema 整合** —— 三个系统的表是否合理融合？
+                                     有没有重复表 / 字段命名冲突 / 
+                                     缺失的外键 / 多租户隔离漏洞？
+   维度 4: **OAuth & 认证统一** —— Meta / TikTok OAuth、Clerk Auth 是否
+                                  与原系统行为一致？token 刷新、
+                                  callback 路由、state binding 安全吗？
+   维度 5: **定时发布调度器** —— publishDispatcher 是否覆盖了老系统所有
+                                平台分支（TikTok 视频、FB 图文、IG 媒体）？
+                                单实例锁、重试、stale recovery 是否健全？
+   维度 6: **AI 能力整合** —— 老系统 B 的 Gemini / TTS / Whisper / AdForge 
+                             是否真的接到了主仓库的工作流里？还是只剩
+                             OpenAI gpt-4o / 即梦？有没有功能缺失？
+   维度 7: **爬取与竞品分析** —— TikHub / RapidAPI 爬虫是否完整接入？
+                                竞品库 (`/competitors`) 是否覆盖
+                                老系统所有平台分析维度？
+   维度 8: **架构一致性** —— pnpm monorepo + artifacts/lib 分层是否合理？
+                            有没有把老系统的代码原样塞进 artifacts/ 但没
+                            重构（出现孤岛代码、重复 util、循环依赖）？
+
+第 4 步：列出你认为【还没有迁移过来或迁移不完整】的功能，按优先级排序：
+   - P0（必须补齐，否则核心场景无法走通）
+   - P1（强烈建议补齐）
+   - P2（锦上添花）
+
+第 5 步：给出一份【整改路线图】：
+   - 总共需要多少个改造任务
+   - 每个任务的：标题 / 涉及文件 / 估算工作量（小时） / 依赖关系
+   - 推荐的执行顺序
+
+第 6 步：在最后给一个【总评】：
+   - 融合完成度百分比（0-100%）
+   - 是否可以直接上生产环境
+   - 最大的 3 个风险点
+
+【其他要求】
+- 主仓库的 replit.md 文件已经写得比较详细，请优先以它为权威参考，
+  对照它声明的功能逐项验证。
+- 请重点关注「声明了但实际没实现」「实现了但没接到主流程」
+  「老系统有但合并后丢了」这三类问题。
+- 给出文件路径时请用相对路径（如 artifacts/api-server/src/services/xxx.ts）。
+- 用中文回复。代码引用用 Markdown 代码块。
+- 如果某个仓库内容太多读不完，请明确告诉我哪里没读，不要瞎编。
