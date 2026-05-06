@@ -277,7 +277,9 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
 
     // 第二道：DB 唯一索引 schedules(account_id, scheduled_at) + onConflictDoNothing
     // 跨请求并发的硬性闭环；冲突的 item 用 savepoint 回滚掉孤儿 content，并计入 skipped
-    const created: Array<{ contentId: number; scheduleId: number; scheduledAt: Date }> = [];
+    // P1-1 修复：每条 created 回显 dayOffset + time，客户端可按 (dayOffset, time) 精准匹配回写图片，
+    // 不能再依赖数组下标（filter/skip 后顺序与原 items 不一致）
+    const created: Array<{ contentId: number; scheduleId: number; scheduledAt: Date; dayOffset: number; time: string }> = [];
     for (const { item, scheduledAt } of filtered) {
       try {
         const result = await db.transaction(async (sp) => {
@@ -309,7 +311,7 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
             // 唯一索引命中：抛错让 savepoint 回滚 content 孤儿
             throw new Error("__schedule_conflict__");
           }
-          return { contentId: content.id, scheduleId: inserted[0].id, scheduledAt };
+          return { contentId: content.id, scheduleId: inserted[0].id, scheduledAt, dayOffset: item.dayOffset, time: item.time };
         });
         created.push(result);
       } catch (e: any) {

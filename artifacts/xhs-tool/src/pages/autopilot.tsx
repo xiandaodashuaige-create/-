@@ -27,7 +27,17 @@ import {
 import { AssetPicker } from "@/components/AssetPicker";
 import { ObjectUploader } from "@workspace/object-storage-web";
 
-type Step = "setup" | "running" | "review" | "edit" | "schedule" | "done";
+type Step = "setup" | "running" | "review" | "edit" | "schedule" | "done" | "weekly-review";
+
+// 账号是否可用于自动发布：xhs 凭画像即可；其它平台需 authorized 或已绑定 Ayrshare profile key
+// 与后端 isAccountReadyToPublish 判断保持一致；前端用于灰掉未授权账号，避免用户走完 setup 才被后端 400
+function isAccountReady(acc: any): boolean {
+  if (!acc) return false;
+  if (acc.platform === "xhs") return true;
+  if (acc.authStatus === "authorized") return true;
+  if (acc.ayrshareProfileKey && String(acc.ayrshareProfileKey).length > 0) return true;
+  return false;
+}
 
 // 3 套生成 angle —— AI 同时跑 3 次，给用户选
 // label/hint 通过 i18n 在运行时查找（labelKey / hintKey）
@@ -352,6 +362,27 @@ export default function AutopilotPage() {
   // 多账号场景：用户必须明确选定"本次 AI 用哪个业务身份"，
   // 否则草稿会被绑到 backend 默认（前 5 个全用），用户无法预知归属
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
+
+  // ── 一周内容包（P1-1 主流程化）─────────────────────────────────
+  // weeklyDraft：AI 一次产出的 7 条草稿，用户在 weekly-review 步就地编辑/出图后批量排期
+  // 每条独立 imageStatus："idle" | "generating" | "ready" | "failed"，配图失败可单卡片重试
+  type WeeklyDraftItem = {
+    dayOffset: number;
+    time: string;
+    title: string;
+    body: string;
+    tags: string[];
+    imagePrompt?: string;
+    imageUrl?: string;
+    imageStatus: "idle" | "generating" | "ready" | "failed";
+  };
+  const [weeklyDraft, setWeeklyDraft] = useState<WeeklyDraftItem[] | null>(null);
+  const [weeklyGenerating, setWeeklyGenerating] = useState(false);
+  const [weeklyCommitting, setWeeklyCommitting] = useState(false);
+  // weekly 路径成功后展示的轻量结果（用于 done 步替代 contentId 路径）
+  const [weeklyDoneStats, setWeeklyDoneStats] = useState<{ created: number; skipped: number } | null>(null);
+  // 防止过期 image 请求把回调写到新 draft：每次重新生成 7 天计划/退出都 bump
+  const weeklyVersionRef = useRef(0);
   // 3 套候选策略（按 STRATEGY_ANGLES 顺序，可能含 null 如果某条生成失败）
   const [strategyOptions, setStrategyOptions] = useState<Array<any | null>>([]);
   const [selectedStrategyIdx, setSelectedStrategyIdx] = useState<number | null>(null);
@@ -479,11 +510,7 @@ export default function AutopilotPage() {
     const stillExists = selectedAccountId != null && list.some((a: any) => a.id === selectedAccountId);
     if (!stillExists) {
       // 优先选已授权账号；防止默认落到未 OAuth 的占位账号导致 schedule 步被后端 isAccountReadyToPublish 拦下
-      const ready = list.find((a: any) =>
-        a.platform === "xhs" ||
-        a.authStatus === "authorized" ||
-        (a.ayrshareProfileKey && String(a.ayrshareProfileKey).length > 0)
-      );
+      const ready = list.find((a: any) => isAccountReady(a));
       setSelectedAccountId((ready ?? list[0]).id);
     }
   }, [accountsQ.data, selectedAccountId]);
@@ -1068,6 +1095,143 @@ export default function AutopilotPage() {
     approveMut.mutate(opt.id);
   }
 
+  // ── P1-1 主流程：一次生成 7 天计划 → weekly-review 编辑 → 批量排期 ─────
+  async function handleGenWeeklyPlan() {
+    const finalNiche = (finalNicheRef.current || niche).trim();
+    if (!finalNiche) {
+      toast({ title: "请先填写行业/业务", variant: "destructive" });
+      return;
+    }
+    if (!selectedAccount || !isAccountReady(selectedAccount)) {
+      toast({ title: "请先选择已授权账号", variant: "destructive" });
+      return;
+    }
+    setWeeklyGenerating(true);
+    // 重新生成视为新 session：让在途的旧图片回调失效，避免错配
+    weeklyVersionRef.current += 1;
+    try {
+      const r = await api.ai.generateWeeklyPlan({
+        platform,
+        niche: finalNiche,
+        region: region.trim() || undefined,
+        frequency: "daily",
+      });
+      const items: WeeklyDraftItem[] = (r.items ?? []).slice(0, 7).map((it) => ({
+        dayOffset: Math.max(0, Math.min(6, it.dayOffset ?? 0)),
+        time: it.time || "20:00",
+        title: it.title,
+        body: it.body,
+        tags: it.tags ?? [],
+        imagePrompt: it.imagePrompt,
+        imageStatus: "idle" as const,
+      }));
+      if (items.length === 0) {
+        toast({ title: "未生成有效计划", description: "请稍后重试或调整关键词", variant: "destructive" });
+        return;
+      }
+      setWeeklyDraft(items);
+      setStep("weekly-review");
+      toast({ title: `已生成 ${items.length} 天内容草稿`, description: "可逐条编辑、生成配图，再批量排期" });
+    } catch (e: any) {
+      toast({ title: "生成周计划失败", description: e?.message ?? "未知错误", variant: "destructive" });
+    } finally {
+      setWeeklyGenerating(false);
+    }
+  }
+
+  // 单卡片配图：使用该条 imagePrompt 调 generateImage（基础版，省 token）
+  // Pro 用户后续可选 generateImagePipeline / Sora（按需付费），不在主流程默认烧
+  async function handleWeeklyGenImage(idx: number) {
+    if (!weeklyDraft) return;
+    const item = weeklyDraft[idx];
+    if (!item) return;
+    const prompt = item.imagePrompt || `${platform} 风格配图：${item.title}`;
+    // 用 (dayOffset+time) 作为稳定身份键，避免重新排序/regen 后 idx 漂移导致写错卡
+    const key = `${item.dayOffset}@${item.time}`;
+    const myVersion = weeklyVersionRef.current;
+    setWeeklyDraft((prev) => prev ? prev.map((it) => `${it.dayOffset}@${it.time}` === key ? { ...it, imageStatus: "generating" } : it) : prev);
+    try {
+      const r = await api.ai.generateImage({ prompt, size: "1024x1024" });
+      const url = r.storedUrl || r.imageUrl;
+      // 在途中如果用户重新生成了周计划（version bump），丢弃旧结果
+      if (myVersion !== weeklyVersionRef.current) return;
+      setWeeklyDraft((prev) => prev ? prev.map((it) => `${it.dayOffset}@${it.time}` === key ? { ...it, imageUrl: url, imageStatus: "ready" } : it) : prev);
+    } catch (e: any) {
+      if (myVersion !== weeklyVersionRef.current) return;
+      setWeeklyDraft((prev) => prev ? prev.map((it) => `${it.dayOffset}@${it.time}` === key ? { ...it, imageStatus: "failed" } : it) : prev);
+      toast({ title: `第 ${idx + 1} 条配图失败`, description: e?.message ?? "未知错误", variant: "destructive" });
+    }
+  }
+
+  function updateWeeklyItem(idx: number, patch: Partial<WeeklyDraftItem>) {
+    setWeeklyDraft((prev) => prev ? prev.map((it, i) => i === idx ? { ...it, ...patch } : it) : prev);
+  }
+
+  async function handleCommitWeekly() {
+    if (!weeklyDraft || weeklyDraft.length === 0) return;
+    if (!selectedAccount || !isAccountReady(selectedAccount)) {
+      toast({ title: "请先选择已授权账号", variant: "destructive" });
+      return;
+    }
+    // 仍有图片在生成 → 提示用户等待，避免回写丢图
+    if (weeklyDraft.some((it) => it.imageStatus === "generating")) {
+      toast({ title: "还有配图在生成中", description: "请等所有配图完成后再排期", variant: "destructive" });
+      return;
+    }
+    setWeeklyCommitting(true);
+    try {
+      // 用「明天 00:00」作为基准，避免和当天已发布内容撞日
+      const tomorrow = new Date();
+      tomorrow.setHours(0, 0, 0, 0);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const startDate = tomorrow.toISOString();
+      const items = weeklyDraft.map((it) => ({
+        dayOffset: it.dayOffset,
+        time: it.time,
+        title: it.title,
+        body: it.body,
+        tags: it.tags,
+        imagePrompt: it.imagePrompt,
+        // 注意：bulk-create 当前只支持文案+imagePrompt，imageUrl 不在 schema 内
+        // 用户已生成的图会在排期表里通过 content.update 单条补回（v2 改 bulk-create schema 支持 imageUrls）
+      }));
+      const r = await api.schedules.bulkCreate({
+        accountId: selectedAccount.id,
+        startDate,
+        items,
+      });
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["content"] });
+      // 配图回写：用 (dayOffset, time) 精准匹配，避免后端 skip 冲突时下标错位写错卡
+      const draftByKey = new Map(
+        weeklyDraft.map((it) => [`${it.dayOffset}@${it.time}`, it.imageUrl] as const),
+      );
+      const writeBacks = r.items
+        .map((c) => {
+          const url = draftByKey.get(`${c.dayOffset}@${c.time}`);
+          return url ? api.content.update(c.contentId, { imageUrls: [url] }).catch(() => null) : null;
+        })
+        .filter((p): p is Promise<unknown> => p !== null);
+      if (writeBacks.length > 0) {
+        await Promise.allSettled(writeBacks);
+      }
+      const skipped = r.skipped ?? 0;
+      toast({
+        title: `已排期 ${r.created} 条`,
+        description: skipped > 0 ? `⚠ ${skipped} 条因时间冲突被跳过` : "可在排期表查看与微调",
+      });
+      // 让所有在途的图片回调失效
+      weeklyVersionRef.current += 1;
+      setWeeklyDoneStats({ created: r.created, skipped });
+      setWeeklyDraft(null);
+      setStep("done");
+    } catch (e: any) {
+      toast({ title: "批量排期失败", description: e?.message ?? "未知错误", variant: "destructive" });
+    } finally {
+      setWeeklyCommitting(false);
+    }
+  }
+
   function handleScheduleNow() {
     if (scheduling || scheduleMut.isPending) return; // 硬防抖：避免重复排期
     if (!contentId || !scheduledAt) {
@@ -1162,6 +1326,9 @@ export default function AutopilotPage() {
     setLogs([]);
     setScheduledAt("");
     setEditForm({ title: "", body: "", tags: [], tagInput: "", imageUrls: [], videoUrl: "" });
+    setWeeklyDraft(null);
+    setWeeklyDoneStats(null);
+    weeklyVersionRef.current += 1;
   }
 
   // 账号画像 vs niche 一致性校验（弹窗状态）
@@ -1294,7 +1461,9 @@ export default function AutopilotPage() {
             { key: "schedule", label: t("autopilot.step.schedule"), icon: Send },
           ].map((s, i, arr) => {
             const order = ["setup", "running", "review", "edit", "schedule", "done"];
-            const currentIdx = order.indexOf(step);
+            // weekly-review 是 review 之后、done 之前的并行支线（替代 edit+schedule），
+            // 把它折算到 schedule 位置，让进度条仍能高亮"已经排期"这步
+            const currentIdx = step === "weekly-review" ? order.indexOf("schedule") : order.indexOf(step);
             const myIdx = order.indexOf(s.key);
             const done = myIdx < currentIdx;
             const active = myIdx === currentIdx;
@@ -1367,25 +1536,35 @@ export default function AutopilotPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {accountsQ.data!.map((acc: any) => {
                   const isSelected = acc.id === selectedAccountId;
+                  const ready = isAccountReady(acc);
                   return (
                     <button
                       key={acc.id}
                       type="button"
-                      onClick={() => setSelectedAccountId(acc.id)}
+                      disabled={!ready}
+                      title={!ready ? "未授权，不能用于自动发布。请先到「账号管理」完成 OAuth 授权或绑定 Ayrshare profile key。" : undefined}
+                      onClick={() => { if (ready) setSelectedAccountId(acc.id); }}
                       className={`text-left rounded-md border p-2.5 transition ${
-                        isSelected
+                        !ready
+                          ? "bg-muted/40 border-muted opacity-60 cursor-not-allowed"
+                          : isSelected
                           ? `${platformMeta.bgClass} ${platformMeta.borderClass} ring-2 ring-offset-1 ${platformMeta.textClass.replace("text-", "ring-")}`
                           : "bg-background hover:bg-muted/50 border-muted"
                       }`}
                     >
                       <div className="flex items-start gap-2">
-                        <div className={`w-8 h-8 rounded-full ${platformMeta.bgClass} ${platformMeta.textClass} flex items-center justify-center font-bold text-sm flex-shrink-0`}>
+                        <div className={`w-8 h-8 rounded-full ${platformMeta.bgClass} ${platformMeta.textClass} flex items-center justify-center font-bold text-sm flex-shrink-0 ${!ready ? "grayscale" : ""}`}>
                           {(acc.nickname || "?").charAt(0)}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="font-medium text-sm truncate">{acc.nickname}</span>
-                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />}
+                            {isSelected && ready && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />}
+                            {!ready && (
+                              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-amber-400 text-amber-700 bg-amber-50 flex-shrink-0">
+                                未授权
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
@@ -1397,7 +1576,14 @@ export default function AutopilotPage() {
                               </span>
                             )}
                           </div>
-                          {acc.notes && (
+                          {!ready ? (
+                            <p className="text-[11px] text-amber-700 mt-1 line-clamp-2">
+                              该账号未授权，不能用于自动发布。
+                              <Link href="/accounts" onClick={() => setReturnToFlow("/autopilot")} className="underline ml-0.5">
+                                去授权 →
+                              </Link>
+                            </p>
+                          ) : acc.notes && (
                             <p className="text-[11px] text-muted-foreground mt-1 line-clamp-1">
                               {acc.notes}
                             </p>
@@ -1828,13 +2014,37 @@ export default function AutopilotPage() {
             )}
           </div>
 
-          <div className="flex gap-2 justify-center pt-2">
+          <div className="flex gap-2 justify-center pt-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={resetAll}>
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> {t("autopilot.review.restart")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => runPipeline()}>
               <Sparkles className="h-3.5 w-3.5 mr-1.5" /> {t("autopilot.review.regen3")}
             </Button>
+          </div>
+
+          {/* P1-1：分流 CTA —— 这一条精修，还是排满一周 7 条 */}
+          <div className="border-t pt-4 mt-2">
+            <div className="text-xs text-center text-muted-foreground mb-2">
+              📅 不想一条一条做？让 AI 一次帮你排满未来 7 天
+            </div>
+            <div className="flex justify-center">
+              <Button
+                variant="secondary"
+                size="lg"
+                disabled={weeklyGenerating || !selectedAccount || !isAccountReady(selectedAccount)}
+                onClick={handleGenWeeklyPlan}
+              >
+                {weeklyGenerating ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />正在生成 7 天计划…</>
+                ) : (
+                  <><Rocket className="h-4 w-4 mr-2" />帮我排满一周（7 条）</>
+                )}
+              </Button>
+            </div>
+            <div className="text-[11px] text-center text-muted-foreground mt-2">
+              7 条文案免费生成 · 每条可单独选「生成配图」按需付费 · Pro 用户可升级 Sora 视频
+            </div>
           </div>
         </div>
         );
@@ -2202,6 +2412,33 @@ export default function AutopilotPage() {
       )}
 
       {/* Step 6: 完成态 */}
+      {/* Weekly 路径完成态：没有 contentId（一次排了 N 条），单独渲染轻量结果卡 */}
+      {step === "done" && weeklyDoneStats && !contentId && (
+        <Card className="p-6 space-y-4">
+          <div className="text-center space-y-2">
+            <CheckCircle2 className="h-14 w-14 text-emerald-500 mx-auto" />
+            <div className="text-xl font-bold">一周内容包已排期</div>
+            <div className="text-sm text-muted-foreground">
+              成功排期 <strong className="text-emerald-600">{weeklyDoneStats.created}</strong> 条
+              {weeklyDoneStats.skipped > 0 && (
+                <> · ⚠ {weeklyDoneStats.skipped} 条因时间冲突被跳过</>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              可在排期表里逐条查看 / 微调 / 增删配图
+            </div>
+          </div>
+          <div className="flex gap-2 justify-center flex-wrap">
+            <Link href="/schedules">
+              <Button size="lg"><Send className="h-4 w-4 mr-2" />查看排期表</Button>
+            </Link>
+            <Button size="lg" variant="outline" onClick={resetAll}>
+              再来一轮
+            </Button>
+          </div>
+        </Card>
+      )}
+
       {step === "done" && contentId && (
         <Card className="p-6 space-y-4">
           <div className="text-center space-y-2">
@@ -2281,6 +2518,116 @@ export default function AutopilotPage() {
         <div className="text-xs text-center text-muted-foreground">
           已有 {existingCompetitors.length} 位同行 ·
           <Link href="/competitors" className="underline ml-1">去同行库管理 →</Link>
+        </div>
+      )}
+
+      {/* P1-1 / P1-2：一周内容包就地编辑 + 按需出图 + 批量排期 */}
+      {step === "weekly-review" && weeklyDraft && (
+        <div className="space-y-4">
+          <Card className="p-4 bg-emerald-50 border-emerald-200">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm">
+                <div className="font-semibold text-emerald-800">
+                  ✅ 已生成 {weeklyDraft.length} 天内容草稿
+                </div>
+                <div className="text-xs text-emerald-700/80 mt-0.5">
+                  逐条审核 · 按需生成配图 · 一键批量排期到「明天起」未来 7 天
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {weeklyDraft.map((item, idx) => (
+              <Card key={idx} className="p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline" className="text-[10px] gap-1">
+                    D+{item.dayOffset}
+                  </Badge>
+                  <Input
+                    value={item.time}
+                    onChange={(e) => updateWeeklyItem(idx, { time: e.target.value })}
+                    className="h-7 w-20 text-xs text-center"
+                    placeholder="HH:mm"
+                  />
+                </div>
+                <Input
+                  value={item.title}
+                  onChange={(e) => updateWeeklyItem(idx, { title: e.target.value })}
+                  className="text-sm font-semibold"
+                  placeholder="标题"
+                />
+                <Textarea
+                  value={item.body}
+                  onChange={(e) => updateWeeklyItem(idx, { body: e.target.value })}
+                  rows={4}
+                  className="text-xs resize-none"
+                  placeholder="正文"
+                />
+                {item.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {item.tags.slice(0, 8).map((tg, i) => (
+                      <span key={i} className="text-[10px] text-primary">#{tg}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* 配图区：按需生成（节省成本） */}
+                <div className="border-t pt-2">
+                  {item.imageStatus === "ready" && item.imageUrl ? (
+                    <div className="space-y-1.5">
+                      <img src={item.imageUrl} alt={`配图${idx + 1}`} className="w-full aspect-square object-cover rounded border" />
+                      <Button size="sm" variant="ghost" className="w-full h-7 text-xs" onClick={() => handleWeeklyGenImage(idx)}>
+                        <RefreshCw className="h-3 w-3 mr-1" />重新生成
+                      </Button>
+                    </div>
+                  ) : item.imageStatus === "generating" ? (
+                    <div className="flex items-center justify-center py-3 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />正在出图…
+                    </div>
+                  ) : item.imageStatus === "failed" ? (
+                    <Button size="sm" variant="outline" className="w-full h-8 text-xs border-red-300 text-red-700" onClick={() => handleWeeklyGenImage(idx)}>
+                      <AlertCircle className="h-3.5 w-3.5 mr-1.5" />配图失败 · 重试
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" className="w-full h-8 text-xs" onClick={() => handleWeeklyGenImage(idx)}>
+                      <ImageIcon className="h-3.5 w-3.5 mr-1.5" />✨ 生成配图
+                    </Button>
+                  )}
+                  {item.imagePrompt && item.imageStatus === "idle" && (
+                    <div className="text-[10px] text-muted-foreground mt-1 line-clamp-2">
+                      建议：{item.imagePrompt}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          <Card className="p-3 bg-muted/20">
+            <div className="text-xs text-muted-foreground space-y-1">
+              <div>📅 排期起点：<strong className="text-foreground">明天 00:00</strong>（避免和当天已发布内容撞日）</div>
+              <div>🎯 目标账号：<strong className="text-foreground">{selectedAccount?.nickname || "未选"}</strong> · {platformMeta.name}</div>
+              <div>💡 已生成的配图会随排期自动写入对应草稿；未配图的可在排期表里再补</div>
+            </div>
+          </Card>
+
+          <div className="flex gap-2 justify-center flex-wrap">
+            <Button variant="outline" onClick={() => { setWeeklyDraft(null); setStep("review"); }} disabled={weeklyCommitting}>
+              ← 返回选方案
+            </Button>
+            <Button variant="outline" onClick={handleGenWeeklyPlan} disabled={weeklyGenerating || weeklyCommitting}>
+              <RefreshCw className="h-4 w-4 mr-1.5" />重新生成 7 条
+            </Button>
+            <Button size="lg" onClick={handleCommitWeekly} disabled={weeklyCommitting || !selectedAccount || !isAccountReady(selectedAccount)}>
+              {weeklyCommitting ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" />批量排期中…</>
+              ) : (
+                <><Send className="h-4 w-4 mr-2" />确认排期 {weeklyDraft.length} 条</>
+              )}
+            </Button>
+          </div>
         </div>
       )}
 

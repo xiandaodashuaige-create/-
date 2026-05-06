@@ -295,7 +295,7 @@ export const api = {
       startDate: string;
       items: Array<{ dayOffset: number; time: string; title: string; body: string; tags?: string[]; imagePrompt?: string }>;
       tz?: string;
-    }) => request<{ created: number; items: Array<{ contentId: number; scheduleId: number; scheduledAt: string }> }>(
+    }) => request<{ created: number; skipped: number; items: Array<{ contentId: number; scheduleId: number; scheduledAt: string; dayOffset: number; time: string }> }>(
       "/schedules/bulk-create",
       {
         method: "POST",
