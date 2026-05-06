@@ -7,7 +7,6 @@ import { SoraClient, type SoraSize } from "./sora.js";
 import { generateVideoCreativePlan, type GenerateVideoPlanInput, type VideoCreativePlan } from "./videoPipeline.js";
 import { burnSubtitles } from "./videoComposer.js";
 import { ObjectStorageService } from "../lib/objectStorage.js";
-import { refundCredits } from "../middlewares/creditSystem.js";
 
 export type VideoProvider = "seedance" | "sora-pro";
 
@@ -190,6 +189,68 @@ async function processJob(jobId: string): Promise<void> {
   });
 }
 
+/**
+ * 单事务原子退款：抢门闩 + 加余额 + 写流水 三步在同一个 db.transaction 内。
+ * 任何一步抛错 → 整个 tx 回滚（包括 credits_refunded=1 的门闩自动归零），
+ * 无需手动补偿。这是积分守恒的核心保证：避免"半失败回滚门闩 → 下次 reconcile
+ * 重抢 → 余额加两次"造币漏洞。
+ *
+ * 返回 { refunded: true } 当且仅当本次调用真正完成了退款；其它情况（门闩已被
+ * 别人抢走 / chargedAmount<=0）返回 { refunded: false }。
+ */
+async function claimAndRefundAtomic(
+  jobId: string,
+  userId: number,
+  reason: string,
+): Promise<{ refunded: boolean; amount: number }> {
+  try {
+    return await db.transaction(async (tx) => {
+      // 1) CAS 抢门闩
+      const claimed = await tx
+        .update(videoJobsTable)
+        .set({ creditsRefunded: 1 })
+        .where(and(eq(videoJobsTable.id, jobId), eq(videoJobsTable.creditsRefunded, 0)))
+        .returning({ chargedAmount: videoJobsTable.chargedAmount, input: videoJobsTable.input });
+      if (!claimed[0]) return { refunded: false, amount: 0 };
+      const amount = claimed[0].chargedAmount;
+      // chargedAmount<=0（dedup hit / admin / 漏扣）：门闩闭合但不退款，避免造币
+      if (amount <= 0) return { refunded: false, amount: 0 };
+
+      // 2) 加余额（同事务内）
+      const upd = await tx
+        .update(usersTable)
+        .set({
+          credits: sql`${usersTable.credits} + ${amount}`,
+          totalCreditsUsed: sql`GREATEST(0, ${usersTable.totalCreditsUsed} - ${amount})`,
+        })
+        .where(eq(usersTable.id, userId))
+        .returning({ newCredits: usersTable.credits });
+      if (!upd[0]) {
+        // user 不存在 → 抛错让 tx 回滚（包含门闩）
+        throw new Error(`refund target user ${userId} not found`);
+      }
+
+      // 3) 写流水（同事务内）
+      const curInput = claimed[0].input as unknown as VideoJob["input"];
+      const opKey = curInput?.provider === "sora-pro" ? "ai-generate-video-sora" : "ai-generate-video";
+      await tx.insert(creditTransactionsTable).values({
+        userId,
+        amount,
+        balanceAfter: upd[0].newCredits,
+        type: "refund",
+        operationType: opKey,
+        description: `失败自动退款：${reason}`.slice(0, 200),
+      });
+
+      return { refunded: true, amount };
+    });
+  } catch (err: any) {
+    // tx 已自动回滚（门闩归零），只需记日志；下次 reconcile tick 会重试
+    logger.error({ err: err?.message, jobId, userId }, "claimAndRefundAtomic tx rolled back; will retry via cron");
+    return { refunded: false, amount: 0 };
+  }
+}
+
 async function tryRunJob(jobId: string, userId: number): Promise<void> {
   if (inFlight.has(jobId)) return;
   inFlight.add(jobId);
@@ -198,48 +259,59 @@ async function tryRunJob(jobId: string, userId: number): Promise<void> {
   } catch (err: any) {
     const msg = err?.message ?? "unknown";
     logger.error({ err: msg, jobId, userId }, "video job failed");
-    // 失败自动退款 — CAS 原子门闩：只有把 credits_refunded 0→1 改成功的那一次才执行退款
-    // 防止 cron 重抢 + 当前进程 catch 同时进入退款逻辑造成双退（积分净增）
-    const claimed = await db
-      .update(videoJobsTable)
-      .set({ creditsRefunded: 1 })
-      .where(and(eq(videoJobsTable.id, jobId), eq(videoJobsTable.creditsRefunded, 0)))
-      .returning({ chargedAmount: videoJobsTable.chargedAmount, input: videoJobsTable.input });
-    if (claimed[0] && claimed[0].chargedAmount > 0) {
-      const curInput = claimed[0].input as unknown as VideoJob["input"];
-      const opKey = curInput?.provider === "sora-pro" ? "ai-generate-video-sora" : "ai-generate-video";
-      try {
-        await refundCredits(userId, claimed[0].chargedAmount, opKey, String(msg).slice(0, 80));
-      } catch (rErr: any) {
-        // 退款写库失败 → 必须回滚门闩，让 cron 后续 tick 重新进入退款分支重试
-        // 否则 credits_refunded=1 永久占位 → 用户钱永远退不回来（积分守恒被破坏）
-        logger.error({ err: rErr?.message, userId, jobId }, "refund failed; rolling back credits_refunded latch for retry");
-        try {
-          await db
-            .update(videoJobsTable)
-            .set({ creditsRefunded: 0 })
-            .where(eq(videoJobsTable.id, jobId));
-        } catch (rollbackErr: any) {
-          logger.error({ err: rollbackErr?.message, userId, jobId }, "CRITICAL: failed to roll back refund latch — manual reconciliation required");
-        }
-      }
-    }
-    // chargedAmount=0（dedup hit / admin / 漏扣）的情况下，门闩已闭合但不退款，避免造币
+    // 顺序很重要：先标 failed，再退款。否则若 patchJob 失败，job 卡在中间态但已退款 →
+    // stale 重抢会再跑一次（漏收入）。先 failed 后退款时：patchJob 失败 → 无退款，
+    // stale 重抢可继续推进；patchJob 成功后退款失败 → reconcile cron 兜底。
     await patchJob(jobId, {
       status: "failed",
       error: String(msg).slice(0, 500),
       finishedAt: new Date(),
     });
+    await claimAndRefundAtomic(jobId, userId, String(msg).slice(0, 80));
   } finally {
     inFlight.delete(jobId);
   }
 }
 
 /**
- * Cron tick：捡起 queued + 在中间态超过 STALE_RECLAIM_MS 的任务继续推进。
- * 单实例进程内并发上限 MAX_CONCURRENT。
+ * 退款兜底：扫 status='failed' AND charged_amount>=1 AND credits_refunded=0 的任务，补退。
+ * 防止 claimAndRefundAtomic 整段事务瞬时失败（连接断/死锁）后无重试，长尾积分黑洞。
  */
+export async function reconcileFailedRefunds(): Promise<{ checked: number; refunded: number; errors: number }> {
+  const stuck = await db
+    .select({ id: videoJobsTable.id, ownerUserId: videoJobsTable.ownerUserId })
+    .from(videoJobsTable)
+    .where(
+      and(
+        eq(videoJobsTable.status, "failed"),
+        eq(videoJobsTable.creditsRefunded, 0),
+        gte(videoJobsTable.chargedAmount, 1),
+      ),
+    )
+    .limit(50);
+
+  let refunded = 0;
+  let errors = 0;
+  for (const j of stuck) {
+    try {
+      const r = await claimAndRefundAtomic(j.id, j.ownerUserId, "reconcile_failed_refund");
+      if (r.refunded) refunded++;
+    } catch (e: any) {
+      errors++;
+      logger.error({ err: e?.message, jobId: j.id }, "reconcile loop error");
+    }
+  }
+  if (stuck.length > 0) {
+    logger.info({ checked: stuck.length, refunded, errors }, "reconcileFailedRefunds done");
+  }
+  return { checked: stuck.length, refunded, errors };
+}
+
 export async function runVideoJobsTick(): Promise<void> {
+  // 先跑退款兜底（便宜的 SELECT，不影响并发槽位）
+  try { await reconcileFailedRefunds(); }
+  catch (e: any) { logger.error({ err: e?.message }, "reconcileFailedRefunds threw"); }
+
   const slots = MAX_CONCURRENT - inFlight.size;
   if (slots <= 0) return;
 

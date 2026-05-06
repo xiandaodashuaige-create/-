@@ -1,0 +1,633 @@
+1. 总体结论
+当前版本相比上次有明显进步，已经更接近你要的业务闭环：
+
+TK / FB / IG:
+授权账号 → 输入类目/需求 → 市场/同行分析 → 生成策略 → 生成草稿 → 客户编辑素材 → 推荐发布时间 → 排期/发布
+XHS:
+无需授权 → 填账号画像 → 同行/市场分析 → 伪原创图文/素材 → 推荐排期 → 客户下载后手动发布
+但还不能说完全符合生产要求。当前状态我评估为：
+
+整体符合度：约 78%
+
+主要已经补齐：
+
+品牌画像表 brand_profiles
+品牌画像 API
+品牌画像注入策略生成
+FB/IG market data 从同行库聚合，不再完全 mock
+XHS market data 接入公开搜索
+Sora / Seedance 视频任务持久化
+Autopilot 新增“编辑素材”步骤
+非 XHS 平台新增授权校验
+一周排期 CTA 初步接入
+但仍有几个阻塞/高风险点：
+
+批量一周排期创建的 content 没写 ownerUserId，会导致内容列表不可见或后续内容归属异常。
+Autopilot 选账号时仍可能默认选中未授权账号，导致后续排期失败。
+Autopilot 的“一周内容”仍是后置 CTA，不是主流程默认完整 Campaign。
+图片/视频素材不是每条周计划自动生成，仍需要用户单条处理。
+XHS 的 /competitors、/market-data 仍走 needs-auth guard，本质是要求创建账号画像；文案可接受，但要避免让用户理解成授权。
+2. 按你的目标场景逐项测试
+场景 A：TK / FB / IG 授权账户
+目标
+客户先授权 TK / FB / IG 账号，然后系统基于授权账号做策略、市场分析、自动排期/发布。
+
+当前实现
+相关代码：
+
+artifacts/api-server/src/routes/oauth.ts
+artifacts/xhs-tool/src/components/PlatformGuard.tsx
+artifacts/api-server/src/services/publishDispatcher.ts
+artifacts/api-server/src/routes/content.ts
+artifacts/api-server/src/routes/schedules.ts
+这次新增了前端授权拦截：
+
+function isAccountReady(a: any): boolean {
+  if (!a) return false;
+  if (a.platform === "xhs") return true;
+  if (a.ayrshareProfileKey && String(a.ayrshareProfileKey).length > 0) return true;
+  return a.authStatus === "authorized";
+}
+后端排期也加了授权校验：
+
+if (!isAccountReadyToPublish(account)) {
+  res.status(400).json({
+    error: "account_not_authorized",
+    message: `${account.platform} 账号尚未授权，无法批量排期。请先到「账号管理」完成授权。`,
+  });
+  return;
+}
+测试结论
+部分通过。
+
+优点：
+
+如果没有授权账号，页面会引导去授权。
+如果排期时账号未授权，后端会拦截。
+立即发布和定时发布都调用统一 dispatchContentToProvider。
+风险：
+
+Autopilot 里仍然这样默认选账号：
+
+if (!stillExists) setSelectedAccountId(list[0].id);
+如果用户有两个账号：
+
+账号 A：手动添加，未授权
+账号 B：OAuth 授权成功
+NeedsAuthGate 只判断“是否存在任意 ready 账号”，会放行；但 Autopilot 可能默认选中账号 A。后面策略、草稿、排期会绑定 A，最终排期失败。
+
+建议
+Autopilot 应只展示/默认选择 ready accounts：
+
+const readyAccounts = accountsQ.data?.filter(isAccountReady) ?? [];
+并且：
+
+TK / IG / FB 自动发布流只允许 ready account；
+手动添加的非授权账号只能用于“策略草稿”，不能进入发布排期。
+场景 B：输入类目信息和需求
+当前实现
+Autopilot 支持：
+
+const [niche, setNiche] = useState("");
+const [region, setRegion] = useState("");
+const [extras, setExtras] = useState("");
+const [customCompetitors, setCustomCompetitors] = useState("");
+并且有账号画像一致性检查：
+
+POST /api/ai/check-niche-fit
+路径：
+
+artifacts/api-server/src/routes/ai.ts
+artifacts/xhs-tool/src/pages/autopilot.tsx
+测试结论
+通过。
+
+当前已支持：
+
+输入类目；
+输入地区；
+输入额外需求；
+输入指定同行链接；
+检查账号过往内容和本次类目是否冲突。
+场景 C：客户账户定位 / 品牌画像
+当前实现
+新增表：
+
+lib/db/src/schema/brandProfiles.ts
+字段包括：
+
+category
+products
+targetAudience
+priceRange
+tone
+forbiddenClaims
+conversionGoal
+region
+language
+extras
+新增 API：
+
+GET /api/brand-profile?platform=xhs
+PUT /api/brand-profile
+DELETE /api/brand-profile?platform=xhs
+前端入口在：
+
+artifacts/xhs-tool/src/pages/settings.tsx
+策略生成时会加载品牌画像：
+
+const [brandProfile] = await db
+  .select()
+  .from(brandProfilesTable)
+  .where(...)
+并注入 prompt：
+
+【品牌画像 — 必须严格遵循】
+- 类目
+- 主推产品/服务
+- 目标受众
+- 价位区间
+- 品牌调性
+- 转化目标
+- 禁用宣称
+路径：
+
+artifacts/api-server/src/routes/strategy.ts
+artifacts/api-server/src/services/strategyGenerator.ts
+测试结论
+基本通过。
+
+这是非常重要的补齐，已经符合“根据客户账户定位生成策略”的方向。
+
+不足：
+
+品牌画像在 Settings 页面，不在 Autopilot 首次流程里。
+新用户可能不知道要先填品牌画像。
+generate-weekly-plan 暂时没有直接读取 brand_profiles，主要策略生成用到了。
+建议
+在 Autopilot setup 阶段内嵌一个“快速品牌画像”卡片，至少采集：
+
+主推产品
+目标客户
+价格带
+转化目标
+禁用词
+品牌调性
+这样客户不用跳 Settings。
+
+场景 D：市场分析
+当前实现
+路径：
+
+artifacts/api-server/src/routes/marketData.ts
+当前逻辑：
+
+TikTok
+TikHub trending
+XHS
+searchXhsNotes(keyword, region, 20)
+FB / IG
+优先从用户已添加同行库聚合：
+
+fetchCompetitorTrending(user.id, platform, keyword)
+如果没有同行数据，再 fallback mock：
+
+source: "mock",
+sourceConfidence: "low"
+测试结论
+部分通过。
+
+优点：
+
+FB/IG 不再完全 mock，能从同行库真实数据聚合。
+XHS 已能走公开数据源。
+TikTok 走 TikHub。
+不足：
+
+FB/IG 没有同行时还是 mock。
+Meta Ads Library 仍使用系统环境变量 FACEBOOK_ACCESS_TOKEN，不是客户 OAuth token。
+TikTok 多 provider 仍不是完整实现，主流程还是 TikHub。
+建议
+把市场数据分级展示：
+
+sourceConfidence: "high" | "medium" | "low"
+并在 AI prompt 中明确：
+
+high：真实平台数据
+medium：同行库聚合
+low：mock / 平台经验
+低可信数据不要强影响策略，只做兜底参考。
+
+场景 E：同行分析
+当前实现
+路径：
+
+artifacts/api-server/src/routes/competitors.ts
+artifacts/api-server/src/services/viralContext.ts
+支持：
+
+添加同行账号；
+同步帖子；
+TikTok discover；
+FB/IG 基于 Graph；
+XHS 自动 onboarding / 公开搜索沉淀；
+聚合同行发布时间；
+聚合 hashtags；
+聚合 BGM；
+聚合平均时长；
+提取爆款公式；
+收藏 starred 作品；
+Whisper 转录视频口播。
+测试结论
+通过，但平台能力不完全一致。
+
+其中 TikTok 最完整；FB/IG 依赖授权和可访问权限；XHS 用公开数据，不需要授权。
+
+场景 F：生成新策略
+当前实现
+Autopilot 会生成 3 套角度：
+
+tutorial
+emotion
+contrast
+策略 API：
+
+POST /api/strategy/generate
+路径：
+
+artifacts/api-server/src/routes/strategy.ts
+artifacts/api-server/src/services/strategyGenerator.ts
+输入包含：
+
+platform
+region
+niche
+selected account
+competitor posts
+market context
+brand profile
+custom requirements
+测试结论
+通过。
+
+这块现在比较符合你的目标。
+
+场景 G：重新模仿生成伪原创素材
+当前实现
+现在 Autopilot 已有 edit 步骤：
+
+编辑标题；
+编辑正文；
+编辑标签；
+AI 生成配图；
+上传图片；
+选择素材库图片；
+上传视频；
+Pro 用户生成 Sora 高清视频；
+视频任务完成后自动填入 videoUrl。
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+artifacts/api-server/src/routes/videoGen.ts
+artifacts/api-server/src/services/videoJobs.ts
+测试结论
+部分通过。
+
+文案：通过。
+图片：基本通过。
+视频：部分通过。
+
+不足：
+
+默认只生成草稿文本，不会自动为每条内容生成图片/视频。
+Sora 是 Pro 功能，Seedance 生成接口存在，但 Autopilot 这次主要接了 Sora 按钮。
+视频任务虽然已持久化，这是进步，但自动成片仍不是周计划主流程的一部分。
+场景 H：客户再次自定义修改
+当前实现
+Autopilot 新增 edit step：
+
+Step = "setup" | "running" | "review" | "edit" | "schedule" | "done"
+编辑后保存：
+
+api.content.update(contentId, payload)
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+artifacts/api-server/src/routes/content.ts
+测试结论
+通过。
+
+这次比上一版明显好，客户无需跳出 Autopilot 就能修改内容和素材。
+
+场景 I：分析同行发布时间
+当前实现
+路径：
+
+artifacts/api-server/src/routes/competitors.ts
+代码聚合：
+
+const utcHour = new Date(v.publishedAt).getUTCHours();
+const localHour = (utcHour + tzOffset + 24) % 24;
+输出：
+
+bestPostingHoursLocal
+postingStrategy
+timezoneLabel
+Autopilot 排期页使用 marketInsights.bestTimes 生成推荐时段卡片。
+
+测试结论
+基本通过。
+
+不足：
+
+当前 Autopilot 的推荐时间主要来自：
+
+/api/market-data/best-times
+这仍是平台通用规则，不一定优先使用 /competitors/insights/aggregate 里的真实同行发布时间。
+
+建议
+Autopilot 应优先调用：
+
+GET /api/competitors/insights/aggregate?platform=...
+拿真实 bestPostingHoursLocal，再 fallback 到 /market-data/best-times。
+
+场景 J：AI 自动排版一周内容给客户确认
+当前实现
+现在有两个入口：
+
+1. Schedules 页面
+/api/ai/generate-weekly-plan
+/api/schedules/bulk-create
+2. Autopilot 完成后 CTA
+<BulkCampaignCTA />
+会生成后 6 条，和当前已排的 1 条组成 7 天闭环。
+
+测试结论
+部分通过，但有一个阻塞 bug。
+
+阻塞点：
+
+/schedules/bulk-create 创建 content 时没有写 ownerUserId：
+
+await tx
+  .insert(contentTable)
+  .values({
+    accountId: account.id,
+    platform: account.platform,
+    title: ...,
+    body: ...,
+    tags: ...,
+    imageUrls: [],
+    status: "scheduled",
+    scheduledAt,
+  })
+路径：
+
+artifacts/api-server/src/routes/schedules.ts:285
+但内容列表现在按：
+
+c.owner_user_id = 当前用户
+过滤：
+
+const conditions: SQL[] = [sql`c.owner_user_id = ${u.id}`];
+路径：
+
+artifacts/api-server/src/routes/content.ts
+所以批量生成的一周内容可能：
+
+在排期表里能看到；
+但在内容管理里看不到；
+后续内容画像、编辑、统计也可能异常。
+同样问题出现在复制周计划：
+
+artifacts/api-server/src/routes/schedules.ts:408
+也没有写 ownerUserId。
+
+必须修复
+在 bulk-create：
+
+.values({
+  ownerUserId: u.id,
+  accountId: account.id,
+  ...
+})
+在 duplicate-weeks：
+
+.values({
+  ownerUserId: u.id,
+  accountId: src.accountId,
+  ...
+})
+场景 K：XHS 不授权、不定时发布、客户自己下载发布
+当前实现
+XHS 仍走：
+
+/workflow
+并且 Autopilot 会把 XHS 重定向回 workflow：
+
+if (platform === "xhs") setLocation("/workflow");
+XHS 的平台配置：
+
+publishMode: "manual"
+Workflow 中有：
+
+下载图片；
+下载视频；
+复制文案；
+打开小红书创作中心；
+手动粘贴笔记链接做 tracking。
+测试结论
+基本通过。
+
+符合你的要求：
+
+不需要授权；
+不做自动发布；
+以公开数据、同行分析、伪原创、下载素材为主。
+需要注意：
+
+/competitors 和 /market-data 对 XHS 仍被 needs-auth gate 包住。它不会要求 OAuth，但会要求创建一个 XHS 账号画像。这个可以接受，但文案必须明确是“账号画像”，不是“授权”。
+
+3. 功能测试报告
+实际执行测试
+测试项	结果	说明
+拉取最新代码	通过	当前最新 f398efb
+检查 node	失败	node: command not found
+检查 pnpm	失败	pnpm: command not found
+检查 npm	失败	npm: command not found
+TypeScript typecheck	未执行	环境无 pnpm/node
+前后端启动测试	未执行	环境无 node
+浏览器 E2E	未执行	无可运行服务
+静态路由扫描	通过	已确认新 route 存在
+源码级流程走查	完成	见下方
+源码级流程测试矩阵
+流程	测试结果	结论
+TK 授权 → Autopilot	部分通过	有 OAuth/guard，但可能选中未授权账号
+FB 授权 → 同行抓取	通过	Graph route 和授权校验存在
+IG 授权 → 同行抓取	部分通过	依赖 FB Page + IG Business，逻辑存在
+XHS 账号画像 → workflow	通过	不需要 OAuth
+类目/需求输入	通过	Autopilot 支持
+账号画像一致性检查	通过	/ai/check-niche-fit
+品牌画像保存	通过	/brand-profile
+品牌画像进入策略	通过	strategyGenerator 已注入
+市场趋势 TikTok	通过	TikHub
+市场趋势 FB/IG	部分通过	有同行库聚合，无同行时 mock
+市场趋势 XHS	部分通过	公共搜索可用，依赖 API key
+同行发布时间分析	通过	bestPostingHoursLocal
+三套策略生成	通过	Autopilot 并发生成
+草稿生成	通过	strategy.approve
+就地编辑文案/标签	通过	Autopilot edit step
+图片生成/上传/选择	通过	Autopilot edit step
+Sora 视频生成	部分通过	代码存在，需真实环境验证
+Seedance 视频生成	部分通过	API 存在，但 Autopilot 主按钮偏 Sora
+单条排期	通过	/content/:id/schedule
+批量一周排期	失败/高风险	content 缺 ownerUserId
+自动发布 dispatcher	部分通过	逻辑完整，需真实 OAuth/API 验证
+XHS 手动下载发布	通过	workflow 支持
+4. 当前最需要修的 5 个问题
+P0-1：批量排期 content 缺 ownerUserId
+路径：
+
+artifacts/api-server/src/routes/schedules.ts
+需要修：
+
+ownerUserId: u.id
+位置：
+
+/schedules/bulk-create
+/schedules/duplicate-weeks
+这是当前“一周内容排版”闭环的最大 bug。
+
+P0-2：Autopilot 可能默认选中未授权账号
+路径：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+当前：
+
+setSelectedAccountId(list[0].id);
+建议：
+
+const readyAccounts = list.filter(isAccountReady);
+setSelectedAccountId(readyAccounts[0]?.id ?? null);
+并且账号选择 UI 对未授权账号加禁用状态。
+
+P1-1：Autopilot 的一周排期还是“完成后 CTA”，不是主流程
+现在主流程仍是：
+
+生成 1 条 → 排期 1 条 → 完成后再问要不要排 6 条
+你的目标更像：
+
+生成策略 → 生成完整 7 天内容包 → 客户一次确认
+建议把 BulkCampaignCTA 前置到策略批准后：
+
+策略确认 → 生成 7 条 → 编辑/确认 → 批量排期
+P1-2：周计划没有使用品牌画像
+strategyGenerator 用了 brand profile，但：
+
+/api/ai/generate-weekly-plan
+没有加载 brandProfilesTable。
+
+建议 generate-weekly-plan 也注入：
+
+products
+targetAudience
+tone
+forbiddenClaims
+conversionGoal
+否则一周内容会比第一条策略弱。
+
+P1-3：周计划只生成文案，不生成素材
+generateWeeklyPlan 输出：
+
+title
+body
+tags
+imagePrompt
+但没有自动生成图片或视频。
+
+建议分阶段：
+
+1. 先生成 7 条文案 + imagePrompt + videoScript
+2. 客户确认
+3. 再批量生成图片/视频
+避免成本过高，也更可控。
+
+5. 你的目标场景现在是否符合？
+TK / FB / IG
+接近符合，但还差“一周 campaign 主流程”和授权账号选择修复。
+
+当前能做到：
+
+授权账号
+输入类目和需求
+抓市场/同行
+生成策略
+生成草稿
+编辑素材
+推荐时间
+排期/发布
+但还没完全做到：
+
+一次性生成一周 7 条完整素材包并让客户确认
+XHS
+基本符合。
+
+当前 XHS 最接近你的需求：
+
+无需授权
+公开数据分析
+伪原创图文
+下载素材
+手动发布
+推荐排期
+需要优化的只是文案和入口：
+
+不要说“授权小红书”；
+统一叫“账号画像”；
+XHS 排期叫“手动发布提醒 / 推荐发布时间”。
+6. 建议的下一步改造顺序
+任务 1：修复批量排期 ownerUserId
+必须先做。
+
+涉及：
+
+artifacts/api-server/src/routes/schedules.ts
+任务 2：Autopilot 只选择可发布账号
+涉及：
+
+artifacts/xhs-tool/src/pages/autopilot.tsx
+任务 3：把一周计划前置成主流程
+把流程改成：
+
+策略卡 → 7 天计划 → 用户确认 → 批量生成草稿/排期
+任务 4：weekly plan 注入 brand profile
+涉及：
+
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/services/planGenerator.ts
+任务 5：素材生成分层
+推荐：
+
+免费/低成本：文案 + prompt + 分镜
+客户确认后：图片生成
+Pro/高成本：Sora / Seedance 视频生成
+7. 最终评分
+模块	当前完成度
+TK/FB/IG 授权与账号体系	80%
+市场分析	70%
+同行分析	80%
+品牌画像	75%
+策略生成	85%
+伪原创文案	85%
+伪原创图片	70%
+伪原创视频	60%
+自定义修改	80%
+推荐发布时间	75%
+一周排期	60%，有 P0 bug
+自动发布	70%，需真实平台测试
+XHS 手动发布流	85%
+整体：78% 左右。
+
+结论：
+
+现在已经不是简单拼接工具，已经接近你要的“多平台社媒 AI 内容作战系统”。但要真正符合你的完整商业场景，还必须先修复批量排期 ownerUserId 和 Autopilot 账号授权选择问题，然后把一周内容包变成主流程，而不是完成后的附加 CTA。

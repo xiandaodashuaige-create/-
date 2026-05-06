@@ -100,13 +100,20 @@ router.post("/ai/generate-video", requireCredits("ai-generate-video"), async (re
 
 // ── POST /api/ai/generate-video-sora ────────────────────────────────────
 // 高清电影级（OpenAI Sora 2 Pro · 1080p · 12s）—— 仅 pro 用户可用，250 积分
-router.post("/ai/generate-video-sora", requireCredits("ai-generate-video-sora"), async (req, res): Promise<void> => {
+// pro_only 网关必须在 requireCredits 之前；否则 free 用户会先收到 "积分不足"
+// 而不是 "升级到 Pro" 的友好提示
+const proOnlyGate = async (req: any, res: any, next: any): Promise<void> => {
   const user = await ensureUser(req);
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (user.plan !== "pro") {
     res.status(403).json({ error: "pro_only", message: "Sora 高清电影级视频仅对 Pro 套餐用户开放，请先升级套餐。" });
     return;
   }
+  next();
+};
+router.post("/ai/generate-video-sora", proOnlyGate, requireCredits("ai-generate-video-sora"), async (req, res): Promise<void> => {
+  const user = await ensureUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
   const b = req.body ?? {};
   if (!b.newTopic || typeof b.newTopic !== "string") { res.status(400).json({ error: "newTopic is required" }); return; }
   const platform: Platform = isPlatform(b.platform) ? b.platform : "tiktok";
