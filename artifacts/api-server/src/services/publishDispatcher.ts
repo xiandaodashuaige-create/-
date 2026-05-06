@@ -108,123 +108,145 @@ async function markFailed(scheduleId: number, _currentRetryCount: number, errorM
   `);
 }
 
-async function publishOne(row: DueRow): Promise<void> {
-  const useAyrshare = !!row.ayrshare_profile_key && Ayrshare.isConfigured();
+// 抽出"真正调外部 provider"的纯逻辑，cron dispatcher 和 manual /content/:id/publish 路由共用。
+// 不读不写 schedules / content / publish_logs 表，调用方负责状态维护和日志。
+export interface DispatchInput {
+  platform: string;
+  accountId: number;
+  title: string;
+  body: string;
+  imageUrls: string[] | null;
+  videoUrl: string | null;
+  oauthAccessToken: string | null;
+  oauthRefreshToken: string | null;
+  oauthExpiresAt: Date | string | null;
+  platformAccountId: string | null;
+  ayrshareProfileKey: string | null;
+}
+export type DispatchResult =
+  | { success: true; postId: string }
+  | { success: false; errorMessage: string };
 
-  // Pick first available media URL (prefer video for TikTok)
-  const mediaUrl = row.video_url || (row.image_urls && row.image_urls[0]) || null;
-  const isVideo = !!row.video_url;
-  const caption = row.title ? `${row.title}\n\n${row.body}` : row.body;
-
-  const startedAt = Date.now();
-  const attempt = (row.retry_count ?? 0) + 1;
-  const logSuccess = (postId: string | null) =>
-    writePublishLog({
-      scheduleId: row.schedule_id, contentId: row.content_id, accountId: row.account_id,
-      platform: row.platform, attempt, status: "success", postId,
-      durationMs: Date.now() - startedAt,
-    });
-  const logFail = (msg: string) =>
-    writePublishLog({
-      scheduleId: row.schedule_id, contentId: row.content_id, accountId: row.account_id,
-      platform: row.platform, attempt, status: "failed", errorMessage: msg,
-      durationMs: Date.now() - startedAt,
-    });
+export async function dispatchContentToProvider(input: DispatchInput): Promise<DispatchResult> {
+  const useAyrshare = !!input.ayrshareProfileKey && Ayrshare.isConfigured();
+  const mediaUrl = input.videoUrl || (input.imageUrls && input.imageUrls[0]) || null;
+  const isVideo = !!input.videoUrl;
+  const caption = input.title ? `${input.title}\n\n${input.body}` : input.body;
 
   try {
     if (useAyrshare) {
-      if (!mediaUrl) throw new Error("无媒体（视频或图片）可发布");
+      if (!mediaUrl) return { success: false, errorMessage: "无媒体（视频或图片）可发布" };
       const result = await Ayrshare.publishToSocial({
-        platforms: [row.platform as Ayrshare.AyrsharePlatform],
+        platforms: [input.platform as Ayrshare.AyrsharePlatform],
         mediaUrls: [mediaUrl],
         caption,
         isVideo,
-        // 多账号场景必须透传 profileKey，否则 Ayrshare 会发到默认 profile。
-        // 但 "default" 是 sync 路径写入的哨兵值，表示"走 Ayrshare 的默认 profile"，
-        // 不能当真实 Profile-Key 透传（Ayrshare 会 404）。
         profileKey:
-          row.ayrshare_profile_key && row.ayrshare_profile_key !== "default"
-            ? row.ayrshare_profile_key
+          input.ayrshareProfileKey && input.ayrshareProfileKey !== "default"
+            ? input.ayrshareProfileKey
             : undefined,
       });
-      if (!result.success) throw new Error(result.errorMessage || "Ayrshare publish failed");
-      await markPublished(row.schedule_id, row.content_id, result.postId || "ayrshare");
-      await logSuccess(result.postId || "ayrshare");
-      logger.info({ scheduleId: row.schedule_id, platform: row.platform, postId: result.postId }, "Published via Ayrshare");
-      return;
+      if (!result.success) return { success: false, errorMessage: result.errorMessage || "Ayrshare publish failed" };
+      return { success: true, postId: result.postId || "ayrshare" };
     }
 
-    if (row.platform === "tiktok") {
-      if (!row.oauth_access_token) throw new Error("TikTok 未授权 (oauth_access_token 为空)");
-      if (!row.video_url) throw new Error("TikTok 必须有视频 URL");
-      // 解密落盘的加密 token（明文 token 兼容直通）
-      let accessToken = decryptToken(row.oauth_access_token);
-      if (!accessToken) throw new Error("TikTok access_token 解密失败");
-      const refreshTokenPlain = decryptToken(row.oauth_refresh_token);
-      const expiresAt = row.oauth_expires_at ? new Date(row.oauth_expires_at).getTime() : 0;
+    if (input.platform === "tiktok") {
+      if (!input.oauthAccessToken) return { success: false, errorMessage: "TikTok 未授权 (oauth_access_token 为空)" };
+      if (!input.videoUrl) return { success: false, errorMessage: "TikTok 必须有视频 URL" };
+      let accessToken = decryptToken(input.oauthAccessToken);
+      if (!accessToken) return { success: false, errorMessage: "TikTok access_token 解密失败" };
+      const refreshTokenPlain = decryptToken(input.oauthRefreshToken);
+      const expiresAt = input.oauthExpiresAt ? new Date(input.oauthExpiresAt).getTime() : 0;
       if (refreshTokenPlain && expiresAt > 0 && expiresAt - Date.now() < 5 * 60 * 1000) {
         try {
           const refreshed = await TikTokOAuth.refreshAccessToken(refreshTokenPlain);
           accessToken = refreshed.access_token;
-          // 加密后落盘
           await db.execute(sql`
             UPDATE accounts
             SET oauth_access_token=${encryptToken(refreshed.access_token)},
                 oauth_refresh_token=${encryptToken(refreshed.refresh_token)},
                 oauth_expires_at=${new Date(Date.now() + refreshed.expires_in * 1000)}
-            WHERE id=${row.account_id}
+            WHERE id=${input.accountId}
           `);
-          logger.info({ accountId: row.account_id }, "TikTok token refreshed before publish");
+          logger.info({ accountId: input.accountId }, "TikTok token refreshed before publish");
         } catch (e) {
-          logger.warn({ err: e, accountId: row.account_id }, "TikTok token refresh failed, trying with stale token");
+          logger.warn({ err: e, accountId: input.accountId }, "TikTok token refresh failed, trying with stale token");
         }
       }
-      const result = await TikTokOAuth.publishVideoToTikTok(accessToken, row.video_url, row.title);
-      await markPublished(row.schedule_id, row.content_id, result.publish_id);
-      await logSuccess(result.publish_id);
-      logger.info({ scheduleId: row.schedule_id, mode: result.mode, publishId: result.publish_id }, "TikTok publish initiated");
-      return;
+      const result = await TikTokOAuth.publishVideoToTikTok(accessToken, input.videoUrl, input.title);
+      return { success: true, postId: result.publish_id };
     }
 
-    if (row.platform === "facebook") {
-      if (!row.oauth_access_token || !row.platform_account_id) throw new Error("Facebook 未授权");
-      const fbToken = decryptToken(row.oauth_access_token);
-      if (!fbToken) throw new Error("Facebook access_token 解密失败");
-      const img = row.image_urls && row.image_urls[0];
+    if (input.platform === "facebook") {
+      if (!input.oauthAccessToken || !input.platformAccountId) return { success: false, errorMessage: "Facebook 未授权（缺少 token 或 page id）" };
+      const fbToken = decryptToken(input.oauthAccessToken);
+      if (!fbToken) return { success: false, errorMessage: "Facebook access_token 解密失败" };
+      const img = input.imageUrls && input.imageUrls[0];
       const result = await MetaOAuth.publishToFacebookPage(
-        row.platform_account_id,
+        input.platformAccountId,
         fbToken,
         caption,
         img || undefined,
       );
-      await markPublished(row.schedule_id, row.content_id, result.id);
-      await logSuccess(result.id);
-      logger.info({ scheduleId: row.schedule_id, postId: result.id }, "Facebook published");
-      return;
+      return { success: true, postId: result.id };
     }
 
-    if (row.platform === "instagram") {
-      if (!row.oauth_access_token || !row.platform_account_id) throw new Error("Instagram 未授权");
-      const igToken = decryptToken(row.oauth_access_token);
-      if (!igToken) throw new Error("Instagram access_token 解密失败");
-      const img = row.image_urls && row.image_urls[0];
-      if (!img && !row.video_url) throw new Error("Instagram 必须有至少 1 张图片或 1 个视频 URL");
+    if (input.platform === "instagram") {
+      if (!input.oauthAccessToken || !input.platformAccountId) return { success: false, errorMessage: "Instagram 未授权（缺少 token 或 ig user id）" };
+      const igToken = decryptToken(input.oauthAccessToken);
+      if (!igToken) return { success: false, errorMessage: "Instagram access_token 解密失败" };
+      const img = input.imageUrls && input.imageUrls[0];
+      if (!img && !input.videoUrl) return { success: false, errorMessage: "Instagram 必须有至少 1 张图片或 1 个视频 URL" };
       const result = await MetaOAuth.publishToInstagram(
-        row.platform_account_id,
+        input.platformAccountId,
         igToken,
         caption,
-        row.video_url ? { videoUrl: row.video_url } : { imageUrl: img },
+        input.videoUrl ? { videoUrl: input.videoUrl } : { imageUrl: img! },
       );
-      await markPublished(row.schedule_id, row.content_id, result.id);
-      await logSuccess(result.id);
-      logger.info({ scheduleId: row.schedule_id, postId: result.id }, "Instagram published");
-      return;
+      return { success: true, postId: result.id };
     }
+
+    return { success: false, errorMessage: `不支持的平台: ${input.platform}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error({ err: msg, scheduleId: row.schedule_id, platform: row.platform, retryCount: row.retry_count }, "Publish failed");
-    await markFailed(row.schedule_id, row.retry_count ?? 0, msg);
-    await logFail(msg);
+    return { success: false, errorMessage: msg };
+  }
+}
+
+async function publishOne(row: DueRow): Promise<void> {
+  const startedAt = Date.now();
+  const attempt = (row.retry_count ?? 0) + 1;
+
+  const result = await dispatchContentToProvider({
+    platform: row.platform,
+    accountId: row.account_id,
+    title: row.title,
+    body: row.body,
+    imageUrls: row.image_urls,
+    videoUrl: row.video_url,
+    oauthAccessToken: row.oauth_access_token,
+    oauthRefreshToken: row.oauth_refresh_token,
+    oauthExpiresAt: row.oauth_expires_at,
+    platformAccountId: row.platform_account_id,
+    ayrshareProfileKey: row.ayrshare_profile_key,
+  });
+
+  if (result.success) {
+    await markPublished(row.schedule_id, row.content_id, result.postId);
+    await writePublishLog({
+      scheduleId: row.schedule_id, contentId: row.content_id, accountId: row.account_id,
+      platform: row.platform, attempt, status: "success", postId: result.postId,
+      durationMs: Date.now() - startedAt,
+    });
+    logger.info({ scheduleId: row.schedule_id, platform: row.platform, postId: result.postId }, "Published");
+  } else {
+    logger.error({ err: result.errorMessage, scheduleId: row.schedule_id, platform: row.platform, retryCount: row.retry_count }, "Publish failed");
+    await markFailed(row.schedule_id, row.retry_count ?? 0, result.errorMessage);
+    await writePublishLog({
+      scheduleId: row.schedule_id, contentId: row.content_id, accountId: row.account_id,
+      platform: row.platform, attempt, status: "failed", errorMessage: result.errorMessage,
+      durationMs: Date.now() - startedAt,
+    });
   }
 }
 

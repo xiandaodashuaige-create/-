@@ -4,7 +4,7 @@ export const publishLogsTable = pgTable(
   "publish_logs",
   {
     id: serial("id").primaryKey(),
-    scheduleId: integer("schedule_id").notNull(),
+    scheduleId: integer("schedule_id"),
     contentId: integer("content_id"),
     accountId: integer("account_id"),
     platform: text("platform").notNull(),

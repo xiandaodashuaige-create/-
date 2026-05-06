@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and, sql, type SQL } from "drizzle-orm";
-import { db, contentTable, accountsTable, schedulesTable } from "@workspace/db";
+import { db, contentTable, accountsTable, schedulesTable, publishLogsTable } from "@workspace/db";
+import { dispatchContentToProvider } from "../services/publishDispatcher.js";
 import {
   CreateContentBody,
   GetContentParams,
@@ -404,9 +405,72 @@ router.post("/content/:id/publish", requireCredits("content-publish"), async (re
       return;
     }
 
+    // loadOwnedContent 返回 raw SQL row（snake_case）
+    const ownedRow = owned as Record<string, any>;
+    const ownedAccountId: number | null = ownedRow.account_id ?? null;
+    const platform: string = ownedRow.platform || "xhs";
+    if (!ownedAccountId) {
+      res.status(400).json({ error: "内容未绑定账号，无法发布" });
+      return;
+    }
+    const [account] = await db.select().from(accountsTable).where(eq(accountsTable.id, ownedAccountId));
+    if (!account) {
+      res.status(400).json({ error: "账号不存在" });
+      return;
+    }
+
+    const startedAt = Date.now();
+    let remotePostId: string | null = null;
+    let realPublish = false;
+
+    if (platform === "facebook" || platform === "instagram" || platform === "tiktok") {
+      realPublish = true;
+      const dispatch = await dispatchContentToProvider({
+        platform,
+        accountId: account.id,
+        title: ownedRow.title || "",
+        body: ownedRow.body || "",
+        imageUrls: (ownedRow.image_urls as string[] | null) ?? null,
+        videoUrl: (ownedRow.video_url as string | null) ?? null,
+        oauthAccessToken: account.oauthAccessToken ?? null,
+        oauthRefreshToken: account.oauthRefreshToken ?? null,
+        oauthExpiresAt: account.oauthExpiresAt ?? null,
+        platformAccountId: account.platformAccountId ?? null,
+        ayrshareProfileKey: account.ayrshareProfileKey ?? null,
+      });
+
+      // 不论成败都落 publish_logs（schedule_id=NULL 表示手动立即发布）
+      try {
+        await db.insert(publishLogsTable).values({
+          scheduleId: null,
+          contentId: ownedRow.id,
+          accountId: account.id,
+          platform,
+          attempt: 1,
+          status: dispatch.success ? "success" : "failed",
+          postId: dispatch.success ? dispatch.postId : null,
+          errorMessage: dispatch.success ? null : dispatch.errorMessage,
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (e) {
+        req.log.warn({ err: e }, "publish_logs insert failed (non-fatal)");
+      }
+
+      if (!dispatch.success) {
+        // 失败：不动 content.status；不扣积分；把错误原因返回前端
+        res.status(502).json({ error: dispatch.errorMessage, platform });
+        return;
+      }
+      remotePostId = dispatch.postId;
+    }
+
     const [content] = await db
       .update(contentTable)
-      .set({ status: "published", publishedAt: new Date() })
+      .set({
+        status: "published",
+        publishedAt: new Date(),
+        ...(remotePostId ? { remotePostId } : {}),
+      })
       .where(eq(contentTable.id, params.data.id))
       .returning();
 
@@ -415,8 +479,12 @@ router.post("/content/:id/publish", requireCredits("content-publish"), async (re
       .set({ status: "completed" })
       .where(eq(schedulesTable.contentId, content.id));
 
-    const [account] = await db.select().from(accountsTable).where(eq(accountsTable.id, content.accountId!));
-    await logActivity("content_published", `Published (${content.platform}): ${content.title}`, content.id, content.accountId ?? undefined);
+    await logActivity(
+      "content_published",
+      `${realPublish ? "已真发" : "已标记发布"}（${content.platform}）: ${content.title}${remotePostId ? ` post_id=${remotePostId}` : ""}`,
+      content.id,
+      content.accountId ?? undefined,
+    );
 
     const result = mapContentRow(ormRowToMapInput(content, account));
 
