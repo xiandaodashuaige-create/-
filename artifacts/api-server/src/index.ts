@@ -1,19 +1,14 @@
+import { validateEnv } from "./config/env";
+// 启动前先校验环境变量（必需项缺失直接 process.exit(1)）
+const env = validateEnv();
+
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startCronJobs } from "./services/cron";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
+const port = Number(env.PORT);
 if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
+  throw new Error(`Invalid PORT value: "${env.PORT}"`);
 }
 
 app.listen(port, (err) => {

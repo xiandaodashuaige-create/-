@@ -10,6 +10,7 @@ import {
 } from "./middlewares/clerkProxyMiddleware";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { errorHandler } from "./middlewares/errorHandler";
 
 const app: Express = express();
 
@@ -66,5 +67,8 @@ app.use(
 );
 
 app.use("/api", router);
+
+// 全局错误处理 —— 必须在所有 route 之后挂载
+app.use(errorHandler);
 
 export default app;

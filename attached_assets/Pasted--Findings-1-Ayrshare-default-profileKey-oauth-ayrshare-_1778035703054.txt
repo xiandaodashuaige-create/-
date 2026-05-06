@@ -1,0 +1,169 @@
+主要问题 / Findings
+1. 🔴 Ayrshare "default" profileKey 可能导致自动发布失败
+/oauth/ayrshare/sync 会把 Ayrshare 账号写成：
+
+.set({ ayrshareProfileKey: "default" })
+路径：artifacts/api-server/src/routes/oauth.ts:257-260
+
+但新版 publishDispatcher 又会把它作为真实 profile key 传给 Ayrshare：
+
+profileKey: row.ayrshare_profile_key ?? undefined,
+路径：artifacts/api-server/src/services/publishDispatcher.ts:142-143
+
+而 Ayrshare client 会直接发 header：
+
+if (profileKey) headers["Profile-Key"] = profileKey;
+路径：artifacts/api-server/src/lib/oauth/ayrshare.ts:11-17
+
+风险： 如果 Ayrshare 主 profile 不接受 Profile-Key: default，原本能发布的默认 profile 会开始失败。
+
+建议：
+
+不要用 "default" 当真实 profile key。
+可改为：
+ayrshareProfileKey = null 表示默认 profile；
+新增 publishVia = "ayrshare" 或 authProvider = "ayrshare" 字段表示走 Ayrshare。
+临时修复：
+profileKey:
+  row.ayrshare_profile_key && row.ayrshare_profile_key !== "default"
+    ? row.ayrshare_profile_key
+    : undefined
+2. 🟡 TikTok Provider Switcher 只是脚手架，未真正接入主流程
+新增了：
+
+artifacts/api-server/src/services/tiktokProviders/index.ts
+artifacts/api-server/src/services/tiktokProviders/echotik.ts
+artifacts/api-server/src/services/tiktokProviders/fastmoss.ts
+artifacts/api-server/src/services/tiktokProviders/kalodata.ts
+但 routes/competitors.ts 仍然直接使用 TikHub：
+
+if (!isTikHubConfigured()) ...
+const p = await fetchTikTokProfile(handle);
+const vids = await fetchTikTokUserVideos(p.secUid, 12);
+路径：artifacts/api-server/src/routes/competitors.ts:117-129
+
+而 provider switcher 自己也写明“现有 routes 不强制改造”：
+
+// 已有 routes/competitors.ts 调用 tikhubScraper 的代码不强制改造
+路径：artifacts/api-server/src/services/tiktokProviders/index.ts:9-10
+
+结论： EchoTik / Kalodata / FastMoss 仍未迁移完成，只是占位。
+
+3. 🟡 Whisper 转录已加后端 route，但没有接入前端和策略主流程
+新增 route：
+
+POST /api/competitor-posts/:id/transcribe
+路径：artifacts/api-server/src/routes/competitors.ts:754-790
+
+但前端 API client 没有对应方法，搜索只看到：
+
+starPost: (postId, starred) => /competitor-posts/:id/star
+路径：artifacts/xhs-tool/src/lib/api.ts:282-330
+
+同时 transcript 在后端实际只被：
+
+写入 competitor_posts.transcript
+videoPipeline.ts 可读取
+但没有被 /competitors/strategy 或 /api/strategy/* 的策略生成显式使用。
+
+结论： “Whisper 能力”现在是后端半接入状态，不是完整工作流能力。
+
+4. 🟡 TTS / Gemini / AdForge / Kling 仍然缺失
+搜索结果显示主仓库仍只有：
+
+ttsAudioUrl 字段
+replit 文档描述
+没有实际：
+
+msedge-tts
+Gemini adapter
+/api/adforge/*
+Kling client
+AdForge projects/materials/segments/compositions schema
+所以老系统 B 的核心视频广告创意链路仍未迁移。
+
+5. 🟡 账号删除仍会产生隐藏内容
+content.accountId 仍是：
+
+accountId: integer("account_id").references(() => accountsTable.id, { onDelete: "set null" })
+路径：lib/db/src/schema/content.ts:8
+
+而 /content 列表依赖 INNER JOIN accounts 做租户过滤。删除账号后，内容会变成 account_id = null，从 UI/API 列表消失。
+
+虽然这次修复了 strategy/:id/approve 创建孤儿内容的问题，但账号删除路径仍可能制造孤儿内容。
+
+已修复 / 明显改善的点
+✅ 1. 发布重试 bug 已基本修复
+新增：
+
+retryCount: integer("retry_count").notNull().default(0)
+路径：lib/db/src/schema/schedules.ts:18-19
+
+markFailed 改为 DB 原子自增：
+
+retry_count = retry_count + 1
+status = CASE WHEN retry_count + 1 >= MAX_RETRIES THEN 'failed' ELSE 'pending' END
+路径：artifacts/api-server/src/services/publishDispatcher.ts:98-108
+
+这是重要修复。
+
+✅ 2. publish logs 已加入
+新增表：
+
+lib/db/src/schema/publishLogs.ts
+并在 dispatcher 中写入：
+
+writePublishLog(...)
+路径：artifacts/api-server/src/services/publishDispatcher.ts:59-86
+
+✅ 3. OAuth state 已持久化
+新增：
+
+lib/db/src/schema/oauthStates.ts
+artifacts/api-server/src/lib/oauth/state.ts
+并改 Meta / TikTok OAuth 使用 DB state。
+
+这比之前内存 Map 安全很多。
+
+✅ 4. OAuth token 加密已加入
+新增：
+
+artifacts/api-server/src/lib/crypto.ts
+OAuth token 写入前加密：
+
+const encAccess = encryptToken(args.accessToken);
+路径：artifacts/api-server/src/routes/oauth.ts:45-59
+
+发布时也做了解密。
+
+✅ 5. 策略批准孤儿 content 已修复
+现在如果用户没有绑定平台账号，直接返回：
+
+error: "no_account"
+路径：artifacts/api-server/src/routes/strategy.ts:153-167
+
+这解决了上轮 P0 问题。
+
+当前总体评价
+融合完成度从上轮约 58% 提升到约 66%。
+
+主要提升来自：
+
+OAuth state 持久化
+token 加密
+publish retry 修复
+publish logs
+Whisper route 初步加入
+策略孤儿内容修复
+但还不能算完整融合，因为：
+
+Ayrshare "default" profileKey 可能引入新发布故障。
+TikTok 多 provider 只是 scaffold。
+Whisper 没进 UI / 策略主流程。
+TTS / Gemini / AdForge / Kling 仍未迁移。
+账号删除仍可能制造隐藏内容。
+验证限制
+我尝试运行：
+
+pnpm run typecheck
+但当前云环境没有 pnpm / node / npm，所以无法完成编译验证。以上结论基于源码静态审查。

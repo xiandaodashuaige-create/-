@@ -15,7 +15,7 @@ async function requireAdmin(req: any, res: any, next: any) {
     res.status(403).json({ error: "Admin access required" });
     return;
   }
-  (req as any).dbUser = user;
+  req.dbUser = user;
   next();
 }
 

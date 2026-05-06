@@ -18,6 +18,9 @@ export const schedulesTable = pgTable("schedules", {
   // 真正的重试计数（之前用 error_message LIKE 'retry=N' 比较，与写入的时间戳不匹配，会无限重试）
   retryCount: integer("retry_count").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // 状态变更时自动更新（重试 / 标记成功 / 标记失败 都会触发）
+  // 用 $onUpdate 在 ORM 写入时自动 set；同时 .defaultNow() 兜底已有行
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
 
 export const insertScheduleSchema = createInsertSchema(schedulesTable).omit({ id: true, createdAt: true });

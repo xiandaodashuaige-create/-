@@ -1,6 +1,7 @@
 import { db, usersTable, creditTransactionsTable } from "@workspace/db";
 import { eq, gte, sql, and } from "drizzle-orm";
 import type { Request, Response, NextFunction } from "express";
+import { getAuth } from "@clerk/express";
 
 export const CREDIT_COSTS: Record<string, number> = {
   "ai-rewrite": 3,
@@ -38,15 +39,16 @@ const ROUTE_TO_OPERATION: Record<string, string> = {
 };
 
 export async function ensureUser(req: Request): Promise<any> {
-  const clerkId = (req as any).userId;
+  const clerkId = req.userId;
   if (!clerkId) return null;
 
   let [user] = await db.select().from(usersTable).where(eq(usersTable.clerkId, clerkId)).limit(1);
 
   if (!user) {
-    const auth = (req as any).auth;
-    const email = auth?.sessionClaims?.email || auth?.sessionClaims?.primaryEmail || null;
-    const nickname = auth?.sessionClaims?.firstName || auth?.sessionClaims?.name || null;
+    const auth = getAuth(req);
+    const claims = auth?.sessionClaims as Record<string, unknown> | undefined;
+    const email = (claims?.email as string | undefined) || (claims?.primaryEmail as string | undefined) || null;
+    const nickname = (claims?.firstName as string | undefined) || (claims?.name as string | undefined) || null;
 
     // 初始 admin 邮箱白名单 — 仅在新用户首次注册时生效（决定 role 字段初值）
     // 现有用户的管理员状态以 users.role 为准；env 变更不影响存量数据。
@@ -84,7 +86,7 @@ export function requireCredits(operationType?: string) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
-      (req as any).dbUser = user;
+      req.dbUser = user;
 
       const op = operationType || ROUTE_TO_OPERATION[`${req.method}:${req.path}`];
       if (!op) {
@@ -99,8 +101,8 @@ export function requireCredits(operationType?: string) {
       }
 
       if (user.role === "admin") {
-        (req as any).creditOperation = op;
-        (req as any).creditCost = 0;
+        req.creditOperation = op;
+        req.creditCost = 0;
         next();
         return;
       }
@@ -115,8 +117,8 @@ export function requireCredits(operationType?: string) {
         return;
       }
 
-      (req as any).creditOperation = op;
-      (req as any).creditCost = cost;
+      req.creditOperation = op;
+      req.creditCost = cost;
       next();
     } catch (err) {
       next(err);
@@ -125,11 +127,11 @@ export function requireCredits(operationType?: string) {
 }
 
 export async function deductCredits(req: Request, operationType?: string): Promise<void> {
-  const user = (req as any).dbUser;
+  const user = req.dbUser;
   if (!user || user.role === "admin") return;
 
-  const op = operationType || (req as any).creditOperation;
-  const cost = (req as any).creditCost || CREDIT_COSTS[op] || 0;
+  const op = operationType || req.creditOperation;
+  const cost = req.creditCost || CREDIT_COSTS[op as string] || 0;
   if (cost <= 0) return;
 
   const result = await db.update(usersTable)
