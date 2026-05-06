@@ -44,6 +44,15 @@ export default function AutopilotPage() {
   // 用户手动指定的同行账号 / 主页链接（一行一个或逗号分隔）
   // —— 跟 XHS workflow 的 competitorLink 输入对齐，让客户能精准锚定要参考谁
   const [customCompetitors, setCustomCompetitors] = useState("");
+  // TT/IG 视频平台：是否让 AI 一并产出视频脚本（hook + 分镜 + 字幕 + 封面字）
+  // 默认开（仅视频平台默认 true，FB 默认 false 因为 FB 多图文）
+  // 用户手动改过之后就不再随 platform 切换覆盖，避免吞掉用户的选择
+  const [wantVideoScript, setWantVideoScript] = useState(platform === "tiktok" || platform === "instagram");
+  const videoScriptTouchedRef = useRef(false);
+  useEffect(() => {
+    if (videoScriptTouchedRef.current) return;
+    setWantVideoScript(platform === "tiktok" || platform === "instagram");
+  }, [platform]);
   const [autoDiscover, setAutoDiscover] = useState(true);
   const [customMode, setCustomMode] = useState(false);
   const customModeRef = useRef(false);
@@ -156,20 +165,43 @@ export default function AutopilotPage() {
       let competitorPool = [...existingCompetitors];
 
       // (a) 优先处理用户手动填写的同行账号 / 主页链接
-      // 解析规则：按逗号 / 换行 / 空格切，去掉 @ 和 URL 前缀，剔除已存在
+      // 解析规则：按逗号 / 换行 / 空格切；从 URL 抽 handle（认 path 第一段，过滤 reel/p/share/video 等保留路径）
+      const RESERVED_PATHS = new Set([
+        "reel","reels","p","tv","stories","explore","share","video","videos","watch","groups","pages","photo","photos","posts","story","direct","accounts","tag","tags","hashtag","music","discover","trending","foryou","following",
+      ]);
+      const seenLower = new Set<string>();
+      const existingLower = new Set(competitorPool.map((c: any) => (c.handle || "").toLowerCase()));
       const manualHandles = customCompetitors
         .split(/[\s,，\n]+/)
         .map((s) => s.trim())
         .filter(Boolean)
         .map((raw) => {
-          // 抽 URL 中的 handle：tiktok.com/@x、instagram.com/x、facebook.com/x
-          const urlMatch = raw.match(/(?:tiktok\.com\/@|instagram\.com\/|facebook\.com\/)([A-Za-z0-9._-]+)/i);
-          if (urlMatch) return urlMatch[1];
-          return raw.replace(/^@+/, "").replace(/[/?#].*$/, "");
+          // 优先尝试当 URL 解析
+          let candidate: string | null = null;
+          if (/^https?:\/\//i.test(raw) || /(tiktok|instagram|facebook|fb)\.com/i.test(raw)) {
+            try {
+              const u = new URL(/^https?:/i.test(raw) ? raw : `https://${raw}`);
+              const seg = u.pathname.split("/").filter(Boolean);
+              if (seg.length > 0) {
+                let first = seg[0].replace(/^@/, "");
+                // 第一段是 reel/p/share 等保留词时，不可作为 handle
+                if (RESERVED_PATHS.has(first.toLowerCase())) candidate = null;
+                else candidate = first;
+              }
+            } catch { /* 不是合法 URL，按裸 handle 处理 */ }
+          }
+          if (!candidate) {
+            candidate = raw.replace(/^@+/, "").replace(/[/?#].*$/, "");
+          }
+          return candidate;
         })
-        .filter((h) => h && h.length <= 60)
-        .filter((h, i, arr) => arr.indexOf(h) === i)
-        .filter((h) => !competitorPool.some((c: any) => (c.handle || "").toLowerCase() === h.toLowerCase()));
+        .filter((h): h is string => !!h && /^[A-Za-z0-9._-]{1,60}$/.test(h))
+        .filter((h) => {
+          const lo = h.toLowerCase();
+          if (seenLower.has(lo) || existingLower.has(lo)) return false;
+          seenLower.add(lo);
+          return true;
+        });
 
       if (manualHandles.length > 0) {
         pushLog(`👤 你指定了 ${manualHandles.length} 位同行：${manualHandles.slice(0, 3).map((h) => "@" + h).join("、")}${manualHandles.length > 3 ? "…" : ""}`, "info");
@@ -273,12 +305,17 @@ export default function AutopilotPage() {
 
       // ── Stage 3: AI 综合 ──
       pushLog(`🧠 调用 GPT-5-mini 综合 ${competitorPool.length} 位同行 + ${trendingItems.length} 条市场样本 + 业务身份【${selectedAccount?.nickname ?? "(未选)"}】画像…`, "running");
+      // 视频脚本要求注入 customRequirements，让策略生成器把脚本字段一并产出
+      const reqWithVideo = wantVideoScript
+        ? `${enrichedRequirements ? enrichedRequirements + "\n\n" : ""}【视频脚本要求】每个方案必须额外产出：1) 前 3 秒 hook 字幕（6-12 字，制造好奇/反差）2) 3-5 个分镜描述（每个 1-2 秒）3) 完整字幕（按分镜分段）4) 封面首帧文字（大字，1 行）。${platform === "facebook" ? "" : "竖版 9:16。"}`
+        : enrichedRequirements;
+
       const strat = await api.strategy.generate({
         platform,
         region: region || undefined,
         niche: niche || undefined,
         accountIds: selectedAccountId ? [selectedAccountId] : undefined,
-        customRequirements: enrichedRequirements || undefined,
+        customRequirements: reqWithVideo || undefined,
       }, { signal: sig });
       if (isStale()) return;
       pushLog(`✓ 策略生成完成：${strat.strategy.theme}`, "success");
@@ -548,6 +585,27 @@ export default function AutopilotPage() {
               )}
             </div>
           </div>
+
+          {/* 视频脚本开关 —— 仅 TT/IG 主推；FB 以图文为主但也可选 */}
+          <label className="flex items-start gap-2.5 text-sm cursor-pointer p-3 rounded-md border bg-background hover:bg-muted/30 transition">
+            <Checkbox
+              checked={wantVideoScript}
+              onCheckedChange={(v) => { videoScriptTouchedRef.current = true; setWantVideoScript(!!v); }}
+              className="mt-0.5"
+            />
+            <div className="flex-1">
+              <div className="font-medium flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+                生成视频脚本（hook + 分镜 + 字幕 + 封面字）
+                {(platform === "tiktok" || platform === "instagram") && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">推荐</span>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                打开后 AI 在策略里附上"前 3 秒 hook 字幕 / 3-5 个分镜 / CTA / 封面文字"——可直接照拍照剪。关掉的话只产文案+封面图，视频你自己拍。
+              </div>
+            </div>
+          </label>
 
           {/* 一键模式说明 */}
           {!customMode && (

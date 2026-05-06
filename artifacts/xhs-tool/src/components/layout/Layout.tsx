@@ -22,6 +22,8 @@ import {
   BarChart3,
   Sparkles,
   Send,
+  ChevronDown,
+  Archive,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -33,33 +35,43 @@ import { PLATFORM_LIST } from "@/lib/platform-meta";
 import { usePlatform } from "@/lib/platform-context";
 import { useToast } from "@/hooks/use-toast";
 
+type NavGroup = "main" | "history" | "system";
 type NavItem = {
   path: string;
   labelKey: string;
   icon: typeof LayoutDashboard;
   highlight?: boolean;
   xhsOnly?: boolean;
+  group: NavGroup;
 };
 
+// 分组：
+// - main：日常创作 + 发布（核心入口）
+// - history：历史与素材库（需要时再展开）
+// - system：账号 / 设置（始终可见）
 const navItemsConfig: NavItem[] = [
-  { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
-  { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true },
-  { path: "/quick-publish", labelKey: "nav.quickPublish", icon: Send, highlight: true },
-  { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true, xhsOnly: true },
-  { path: "/competitors", labelKey: "nav.competitors", icon: Users2 },
-  { path: "/market-data", labelKey: "nav.marketData", icon: BarChart3 },
-  { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp, xhsOnly: true },
-  { path: "/accounts", labelKey: "nav.accounts", icon: Users },
-  { path: "/content", labelKey: "nav.content", icon: FileText },
-  { path: "/assets", labelKey: "nav.assets", icon: Image },
-  { path: "/schedules", labelKey: "nav.schedules", icon: Calendar },
-  { path: "/sensitive-words", labelKey: "nav.sensitiveWords", icon: ShieldAlert, xhsOnly: true },
-  { path: "/settings", labelKey: "nav.settings", icon: Settings },
+  { path: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, group: "main" },
+  { path: "/autopilot", labelKey: "nav.autopilot", icon: Sparkles, highlight: true, group: "main" },
+  { path: "/quick-publish", labelKey: "nav.quickPublish", icon: Send, highlight: true, group: "main" },
+  { path: "/workflow", labelKey: "nav.workflow", icon: PenSquare, highlight: true, xhsOnly: true, group: "main" },
+  { path: "/market-data", labelKey: "nav.marketData", icon: BarChart3, group: "main" },
+
+  { path: "/competitors", labelKey: "nav.competitors", icon: Users2, group: "history" },
+  { path: "/content", labelKey: "nav.content", icon: FileText, group: "history" },
+  { path: "/assets", labelKey: "nav.assets", icon: Image, group: "history" },
+  { path: "/schedules", labelKey: "nav.schedules", icon: Calendar, group: "history" },
+  { path: "/tracking", labelKey: "nav.tracking", icon: TrendingUp, xhsOnly: true, group: "history" },
+
+  { path: "/accounts", labelKey: "nav.accounts", icon: Users, group: "system" },
+  { path: "/sensitive-words", labelKey: "nav.sensitiveWords", icon: ShieldAlert, xhsOnly: true, group: "system" },
+  { path: "/settings", labelKey: "nav.settings", icon: Settings, group: "system" },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // 历史分组默认折叠；用户进过其中任一页面后会自动展开
+  const [historyExpanded, setHistoryExpanded] = useState(false);
   const { user } = useUser();
   const { signOut } = useClerk();
   const { t, lang, setLang } = useI18n();
@@ -74,10 +86,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const isAdmin = dbUser?.role === "admin";
 
-  const navItems = [
-    ...navItemsConfig.filter((item) => !item.xhsOnly || activePlatform === "xhs"),
-    ...(isAdmin ? [{ path: "/admin", labelKey: "nav.admin", icon: Shield }] : []),
+  const visibleItems = navItemsConfig.filter((item) => !item.xhsOnly || activePlatform === "xhs");
+  const mainItems = visibleItems.filter((i) => i.group === "main");
+  const historyItems = visibleItems.filter((i) => i.group === "history");
+  const systemItems = [
+    ...visibleItems.filter((i) => i.group === "system"),
+    ...(isAdmin ? [{ path: "/admin", labelKey: "nav.admin", icon: Shield, group: "system" as NavGroup }] : []),
   ];
+
+  // 当前位置在历史组里 → 自动展开
+  const onHistoryRoute = historyItems.some((i) => location.startsWith(i.path));
+  const showHistory = historyExpanded || onHistoryRoute;
 
   return (
     <div className="flex h-screen bg-background">
@@ -153,36 +172,23 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         <ScrollArea className="flex-1 py-4">
           <nav className="space-y-1 px-3">
-            {navItems.map((item) => {
+            {/* —— 主：创作 + 发布 —— */}
+            {mainItems.map((item) => {
               const isActive =
                 item.path === "/dashboard"
                   ? location === "/dashboard"
                   : location.startsWith(item.path);
               return (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  onClick={() => setSidebarOpen(false)}
-                >
+                <Link key={item.path} href={item.path} onClick={() => setSidebarOpen(false)}>
                   <div
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
-                      isActive
-                        ? ""
-                        : (item as any).highlight
-                        ? ""
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      isActive ? "" : (item as any).highlight ? "" : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                     style={
                       isActive
-                        ? {
-                            background: "hsl(var(--platform-primary))",
-                            color: "hsl(var(--platform-primary-fg))",
-                          }
+                        ? { background: "hsl(var(--platform-primary))", color: "hsl(var(--platform-primary-fg))" }
                         : (item as any).highlight
-                        ? {
-                            background: "hsl(var(--platform-soft-bg))",
-                            color: "hsl(var(--platform-soft-text))",
-                          }
+                        ? { background: "hsl(var(--platform-soft-bg))", color: "hsl(var(--platform-soft-text))" }
                         : undefined
                     }
                   >
@@ -192,6 +198,53 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+
+            {/* —— 历史 / 素材库（默认折叠） —— */}
+            <button
+              type="button"
+              onClick={() => setHistoryExpanded((v) => !v)}
+              className="w-full mt-3 flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              <span className="flex-1 text-left">历史与素材</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showHistory ? "rotate-180" : ""}`} />
+            </button>
+            {showHistory && historyItems.map((item) => {
+              const isActive = location.startsWith(item.path);
+              return (
+                <Link key={item.path} href={item.path} onClick={() => setSidebarOpen(false)}>
+                  <div
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ml-3 ${
+                      isActive ? "" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                    style={isActive ? { background: "hsl(var(--platform-primary))", color: "hsl(var(--platform-primary-fg))" } : undefined}
+                  >
+                    <item.icon className="h-4 w-4" />
+                    {t(item.labelKey)}
+                  </div>
+                </Link>
+              );
+            })}
+
+            {/* —— 账号 / 设置 —— */}
+            <div className="pt-3 mt-3 border-t border-border space-y-1">
+              {systemItems.map((item) => {
+                const isActive = location.startsWith(item.path);
+                return (
+                  <Link key={item.path} href={item.path} onClick={() => setSidebarOpen(false)}>
+                    <div
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                        isActive ? "" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                      style={isActive ? { background: "hsl(var(--platform-primary))", color: "hsl(var(--platform-primary-fg))" } : undefined}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {t(item.labelKey)}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
           </nav>
         </ScrollArea>
 

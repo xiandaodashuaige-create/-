@@ -98,6 +98,9 @@ router.get("/competitors", async (req, res): Promise<void> => {
 
 // ── POST /api/competitors  body: { platform, handle, region? } ───────
 // 创建后立刻同步 profile + 最近 12 条
+// 24h 缓存：若该 user+platform+handle 已存在且 lastSyncedAt < 24h，直接返回库存
+// 不再发外部 API 请求（省 TikHub / Meta 配额）
+const COMPETITOR_CACHE_MS = 24 * 60 * 60 * 1000;
 router.post("/competitors", async (req, res): Promise<void> => {
   const user = await ensureUser(req);
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -108,6 +111,21 @@ router.post("/competitors", async (req, res): Promise<void> => {
   if (!platform || !isValidPlatform(platform)) { res.status(400).json({ error: "invalid_platform" }); return; }
   const handle = String(rawHandle ?? "").replace(/^@/, "").trim();
   if (!handle) { res.status(400).json({ error: "missing_handle" }); return; }
+
+  // 24h 缓存命中检查（仅命中已入库且最近同步过的同行）
+  // 大小写不敏感匹配：避免 @UserA / @usera 各算一次浪费配额
+  const [cached] = await db.select().from(competitorProfilesTable).where(and(
+    eq(competitorProfilesTable.userId, user.id),
+    eq(competitorProfilesTable.platform, platform),
+    sql`lower(${competitorProfilesTable.handle}) = lower(${handle})`,
+  ));
+  if (cached?.lastSyncedAt && Date.now() - new Date(cached.lastSyncedAt).getTime() < COMPETITOR_CACHE_MS) {
+    const [postRow] = await db.select({ c: sql<number>`count(*)::int` })
+      .from(competitorPostsTable).where(eq(competitorPostsTable.competitorId, cached.id));
+    req.log?.info({ platform, handle, cachedAgeMin: Math.round((Date.now() - new Date(cached.lastSyncedAt).getTime()) / 60000) }, "competitor cache hit");
+    res.json({ ...cached, postCount: postRow?.c ?? 0, _cached: true });
+    return;
+  }
 
   // 平台分发：抓 profile + posts
   let profileData: any = null;
@@ -272,6 +290,16 @@ router.post("/competitors/:id/sync", async (req, res): Promise<void> => {
   const [profile] = await db.select().from(competitorProfilesTable)
     .where(and(eq(competitorProfilesTable.id, id), eq(competitorProfilesTable.userId, user.id)));
   if (!profile) { res.status(404).json({ error: "not_found" }); return; }
+
+  // 24h 缓存：除非显式 force=true，否则跳过最近同步过的
+  const force = String((req.query.force ?? req.body?.force) ?? "") === "true";
+  if (!force && profile.lastSyncedAt && Date.now() - new Date(profile.lastSyncedAt).getTime() < COMPETITOR_CACHE_MS) {
+    const [postRow] = await db.select({ c: sql<number>`count(*)::int` })
+      .from(competitorPostsTable).where(eq(competitorPostsTable.competitorId, id));
+    req.log?.info({ id, platform: profile.platform, handle: profile.handle }, "competitor sync cache hit");
+    res.json({ ok: true, postsSynced: postRow?.c ?? 0, _cached: true });
+    return;
+  }
 
   // 在覆盖 body 之前先抓取客户端显式传入的 category（用于训练画像触发）
   const explicitCategoryRaw = (req.body as any)?.category;
