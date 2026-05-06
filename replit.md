@@ -81,6 +81,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Autopilot inline edit step:** Custom-mode autopilot includes an `edit` step where users can live-preview and edit content (title, body, tags, images, video) before scheduling.
 - **`POST /content/:id/publish` 真发：** 老版本只是把 DB status 翻成 `published` 不调外部 API（假发布）。已改为通过 `dispatchContentToProvider`（`publishDispatcher.ts` 导出）真调 FB/IG/TT/Ayrshare；失败返回 502 + 不改 status 也不扣积分；成功后写真 `remote_post_id` + `publish_logs` 一条。XHS 仍走旧"标记已发"语义。
 - **`publish_logs.schedule_id` 已放宽为 nullable：** 手动立即发布无对应 schedule，写 `schedule_id=NULL` + `attempt=1`。已对 prod DB 做 `ALTER TABLE publish_logs ALTER COLUMN schedule_id DROP NOT NULL`。
+- **媒体 URL 必须是绝对 https：** `dispatchContentToProvider` 入口用 `toAbsoluteUrl()` 把 `/api/storage/objects/...` 这类相对路径补成 `https://${REPLIT_DOMAINS}{path}`，否则 TikTok / FB / IG 服务器拉不到媒体会报 "Media URLs invalid"。
 
 ## Pointers
 

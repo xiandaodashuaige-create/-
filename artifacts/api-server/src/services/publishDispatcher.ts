@@ -127,10 +127,26 @@ export type DispatchResult =
   | { success: true; postId: string }
   | { success: false; errorMessage: string };
 
+// 把相对路径（/api/storage/...）补成绝对 https URL，否则 TT/FB/IG 拉不到媒体。
+// 优先用 REPLIT_DOMAINS 第一个域名（生产 / preview 都是 https）；本地 dev 时降级到 localhost（仅日志告警，外部 API 一定失败）。
+function toAbsoluteUrl(u: string | null | undefined): string | null {
+  if (!u) return null;
+  if (/^https?:\/\//i.test(u)) return u;
+  const host = (process.env.REPLIT_DOMAINS ?? "").split(",")[0]?.trim();
+  if (!host) {
+    logger.warn({ url: u }, "REPLIT_DOMAINS 未设置，无法将相对媒体 URL 转绝对，外部 API 必然失败");
+    return u; // 让外部 API 报真错，不偷偷吞
+  }
+  const path = u.startsWith("/") ? u : `/${u}`;
+  return `https://${host}${path}`;
+}
+
 export async function dispatchContentToProvider(input: DispatchInput): Promise<DispatchResult> {
   const useAyrshare = !!input.ayrshareProfileKey && Ayrshare.isConfigured();
-  const mediaUrl = input.videoUrl || (input.imageUrls && input.imageUrls[0]) || null;
-  const isVideo = !!input.videoUrl;
+  const absVideoUrl = toAbsoluteUrl(input.videoUrl);
+  const absImageUrls = input.imageUrls ? input.imageUrls.map(toAbsoluteUrl).filter((u): u is string => !!u) : null;
+  const mediaUrl = absVideoUrl || (absImageUrls && absImageUrls[0]) || null;
+  const isVideo = !!absVideoUrl;
   const caption = input.title ? `${input.title}\n\n${input.body}` : input.body;
 
   try {
@@ -152,7 +168,7 @@ export async function dispatchContentToProvider(input: DispatchInput): Promise<D
 
     if (input.platform === "tiktok") {
       if (!input.oauthAccessToken) return { success: false, errorMessage: "TikTok 未授权 (oauth_access_token 为空)" };
-      if (!input.videoUrl) return { success: false, errorMessage: "TikTok 必须有视频 URL" };
+      if (!absVideoUrl) return { success: false, errorMessage: "TikTok 必须有视频 URL" };
       let accessToken = decryptToken(input.oauthAccessToken);
       if (!accessToken) return { success: false, errorMessage: "TikTok access_token 解密失败" };
       const refreshTokenPlain = decryptToken(input.oauthRefreshToken);
@@ -173,7 +189,7 @@ export async function dispatchContentToProvider(input: DispatchInput): Promise<D
           logger.warn({ err: e, accountId: input.accountId }, "TikTok token refresh failed, trying with stale token");
         }
       }
-      const result = await TikTokOAuth.publishVideoToTikTok(accessToken, input.videoUrl, input.title);
+      const result = await TikTokOAuth.publishVideoToTikTok(accessToken, absVideoUrl, input.title);
       return { success: true, postId: result.publish_id };
     }
 
@@ -181,7 +197,7 @@ export async function dispatchContentToProvider(input: DispatchInput): Promise<D
       if (!input.oauthAccessToken || !input.platformAccountId) return { success: false, errorMessage: "Facebook 未授权（缺少 token 或 page id）" };
       const fbToken = decryptToken(input.oauthAccessToken);
       if (!fbToken) return { success: false, errorMessage: "Facebook access_token 解密失败" };
-      const img = input.imageUrls && input.imageUrls[0];
+      const img = absImageUrls && absImageUrls[0];
       const result = await MetaOAuth.publishToFacebookPage(
         input.platformAccountId,
         fbToken,
@@ -195,13 +211,13 @@ export async function dispatchContentToProvider(input: DispatchInput): Promise<D
       if (!input.oauthAccessToken || !input.platformAccountId) return { success: false, errorMessage: "Instagram 未授权（缺少 token 或 ig user id）" };
       const igToken = decryptToken(input.oauthAccessToken);
       if (!igToken) return { success: false, errorMessage: "Instagram access_token 解密失败" };
-      const img = input.imageUrls && input.imageUrls[0];
-      if (!img && !input.videoUrl) return { success: false, errorMessage: "Instagram 必须有至少 1 张图片或 1 个视频 URL" };
+      const img = absImageUrls && absImageUrls[0];
+      if (!img && !absVideoUrl) return { success: false, errorMessage: "Instagram 必须有至少 1 张图片或 1 个视频 URL" };
       const result = await MetaOAuth.publishToInstagram(
         input.platformAccountId,
         igToken,
         caption,
-        input.videoUrl ? { videoUrl: input.videoUrl } : { imageUrl: img! },
+        absVideoUrl ? { videoUrl: absVideoUrl } : { imageUrl: img! },
       );
       return { success: true, postId: result.id };
     }
