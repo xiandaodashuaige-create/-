@@ -496,13 +496,11 @@ export default function Schedules() {
           ))}
         </div>
       ) : schedules.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6 text-center text-muted-foreground py-12">
-            <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>暂无发布计划</p>
-            <p className="text-xs mt-1">点击右上角「AI 排程规划」让 AI 帮你生成 7 天计划，或在编辑器中设置定时发布</p>
-          </CardContent>
-        </Card>
+        <EmptyScheduleWithRecommendation
+          platform={activePlatform}
+          platformName={platformMeta.name}
+          onOpenAi={() => setAiOpen(true)}
+        />
       ) : (
         <div className="space-y-6">
           {Object.entries(grouped).map(([date, items]) => (
@@ -661,5 +659,107 @@ export default function Schedules() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ── 空状态：基于市场数据展示 AI 推荐发布时段 ──
+// 不再是干巴巴一句"暂无发布计划"，而是直接告诉用户：
+// "根据同行/市场分析，你这个平台最佳时段是 X、Y、Z" + 一键打开 AI 排程
+function EmptyScheduleWithRecommendation({
+  platform,
+  platformName,
+  onOpenAi,
+}: {
+  platform: string;
+  platformName: string;
+  onOpenAi: () => void;
+}) {
+  const btQ = useQuery({
+    queryKey: ["market-best-times"],
+    queryFn: () => api.marketData.bestTimes(),
+    staleTime: 30 * 60 * 1000,
+  });
+  const bt = (btQ.data as any)?.[platform] as
+    | { bestDays: string[]; bestHours: number[]; insight: string }
+    | undefined;
+
+  const dayLabel: Record<string, string> = {
+    Monday: "周一", Tuesday: "周二", Wednesday: "周三", Thursday: "周四",
+    Friday: "周五", Saturday: "周六", Sunday: "周日",
+  };
+
+  return (
+    <Card>
+      <CardContent className="pt-6 pb-6 space-y-5">
+        <div className="text-center">
+          <Calendar className="h-10 w-10 mx-auto mb-3 opacity-40" />
+          <p className="font-medium">暂无发布计划</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            AI 已根据同行 + 市场数据为你算好了最佳发布时段，参考下方 ↓
+          </p>
+        </div>
+
+        {btQ.isLoading ? (
+          <div className="text-center text-xs text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin inline mr-1" />
+            正在分析 {platformName} 市场数据…
+          </div>
+        ) : bt ? (
+          <div className="max-w-xl mx-auto space-y-3">
+            {/* 推荐时段大字 */}
+            <div className="rounded-lg border-2 border-dashed p-4 bg-gradient-to-br from-primary/5 to-purple-500/5">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2 flex items-center justify-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                {platformName} · AI 推荐发布时段
+              </div>
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                {bt.bestHours.map((h) => (
+                  <Badge
+                    key={h}
+                    className="text-base px-3 py-1.5 font-mono bg-primary/10 text-primary border border-primary/20"
+                  >
+                    {String(h).padStart(2, "0")}:00
+                  </Badge>
+                ))}
+              </div>
+              <div className="text-xs text-center text-muted-foreground mt-3 flex items-center justify-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                {bt.insight}
+              </div>
+            </div>
+
+            {/* 推荐发布日 */}
+            <div className="text-xs text-center text-muted-foreground">
+              建议发布日：
+              {bt.bestDays.map((d, i) => (
+                <span key={d}>
+                  <strong className="text-foreground">{dayLabel[d] ?? d}</strong>
+                  {i < bt.bestDays.length - 1 ? "、" : ""}
+                </span>
+              ))}
+            </div>
+
+            {/* CTA */}
+            <div className="flex justify-center pt-2">
+              <Button
+                onClick={onOpenAi}
+                className="text-white shadow"
+                style={{ background: "linear-gradient(135deg, hsl(var(--platform-from)), hsl(var(--platform-to)))" }}
+              >
+                <Wand2 className="h-4 w-4 mr-2" />
+                按推荐时段一键生成 7 天计划
+              </Button>
+            </div>
+            <p className="text-[11px] text-center text-muted-foreground">
+              也可在内容编辑器里手动设置任意时间
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-center text-muted-foreground">
+            暂无 {platformName} 时段数据，点右上角「AI 排程规划」让 AI 直接生成 7 天计划
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

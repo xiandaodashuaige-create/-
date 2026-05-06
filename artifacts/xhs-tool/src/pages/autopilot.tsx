@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { usePlatform } from "@/lib/platform-context";
@@ -28,6 +28,14 @@ export default function AutopilotPage() {
   const platformMeta = PLATFORMS[platform];
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
+
+  // 小红书有自己的原生向导（/workflow），autopilot 是给 TikTok/IG/FB 的统一流水线。
+  // XHS 在这个页面要直接跳回老向导，不走"统一一键"那套（市场数据/同行池/业务身份选择器）。
+  // ⚠ 用 useEffect 而不是条件 early-return，否则切平台时 hook 数量变化会崩 React。
+  useEffect(() => {
+    if (platform === "xhs") setLocation("/workflow");
+  }, [platform, setLocation]);
 
   const [step, setStep] = useState<Step>("setup");
   const [niche, setNiche] = useState("");

@@ -68,6 +68,8 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Ayrshare profileKey:** When using Ayrshare, ensure `ayrshareProfileKey` is not "default" when sending as a `Profile-Key` header, as this will cause a 404; "default" signifies using Ayrshare's default profile.
 - **Strategy Generation:** The strategy generator uses `gpt-5-mini` (minimal reasoning) and performs niche-relevance scoring; irrelevant samples are ignored, and users are warned.
 - **XHS Quick Add:** For XHS, users provide account details (nickname, region, persona) directly within the `PlatformGuard` card instead of OAuth, as XHS does not support OAuth.
+- **XHS uses /workflow, not /autopilot:** XHS is the native platform with its own wizard at `/workflow` (xhs-only). `/autopilot` is the unified one-click pipeline for TikTok/IG/FB only. `AutopilotPage` auto-redirects to `/workflow` when `activePlatform === 'xhs'` (via `useEffect` + `setLocation` to keep React hooks order stable).
+- **Schedules empty state:** When no schedules exist, `EmptyScheduleWithRecommendation` shows AI-recommended posting times for the active platform (from `api.marketData.bestTimes()`), best days, and a one-click CTA to open the AI排程规划 dialog.
 
 ## Pointers
 
