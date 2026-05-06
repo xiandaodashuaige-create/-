@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -621,14 +621,64 @@ export default function AutopilotPage() {
     });
   }
 
-  function quickPickTime(offset: "tonight" | "tomorrow_am" | "in_30min") {
-    const d = new Date();
-    if (offset === "in_30min") d.setMinutes(d.getMinutes() + 30);
-    else if (offset === "tonight") { d.setHours(20, 0, 0, 0); if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1); }
-    else if (offset === "tomorrow_am") { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); }
+  function toLocalInputString(d: Date) {
     const pad = (n: number) => String(n).padStart(2, "0");
-    setScheduledAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
+
+  // 基于同行 bestHours / bestDays 生成 5 个候选发布时段（按时间近→远排序）
+  // bestDays: ["Wednesday","Friday",...] 英文全称（marketData 后端返回格式）；同时容错 3 字母缩写
+  const WEEKDAY_CN = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  const WEEKDAY_MAP: Record<string, number> = {
+    Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6,
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  const recommendedSlots = useMemo(() => {
+    const bt = marketInsights?.bestTimes;
+    const bestHoursRaw = bt?.bestHours?.length ? bt.bestHours : [12, 19, 21]; // 兜底通用时段
+    const bestHours = [...new Set(bestHoursRaw)].sort((a, b) => a - b);
+    const bestDaySet = new Set((bt?.bestDays ?? []).map((d) => WEEKDAY_MAP[d]).filter((d) => d !== undefined));
+    const now = Date.now();
+    const minTime = now + 15 * 60 * 1000; // 至少 15 分钟后
+    const slots: Array<{ key: string; dt: Date; iso: string; localInput: string; primary: string; reason: string; isPeak: boolean }> = [];
+    for (let dayOffset = 0; dayOffset < 7 && slots.length < 5; dayOffset++) {
+      const base = new Date();
+      base.setDate(base.getDate() + dayOffset);
+      const isPeakDay = bestDaySet.size === 0 || bestDaySet.has(base.getDay());
+      for (const h of bestHours) {
+        if (slots.length >= 5) break;
+        const d = new Date(base);
+        d.setHours(h, 0, 0, 0);
+        if (d.getTime() < minTime) continue;
+        const dayLabel = dayOffset === 0 ? "今天" : dayOffset === 1 ? "明天" : dayOffset === 2 ? "后天" : WEEKDAY_CN[d.getDay()];
+        const hourLabel = `${String(h).padStart(2, "0")}:00`;
+        const reason = bt?.bestHours?.includes(h)
+          ? `同行该时段流量最高${isPeakDay && bestDaySet.size > 0 ? " · 高峰日" : ""}`
+          : "通用建议时段";
+        slots.push({
+          key: `${dayOffset}-${h}`,
+          dt: d, iso: d.toISOString(), localInput: toLocalInputString(d),
+          primary: `${dayLabel} ${hourLabel}`,
+          reason,
+          isPeak: bt?.bestHours?.includes(h) === true && (isPeakDay || bestDaySet.size === 0),
+        });
+      }
+    }
+    return slots;
+  }, [marketInsights?.bestTimes]);
+
+  // 进入 schedule 步时，无论 runPipeline 之前是否已 prefill，都强制重置为第一张推荐卡
+  // —— 这样用户视觉上看到的「已选中卡片」和实际 scheduledAt 始终一致；
+  // 用 ref 跟踪「上一帧 step」做单次触发，避免在 schedule 步内反复覆盖用户手选
+  const prevStepRef = useRef<typeof step>(step);
+  useEffect(() => {
+    if (step === "schedule" && prevStepRef.current !== "schedule" && recommendedSlots[0]) {
+      setScheduledAt(recommendedSlots[0].localInput);
+    }
+    prevStepRef.current = step;
+  }, [step, recommendedSlots]);
+
+  const [customTimeOpen, setCustomTimeOpen] = useState(false);
 
   function resetAll() {
     setStep("setup");
@@ -1497,34 +1547,60 @@ export default function AutopilotPage() {
             </Button>
           </div>
 
-          {/* 推荐时间 */}
-          {marketInsights?.bestTimes && (
-            <div className="rounded-md border bg-primary/5 p-3 text-sm">
-              <div className="font-medium mb-1 flex items-center gap-1.5">
-                ⏰ AI 推荐发布时段（{platformMeta.name}）
-              </div>
-              <div className="text-xs text-muted-foreground">
-                每天 <strong className="text-foreground">{marketInsights.bestTimes.bestHours.map((h) => `${h}:00`).join(" / ")}</strong>
-                {" · "}{marketInsights.bestTimes.insight}
-              </div>
-              <div className="text-[11px] text-muted-foreground mt-1">已为你预选下一个最佳时段，可直接采用或自定义</div>
+          {/* 推荐时段说明 */}
+          <div className="rounded-md border bg-primary/5 p-3 text-sm">
+            <div className="font-medium mb-1 flex items-center gap-1.5">
+              ⏰ 系统已根据 {marketInsights?.bestTimes
+                ? <>同行 <strong>{marketInsights.totalSamples}</strong> 条样本</>
+                : "通用流量曲线"} 推荐 {recommendedSlots.length} 个最佳发布时段
             </div>
-          )}
+            <div className="text-xs text-muted-foreground">
+              {marketInsights?.bestTimes?.insight ?? "选一个最近的就行，到点系统自动投递。"}
+            </div>
+          </div>
 
-          {/* 时间选择 */}
+          {/* 推荐时段卡片 —— 用户挑一张就行，不用自己想时间 */}
           <div className="space-y-2">
-            <div className="text-sm font-semibold">发布时间</div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={() => quickPickTime("in_30min")}>30 分钟后</Button>
-              <Button size="sm" variant="outline" onClick={() => quickPickTime("tonight")}>今晚 20:00</Button>
-              <Button size="sm" variant="outline" onClick={() => quickPickTime("tomorrow_am")}>明早 09:00</Button>
+            <div className="text-sm font-semibold">挑一个时段</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {recommendedSlots.map((s) => {
+                const selected = scheduledAt === s.localInput;
+                return (
+                  <button
+                    key={s.key}
+                    onClick={() => setScheduledAt(s.localInput)}
+                    className={`text-left rounded-md border p-3 transition-all ${
+                      selected
+                        ? "border-primary bg-primary/10 ring-2 ring-primary/30"
+                        : "hover:border-primary/50 hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold text-sm">{s.primary}</div>
+                      {s.isPeak && <Badge variant="default" className="text-[10px] h-4 bg-rose-500 hover:bg-rose-500">🔥 高峰</Badge>}
+                      {selected && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">{s.reason}</div>
+                  </button>
+                );
+              })}
             </div>
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full rounded-md border px-3 py-2 text-sm bg-background"
-            />
+
+            {/* 折叠的「自定义时间」入口 —— 默认收起，避免让用户陷入选择困难 */}
+            <button
+              onClick={() => setCustomTimeOpen((v) => !v)}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 mt-2"
+            >
+              {customTimeOpen ? "收起" : "想自己挑时间？"}
+            </button>
+            {customTimeOpen && (
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="w-full rounded-md border px-3 py-2 text-sm bg-background mt-2"
+              />
+            )}
           </div>
 
           <div className="flex gap-2 pt-3 border-t flex-wrap">
