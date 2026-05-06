@@ -390,6 +390,16 @@ export default function AutopilotPage() {
   const [soraProgress, setSoraProgress] = useState(0);
   const soraGenerating = soraJobId != null && soraStatus !== "succeeded" && soraStatus !== "failed";
 
+  // ── Autopilot 自动出图/出视频状态 (B 修复) ─────────────────────────
+  // approve 后端会 fire-and-forget 跑 image pipeline + enqueue Seedance Lite video
+  // 前端在 edit 步轮询 content / video-job，到位后自动填入 editForm
+  const [autoImagePending, setAutoImagePending] = useState(false);
+  const [autoImageFailed, setAutoImageFailed] = useState(false);
+  const [autoVideoJobId, setAutoVideoJobId] = useState<string | null>(null);
+  const [autoVideoStatus, setAutoVideoStatus] = useState<string | null>(null);
+  const [autoVideoProgress, setAutoVideoProgress] = useState(0);
+  const autoVideoGenerating = autoVideoJobId != null && autoVideoStatus !== "succeeded" && autoVideoStatus !== "failed";
+
   useEffect(() => {
     if (!soraJobId) return;
     let cancelled = false;
@@ -827,13 +837,29 @@ export default function AutopilotPage() {
 
   const approveMut = useMutation({
     mutationFn: (stratId: number) => api.strategy.approve(stratId),
-    onSuccess: async (data) => {
+    onSuccess: async (data: any) => {
       setContentId(data.contentId);
       qc.invalidateQueries({ queryKey: ["content"] });
+      // 重置上一轮自动 media 状态
+      setAutoImagePending(false);
+      setAutoImageFailed(false);
+      setAutoVideoJobId(null);
+      setAutoVideoStatus(null);
+      setAutoVideoProgress(0);
       try {
         await loadContentIntoEditForm(data.contentId);
+        // 根据后端返回 mediaJobs 启动前端 polling
+        const mj = data.mediaJobs;
+        if (mj?.image === "pending") setAutoImagePending(true);
+        if (mj?.videoJobId) {
+          setAutoVideoJobId(mj.videoJobId);
+          setAutoVideoStatus("queued");
+        }
         setStep("edit"); // 进就地编辑步骤，不再直接跳排期
-        toast({ title: t("autopilot.toast.adopted"), description: `${t("autopilot.edit.draftReadyPrefix")}${data.contentId} ${t("autopilot.toast.adoptedDescSuffix")}` });
+        toast({
+          title: t("autopilot.toast.adopted"),
+          description: `${t("autopilot.edit.draftReadyPrefix")}${data.contentId} ${t("autopilot.toast.adoptedDescSuffix")}${mj?.image === "pending" ? " · AI 正在自动生成配图..." : ""}${mj?.videoJobId ? " · AI 正在自动生成视频..." : ""}`,
+        });
       } catch (e: any) {
         // 拉草稿失败：不进 edit 空表单，退回 schedule 兜底
         toast({ title: t("autopilot.toast.draftLoadFail"), description: `${e?.message ?? t("common.error")} ${t("autopilot.toast.draftLoadFailSuffix")}`, variant: "destructive" });
@@ -842,6 +868,99 @@ export default function AutopilotPage() {
     },
     onError: (err: any) => toast({ title: t("autopilot.toast.adoptFail"), description: err?.message, variant: "destructive" }),
   });
+
+  // ── 自动配图 polling：每 3s 拉一次 content，看后端 background 任务有没有把 imageUrls 写进去
+  // 上限 90s（高级 pipeline 慢时也够），超时显示降级提示让用户手动点 AI 生成
+  useEffect(() => {
+    if (!autoImagePending || !contentId) return;
+    let cancelled = false;
+    let elapsed = 0;
+    const TIMEOUT_MS = 90_000;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const c: any = await api.content.get(contentId);
+        if (cancelled) return;
+        const urls = Array.isArray(c.imageUrls) ? c.imageUrls : [];
+        if (urls.length > 0) {
+          // race guard：用户可能在 polling 期间已经手动上传了图，不要覆盖
+          // (架构师 review High：setEditForm 全量覆盖会丢用户操作)
+          setEditForm((p) => p.imageUrls.length === 0 ? { ...p, imageUrls: urls.slice(0, 9) } : p);
+          setAutoImagePending(false);
+          toast({ title: "AI 自动配图已生成", description: "可在下方预览/替换/补充" });
+          return;
+        }
+        // 后端写了 autoMediaImageStatus="failed" → 早停
+        let ref: any = null;
+        try { ref = c.originalReference ? JSON.parse(c.originalReference) : null; } catch { /* ignore */ }
+        if (ref?.autoMediaImageStatus === "failed") {
+          setAutoImagePending(false);
+          setAutoImageFailed(true);
+          return;
+        }
+      } catch (err) {
+        // polling 错误不打断，继续重试
+        // eslint-disable-next-line no-console
+        console.warn("[auto-image poll] failed:", (err as any)?.message);
+      }
+      elapsed += 3000;
+      if (elapsed >= TIMEOUT_MS) {
+        if (!cancelled) {
+          setAutoImagePending(false);
+          setAutoImageFailed(true);
+        }
+        return;
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [autoImagePending, contentId]);
+
+  // ── 自动视频 polling：每 5s 拉 video-job，succeeded 后写回 content + editForm
+  useEffect(() => {
+    if (!autoVideoJobId) return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const r: any = await api.ai.videoJob(autoVideoJobId);
+        if (cancelled) return;
+        setAutoVideoStatus(r.status);
+        setAutoVideoProgress(r.progress ?? 0);
+        if (r.status === "succeeded" && r.result?.videoUrl) {
+          // race guard：用户可能已经手动上传了视频，不要覆盖
+          let didWrite = false;
+          setEditForm((p) => {
+            if (p.videoUrl) return p;
+            didWrite = true;
+            return { ...p, videoUrl: r.result.videoUrl };
+          });
+          // 把 videoUrl 持久化回 content（autopilot 走的是 Seedance Lite，不像 Sora 有专用回写路径）
+          if (contentId && didWrite) {
+            try {
+              await api.content.update(contentId, { videoUrl: r.result.videoUrl } as any);
+              qc.invalidateQueries({ queryKey: ["content"] });
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.warn("[auto-video persist] failed:", (err as any)?.message);
+            }
+          }
+          toast({ title: "AI 自动视频已生成", description: `时长 ${r.result?.durationSec ?? 5}s · 已自动填入视频区` });
+          setAutoVideoJobId(null);
+        } else if (r.status === "failed") {
+          toast({ title: "AI 自动视频生成失败", description: (r.error ?? "未知错误").slice(0, 200), variant: "destructive" });
+          setAutoVideoJobId(null);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[auto-video poll] failed:", (err as any)?.message);
+      }
+    };
+    void tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [autoVideoJobId, contentId]);
 
   // 保存就地修改 → 进排期
   async function handleSaveEditAndProceed() {
@@ -1867,6 +1986,26 @@ export default function AutopilotPage() {
                     </ObjectUploader>
                   </div>
                 </div>
+                {/* 自动配图 polling 中：骨架屏 + 提示 */}
+                {autoImagePending && editForm.imageUrls.length === 0 && (
+                  <div className="rounded-md border border-dashed border-purple-300 bg-purple-50/60 p-3 text-xs text-purple-800 flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <div>
+                      <div className="font-medium">AI 正在自动生成配图(高级 pipeline)...</div>
+                      <div className="text-[11px] text-purple-700/80 mt-0.5">基于您选定的同行爆款做视觉风格分析,通常 10-30 秒。可继续编辑文案。</div>
+                    </div>
+                  </div>
+                )}
+                {/* 自动出图失败 → 提示用户手动点 AI 生成 */}
+                {autoImageFailed && editForm.imageUrls.length === 0 && (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
+                    <Sparkles className="h-4 w-4 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="font-medium">自动生图失败 — 请手动点上方"AI 生成"或上传配图</div>
+                      <div className="text-[11px] text-amber-800/80 mt-0.5">可能是上游图床 API 暂时不可用。手动 AI 生成会消耗 5 积分。</div>
+                    </div>
+                  </div>
+                )}
                 {editForm.imageUrls.length > 0 && (
                   <div className="grid grid-cols-3 gap-1.5">
                     {editForm.imageUrls.map((url, i) => (
@@ -1925,6 +2064,16 @@ export default function AutopilotPage() {
                 {soraGenerating && (
                   <div className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1.5 mt-1">
                     🎬 Sora 2 Pro 高清生成中（{soraStatus} · {soraProgress}%）—— 通常 2-5 分钟，请保持本页打开。完成后会自动填入下方视频区。
+                  </div>
+                )}
+                {/* 自动视频 (Seedance Lite) polling 中 */}
+                {autoVideoGenerating && !editForm.videoUrl && (
+                  <div className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1.5 mt-1 flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    <div>
+                      🎥 AI 正在自动生成视频(Seedance Lite · 5s · 免费赠送)— {autoVideoStatus} {autoVideoProgress > 0 ? `· ${autoVideoProgress}%` : ""}。通常 1-3 分钟。
+                      {isPro && " 想要 1080p 电影级? 点上方 Sora 按钮 (250 积分)。"}
+                    </div>
                   </div>
                 )}
                 {editForm.videoUrl && (

@@ -23,8 +23,9 @@ function formatCount(n: number) {
 function SourceBadge({ source }: { source?: string }) {
   if (!source) return null;
   const s = String(source);
-  // 真实数据：tikhub/graph/real → 绿
-  if (s === "real" || s === "tikhub" || s === "graph") {
+  // 真实数据：tikhub / graph / real / xhs / competitor_posts → 绿
+  // ⚠️ 之前漏写 "xhs" 和 "competitor_posts"，导致 XHS 真实搜索结果 + FB/IG 同行库聚合都被错标成"示例数据"
+  if (s === "real" || s === "tikhub" || s === "graph" || s === "xhs" || s === "competitor_posts") {
     return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-100" title="真实抓取数据">● 真实数据</Badge>;
   }
   // 回退：fallback / cached → 黄
@@ -115,6 +116,30 @@ export default function MarketDataPage() {
                   </div>
                 </Card>
               )}
+              {/* 真实数据源但 0 条结果：明确告诉用户为什么空，避免"点搜索没反应"的错觉 */}
+              {trendingQ.data && trendingQ.data.source !== "mock" && (trendingQ.data.items?.length ?? 0) === 0 && (
+                <Card className="p-6 mb-3 border-dashed text-center space-y-2">
+                  <Info className="h-8 w-8 text-muted-foreground/60 mx-auto" />
+                  <div className="font-medium">「{keyword}」在 {region} 区暂无 {platformMeta.shortName} 真实数据</div>
+                  <div className="text-xs text-muted-foreground max-w-md mx-auto">
+                    数据源已连通(显示"真实数据"徽标),但当前关键词在该地区返回 0 条结果。
+                    建议:换更通用的关键词(如 "skincare" / "护肤" / "makeup"),或切换地区(US / SG / GLOBAL),或换平台 tab 试试。
+                  </div>
+                  <div className="flex gap-2 justify-center pt-1">
+                    {["skincare", "fashion", "fitness", "food"].map((kw) => (
+                      <Button
+                        key={kw}
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        onClick={() => setKeyword(kw)}
+                      >
+                        {kw}
+                      </Button>
+                    ))}
+                  </div>
+                </Card>
+              )}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 {(trendingQ.data?.items ?? []).map((it: any) => (
                   <a key={it.id} href={it.mediaUrl || "#"} target="_blank" rel="noreferrer" className="block group">
@@ -171,6 +196,16 @@ export default function MarketDataPage() {
                     >
                       去授权 Facebook → <ArrowRight className="h-3 w-3 ml-1" />
                     </Button>
+                  </div>
+                </Card>
+              )}
+              {/* Meta 广告库已连通但 0 条:同样给空状态提示,避免误以为按钮坏了 */}
+              {adsQ.data?.configured && (adsQ.data.items?.length ?? 0) === 0 && (
+                <Card className="p-6 mb-3 border-dashed text-center space-y-2">
+                  <Info className="h-8 w-8 text-muted-foreground/60 mx-auto" />
+                  <div className="font-medium">「{keyword}」在 {region} 区 Meta 广告库无投放记录</div>
+                  <div className="text-xs text-muted-foreground max-w-md mx-auto">
+                    Meta 广告库已连通,但该关键词在该地区当前无活跃广告。换关键词或地区试试。
                   </div>
                 </Card>
               )}

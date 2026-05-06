@@ -13,6 +13,8 @@ import { ensureUser } from "../middlewares/creditSystem";
 import { logger } from "../lib/logger";
 import { generateStrategyCard } from "../services/strategyGenerator";
 import { logActivity } from "../lib/activity";
+import { kickOffImageForDraft } from "../services/autoMediaForDraft";
+import { enqueueVideoJob } from "../services/videoJobs";
 
 const router: IRouter = Router();
 type Platform = "xhs" | "tiktok" | "instagram" | "facebook";
@@ -247,7 +249,60 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
     .where(eq(strategiesTable.id, id)).returning();
 
   await logActivity("strategy.approved", `批准策略 #${id} → 草稿 #${content.id}`, content.id, acc.id);
-  res.json({ id: updated.id, status: updated.status, contentId: content.id });
+
+  // ── Autopilot 自动出图/出视频（B 修复）────────────────────────────
+  // image: fire-and-forget background；前端 polling content.imageUrls
+  // video: enqueue Seedance Lite job(charge=0 算赠送)；前端 polling video-job
+  // Pro 用户保留 edit 步"升级到 Sora Pro 1080p"按钮(不默认烧 250 积分)
+  let videoJobId: string | undefined;
+  let videoSkipReason: string | undefined;
+
+  if (mediaType === "video") {
+    try {
+      const { job } = await enqueueVideoJob(user.id, {
+        userId: user.id,
+        platform: s.platform as Platform,
+        newTopic: title.slice(0, 200),
+        newTitle: title.slice(0, 200),
+        newKeyPoints: body ? [body.slice(0, 200)] : undefined,
+        niche: s.niche || null,
+        region: s.region || null,
+        mimicStrength: "partial",
+        provider: "seedance",
+        tier: "lite",
+        burnSubtitles: true,
+      }, {
+        amount: 0, // autopilot 自动驾驶免费送 Seedance Lite，不动用户积分
+        opKey: "autopilot-auto-video",
+        isAdmin: user.role === "admin",
+      });
+      videoJobId = job.id;
+    } catch (e: any) {
+      videoSkipReason = e?.message || "video_enqueue_failed";
+      logger.warn({ err: e?.message, contentId: content.id }, "autopilot enqueue video failed (non-fatal)");
+    }
+  } else {
+    setImmediate(() => {
+      void kickOffImageForDraft({
+        contentId: content.id,
+        platform: s.platform,
+        topic: s.niche || title,
+        title,
+        competitorPostIds: Array.isArray(s.competitorPostIds) ? (s.competitorPostIds as number[]) : [],
+      }).catch((err) => logger.warn({ err: err?.message, contentId: content.id }, "auto-media background task crashed"));
+    });
+  }
+
+  res.json({
+    id: updated.id,
+    status: updated.status,
+    contentId: content.id,
+    mediaJobs: {
+      image: mediaType === "image" ? "pending" : "skipped",
+      videoJobId,
+      videoSkipReason,
+    },
+  });
 });
 
 export default router;

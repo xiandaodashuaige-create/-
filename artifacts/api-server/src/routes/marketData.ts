@@ -80,6 +80,8 @@ router.get("/market-data/trending", async (req, res): Promise<void> => {
       const videos = await fetchTrendingHashtagVideos(keyword, region, 20);
       res.json({
         platform, keyword, region, source: "tikhub",
+        // 0 条时带 note,前端展示"无结果"提示卡而不是误以为按钮坏了
+        note: videos.length === 0 ? "no_results" : undefined,
         items: videos.map(v => ({
           id: v.externalId, platform: "tiktok",
           title: v.description, description: v.description,
