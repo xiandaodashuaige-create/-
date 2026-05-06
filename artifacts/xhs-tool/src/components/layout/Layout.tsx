@@ -42,6 +42,7 @@ type NavItem = {
   icon: typeof LayoutDashboard;
   highlight?: boolean;
   xhsOnly?: boolean;
+  nonXhs?: boolean;
   group: NavGroup;
 };
 
