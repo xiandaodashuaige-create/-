@@ -12,7 +12,8 @@ const baseStyle = `
 `;
 
 const APP_NAME = "LuLian Viral Suite (鹿联)";
-const CONTACT = "support@lulian.app";
+const CONTACT = "lulianxiandao@gmail.com";
+const OPERATOR = "an independent developer based in Singapore";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 router.get("/static/terms.html", (_req, res) => {
@@ -20,7 +21,7 @@ router.get("/static/terms.html", (_req, res) => {
 <h1>Terms of Service</h1>
 <p class="meta">Last updated: ${TODAY}</p>
 
-<p>Welcome to ${APP_NAME} ("we", "our", "the Service"). By accessing or using the Service, you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
+<p>Welcome to ${APP_NAME} ("we", "our", "the Service"), operated by ${OPERATOR}. By accessing or using the Service, you agree to be bound by these Terms of Service. If you do not agree, do not use the Service.</p>
 
 <h2>1. Service Description</h2>
 <p>${APP_NAME} is an AI-assisted content creation and multi-platform publishing tool. Users may connect their third-party social-media accounts (including TikTok, Facebook, Instagram, and Xiaohongshu) and use the Service to draft, schedule and publish content to those connected accounts.</p>
@@ -70,7 +71,7 @@ router.get("/static/privacy.html", (_req, res) => {
 <h1>Privacy Policy</h1>
 <p class="meta">Last updated: ${TODAY}</p>
 
-<p>This Privacy Policy describes how ${APP_NAME} ("we") collects, uses and shares information when you use our content-creation and multi-platform publishing service (the "Service").</p>
+<p>This Privacy Policy describes how ${APP_NAME} ("we"), operated by ${OPERATOR}, collects, uses and shares information when you use our content-creation and multi-platform publishing service (the "Service").</p>
 
 <h2>1. Information We Collect</h2>
 <ul>
