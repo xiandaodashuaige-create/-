@@ -36,6 +36,9 @@ export default function AutopilotPage() {
   const [autoDiscover, setAutoDiscover] = useState(true);
   const [customMode, setCustomMode] = useState(false);
   const customModeRef = useRef(false);
+  // 多账号场景：用户必须明确选定"本次 AI 用哪个业务身份"，
+  // 否则草稿会被绑到 backend 默认（前 5 个全用），用户无法预知归属
+  const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
   const [strategyResult, setStrategyResult] = useState<any | null>(null);
   const [contentId, setContentId] = useState<number | null>(null);
   const [logs, setLogs] = useState<LogLine[]>([]);
@@ -53,6 +56,22 @@ export default function AutopilotPage() {
 
   const hasAccounts = (accountsQ.data?.length ?? 0) > 0;
   const existingCompetitors = competitorsQ.data ?? [];
+
+  // 账号加载完后默认选第一个；切平台后清空，让 effect 重新选当前平台第一个
+  useEffect(() => {
+    setSelectedAccountId(null);
+  }, [platform]);
+  useEffect(() => {
+    const list = accountsQ.data ?? [];
+    if (list.length === 0) {
+      if (selectedAccountId !== null) setSelectedAccountId(null);
+      return;
+    }
+    // 当前选中已不在最新列表（账号被删/换平台后残留），自动重选第一个
+    const stillExists = selectedAccountId != null && list.some((a: any) => a.id === selectedAccountId);
+    if (!stillExists) setSelectedAccountId(list[0].id);
+  }, [accountsQ.data, selectedAccountId]);
+  const selectedAccount = accountsQ.data?.find((a: any) => a.id === selectedAccountId) ?? null;
 
   const logEl = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -126,11 +145,12 @@ export default function AutopilotPage() {
       if (isStale()) return;
 
       // ── Stage 3: AI 综合 ──
-      pushLog(`🧠 调用 GPT-5-mini 综合 ${competitorPool.length} 位同行 + 你的 ${accountsQ.data?.length ?? 0} 个账号画像…`, "running");
+      pushLog(`🧠 调用 GPT-5-mini 综合 ${competitorPool.length} 位同行 + 业务身份【${selectedAccount?.nickname ?? "(未选)"}】画像…`, "running");
       const strat = await api.strategy.generate({
         platform,
         region: region || undefined,
         niche: niche || undefined,
+        accountIds: selectedAccountId ? [selectedAccountId] : undefined,
         customRequirements: extras || undefined,
       }, { signal: sig });
       if (isStale()) return;
@@ -185,6 +205,15 @@ export default function AutopilotPage() {
       toast({
         title: `请先添加 ${platformMeta.name} 账号`,
         description: "AI 需要你的账号画像（地区 / 备注 / 受众）来定制策略",
+        variant: "destructive",
+      });
+      return;
+    }
+    // 显式校验：必须有效选定一个业务身份，避免账号 effect race 期间提交导致后端走"前 5 个全用"默认
+    if (!selectedAccount) {
+      toast({
+        title: "请先选定本次的业务身份",
+        description: "上方账号选择器还没就绪，请稍候或手动点选一个账号",
         variant: "destructive",
       });
       return;
@@ -245,31 +274,91 @@ export default function AutopilotPage() {
       {/* Step 1: 配置 */}
       {step === "setup" && (
         <Card className="p-6 space-y-5">
-          {/* 前置检查 */}
-          <div className={`rounded-lg border p-3 text-sm ${hasAccounts ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
-            <div className="flex items-start gap-2">
-              {hasAccounts ? <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" /> : <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />}
-              <div className="flex-1">
-                {hasAccounts ? (
-                  <>已绑定 <strong>{accountsQ.data?.length}</strong> 个 {platformMeta.name} 账号 · 已添加 <strong>{existingCompetitors.length}</strong> 位同行</>
-                ) : (
-                  <>
-                    还没有 {platformMeta.name} 账号。
-                    <Link
-                      href="/accounts"
-                      onClick={() => {
-                        // 让账号页授权完成后自动跳回这里继续 AI 流程
-                        setReturnToFlow("/autopilot");
-                      }}
-                      className="underline ml-1 font-medium"
-                    >
-                      去添加 / 授权 →
-                    </Link>
-                  </>
-                )}
+          {/* 前置检查 + 业务身份选择 */}
+          {!hasAccounts ? (
+            <div className="rounded-lg border p-3 text-sm bg-amber-50 border-amber-200 text-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  还没有 {platformMeta.name} 账号。
+                  <Link
+                    href="/accounts"
+                    onClick={() => setReturnToFlow("/autopilot")}
+                    className="underline ml-1 font-medium"
+                  >
+                    去添加 / 授权 →
+                  </Link>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Users2 className="h-4 w-4 text-primary" />
+                  本次以哪个业务身份执行？
+                  <span className="text-xs text-muted-foreground font-normal">
+                    （草稿、定时发布都会归到这个账号）
+                  </span>
+                </div>
+                <Link
+                  href="/accounts"
+                  onClick={() => setReturnToFlow("/autopilot")}
+                  className="text-xs text-muted-foreground hover:text-primary underline"
+                >
+                  + 新增账号
+                </Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {accountsQ.data!.map((acc: any) => {
+                  const isSelected = acc.id === selectedAccountId;
+                  return (
+                    <button
+                      key={acc.id}
+                      type="button"
+                      onClick={() => setSelectedAccountId(acc.id)}
+                      className={`text-left rounded-md border p-2.5 transition ${
+                        isSelected
+                          ? `${platformMeta.bgClass} ${platformMeta.borderClass} ring-2 ring-offset-1 ${platformMeta.textClass.replace("text-", "ring-")}`
+                          : "bg-background hover:bg-muted/50 border-muted"
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <div className={`w-8 h-8 rounded-full ${platformMeta.bgClass} ${platformMeta.textClass} flex items-center justify-center font-bold text-sm flex-shrink-0`}>
+                          {(acc.nickname || "?").charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-sm truncate">{acc.nickname}</span>
+                            {isSelected && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0" />}
+                          </div>
+                          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                              {acc.region || "—"}
+                            </Badge>
+                            {acc.platformAccountId && (
+                              <span className="text-[10px] text-muted-foreground truncate">
+                                ID: {acc.platformAccountId}
+                              </span>
+                            )}
+                          </div>
+                          {acc.notes && (
+                            <p className="text-[11px] text-muted-foreground mt-1 line-clamp-1">
+                              {acc.notes}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-xs text-muted-foreground pt-1 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                已添加 <strong className="text-foreground">{existingCompetitors.length}</strong> 位同行
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-sm font-medium mb-1 block">
@@ -342,7 +431,7 @@ export default function AutopilotPage() {
             size="lg"
             className="w-full bg-gradient-to-r from-primary to-purple-500 hover:opacity-90 text-base h-12"
             onClick={handleStart}
-            disabled={!niche.trim() || !hasAccounts}
+            disabled={!niche.trim() || !hasAccounts || !selectedAccount}
           >
             <Rocket className="h-5 w-5 mr-2" />
             {customMode ? "启动 AI 自动驾驶（手动审核）" : "一键启动 AI 自动驾驶"}

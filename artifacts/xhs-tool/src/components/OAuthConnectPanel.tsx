@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { ExternalLink, Link2, Unlink, RefreshCw, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ExternalLink, Link2, Unlink, RefreshCw, AlertTriangle, CheckCircle2, UserCircle2, Info } from "lucide-react";
 import type { PlatformId } from "@/lib/platform-meta";
 import { PLATFORMS } from "@/lib/platform-meta";
 import { api } from "@/lib/api";
@@ -167,6 +167,55 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
           </Badge>
         </div>
 
+        {/* 已连接账号列表（前置展示，让用户先看清当前业务身份再决定是否再授权） */}
+        {connected.length > 0 ? (
+          <div className="rounded-md border bg-background/80 p-3 space-y-2">
+            <div className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
+              <UserCircle2 className="h-3.5 w-3.5" />
+              已绑定的 {meta.name} 业务身份
+            </div>
+            {connected.map((acc) => (
+              <div key={acc.id} className="flex items-center justify-between rounded-md bg-muted/30 border px-3 py-2 text-sm">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <div className={`w-8 h-8 rounded-full ${meta.bgClass} ${meta.textClass} flex items-center justify-center font-bold text-xs flex-shrink-0`}>
+                    {(acc.nickname || "?").charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium truncate">{acc.nickname}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
+                        {acc.ayrshareProfileKey ? "Ayrshare" : "Direct"}
+                      </Badge>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                      {acc.platformAccountId && <span className="truncate">ID: {acc.platformAccountId}</span>}
+                      {acc.oauthExpiresAt && (
+                        <span>到期 {new Date(acc.oauthExpiresAt).toLocaleDateString("zh-CN")}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => disconnect.mutate(acc.id)} className="flex-shrink-0">
+                  <Unlink className="h-3 w-3 mr-1" />
+                  断开
+                </Button>
+              </div>
+            ))}
+            <div className="text-[11px] text-muted-foreground flex items-start gap-1.5 pt-1 border-t">
+              <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
+              <span>
+                再次点击下方"授权登录"时：用<strong>同一个</strong>{meta.name}账号登录会更新现有授权（延长有效期）；
+                用<strong>不同账号</strong>登录才会新增一条业务身份。
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed bg-background/50 p-3 text-xs text-muted-foreground flex items-start gap-1.5">
+            <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+            <span>暂无已绑定的 {meta.name} 业务身份，下面任选一种方式完成首次授权。</span>
+          </div>
+        )}
+
         {/* Direct OAuth */}
         <div className="rounded-md border bg-background p-3 space-y-2">
           <div className="flex items-center justify-between">
@@ -234,26 +283,6 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
           )}
         </div>
 
-        {/* 已连接账号列表 */}
-        {connected.length > 0 && (
-          <div className="space-y-2">
-            {connected.map((acc) => (
-              <div key={acc.id} className="flex items-center justify-between rounded-md bg-background border px-3 py-2 text-sm">
-                <div className="flex flex-col">
-                  <span className="font-medium">{acc.nickname}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {acc.ayrshareProfileKey ? "via Ayrshare" : "Direct OAuth"}
-                    {acc.oauthExpiresAt ? ` · 到期 ${new Date(acc.oauthExpiresAt).toLocaleDateString("zh-CN")}` : ""}
-                  </span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => disconnect.mutate(acc.id)}>
-                  <Unlink className="h-3 w-3 mr-1" />
-                  断开
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
       </CardContent>
     </Card>
   );

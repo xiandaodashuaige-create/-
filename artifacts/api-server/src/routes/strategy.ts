@@ -151,11 +151,26 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
   }
 
   const card: any = s.strategyJson;
-  // 选一个本平台账号作为绑定 — 必需。否则 content 会变成不可见孤儿（/content 用 INNER JOIN accounts）
-  const [acc] = await db.select().from(accountsTable).where(and(
-    eq(accountsTable.ownerUserId, user.id),
-    eq(accountsTable.platform, s.platform),
-  )).limit(1);
+  // 优先使用策略生成时用户明确选定的"业务身份"（s.accountIds[0]），
+  // 严格校验属主+平台一致；只在策略未显式绑定时才回落到该平台第一个账号。
+  // 这样 autopilot 多账号场景下，用户在 setup 步骤选的 A 不会被 approve 默默落到 B。
+  const persistedAccountIds = Array.isArray(s.accountIds) ? (s.accountIds as number[]) : [];
+  let acc: typeof accountsTable.$inferSelect | undefined;
+  if (persistedAccountIds.length > 0) {
+    const [byId] = await db.select().from(accountsTable).where(and(
+      eq(accountsTable.id, persistedAccountIds[0]!),
+      eq(accountsTable.ownerUserId, user.id),
+      eq(accountsTable.platform, s.platform),
+    )).limit(1);
+    acc = byId;
+  }
+  if (!acc) {
+    const [fallback] = await db.select().from(accountsTable).where(and(
+      eq(accountsTable.ownerUserId, user.id),
+      eq(accountsTable.platform, s.platform),
+    )).limit(1);
+    acc = fallback;
+  }
 
   if (!acc) {
     res.status(400).json({
