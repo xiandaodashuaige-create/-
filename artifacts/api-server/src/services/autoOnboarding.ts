@@ -326,7 +326,7 @@ async function runXhsAutopilot(
       competitorId: bucket.id,
       platform: "xhs",
       externalId: n.id,
-      mediaType: (n.type === "video" ? "video" : "image") as const,
+      mediaType: (n.type === "video" ? "video" : "image") as "video" | "image",
       title: n.title,
       description: `[作者: ${n.author || "未知"}] ${n.desc ?? ""}`.slice(0, 500),
       coverUrl: n.cover_url,
@@ -431,7 +431,7 @@ export async function runAutoSyncStaleCompetitors(): Promise<{ refreshed: number
           await db.delete(competitorPostsTable).where(eq(competitorPostsTable.competitorId, p.id));
           await db.insert(competitorPostsTable).values(notesToWrite.map((n) => ({
             competitorId: p.id, platform: "xhs",
-            externalId: n.id, mediaType: (n.type === "video" ? "video" : "image") as const,
+            externalId: n.id, mediaType: (n.type === "video" ? "video" : "image") as "video" | "image",
             title: n.title,
             description: isBucket ? `[作者: ${n.author || "未知"}] ${n.desc ?? ""}`.slice(0, 500) : n.desc,
             coverUrl: n.cover_url,

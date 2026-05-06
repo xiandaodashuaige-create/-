@@ -259,10 +259,28 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
       return;
     }
 
+    // 评审建议：幂等去重 — 已存在 (account, scheduledAt) 完全相同的 schedule 则跳过
+    // 防止用户在 done 步骤连点 CTA、或当前 done 内容碰巧排到明天时撞日
+    // 注：同请求并发场景仍需后续给 schedules(account_id, scheduled_at) 加唯一索引 + ON CONFLICT 才能彻底闭环
+    const existingScheduledAt = await db
+      .select({ scheduledAt: schedulesTable.scheduledAt })
+      .from(schedulesTable)
+      .where(eq(schedulesTable.accountId, account.id));
+    const seenTimes = new Set(existingScheduledAt.map((r) => r.scheduledAt.getTime()));
+    // 1) 跳过 DB 已有的；2) 同批 items 自身重复 scheduledAt 也只保留首条
+    const filtered: typeof prepared = [];
+    for (const item of prepared) {
+      const t = item.scheduledAt.getTime();
+      if (seenTimes.has(t)) continue;
+      seenTimes.add(t);
+      filtered.push(item);
+    }
+    const skipped = prepared.length - filtered.length;
+
     // 事务：失败整体回滚
     const created = await db.transaction(async (tx) => {
       const out: Array<{ contentId: number; scheduleId: number; scheduledAt: Date }> = [];
-      for (const { item, scheduledAt } of prepared) {
+      for (const { item, scheduledAt } of filtered) {
         const [content] = await tx
           .insert(contentTable)
           .values({
@@ -290,7 +308,7 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
       return out;
     });
 
-    res.status(201).json({ created: created.length, items: created });
+    res.status(201).json({ created: created.length, skipped, items: created });
   } catch (err) {
     req.log.error(err, "Failed to bulk-create schedules");
     res.status(500).json({ error: "Internal server error" });

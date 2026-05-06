@@ -103,7 +103,7 @@ async function fetchFromRapidAPI(endpoint: string, params: Record<string, string
     throw new Error(`RapidAPI error ${res.status}: ${text}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as { code?: number; message?: string; [k: string]: unknown };
   if (data.code !== 0) {
     throw new Error(`RapidAPI response error: ${data.message || "unknown"}`);
   }

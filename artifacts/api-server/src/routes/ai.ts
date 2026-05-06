@@ -546,14 +546,15 @@ router.post("/ai/edit-image", requireCredits("ai-generate-image"), async (req, r
       return;
     }
 
-    const { toFile } = await import("openai");
-    const imageFile = await toFile(refImageBuffer, "reference.png", { type: "image/png" });
+    // openai SDK 由 @workspace/integrations-openai-ai-server 间接 hoist 提供；运行时可解析
+    const oa = (await import("openai" as string)) as { toFile: (file: Buffer, name: string, opts?: { type?: string }) => Promise<unknown> };
+    const imageFile = await oa.toFile(refImageBuffer, "reference.png", { type: "image/png" });
 
     const fullPrompt = `参考这张图片的构图、配色和风格，创作一张全新的、与之风格相似但内容不同的图片。要求：${prompt}. 保持小红书风格，精美、高质量、适合社交媒体展示。`;
 
     const response = await openai.images.edit({
       model: "gpt-image-1",
-      image: imageFile,
+      image: imageFile as any,
       prompt: fullPrompt,
       n: 1,
       size: imageSize as "1024x1024" | "1024x1536" | "1536x1024" | "auto",

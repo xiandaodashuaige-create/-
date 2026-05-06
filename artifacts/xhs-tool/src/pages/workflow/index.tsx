@@ -249,7 +249,7 @@ export default function WorkflowWizard() {
         .map((k) => String(k || "").trim())
         .filter(Boolean)
         .slice(0, 5);
-      return api.tracking.create({
+      return api.tracking.add({
         xhsUrl: data.xhsUrl,
         title: form.title,
         targetKeywords: kws,
@@ -271,11 +271,7 @@ export default function WorkflowWizard() {
   const niche = researchInput.niche.trim();
   const { data: hotTopicsData } = useQuery({
     queryKey: ["hot-topics-inline", niche, selectedRegion],
-    queryFn: () =>
-      api.tracking.hotTopics({
-        niche,
-        region: selectedRegion || undefined,
-      }),
+    queryFn: () => api.tracking.hotTopics(niche, selectedRegion || "ALL"),
     enabled: niche.length >= 2 && !!selectedRegion,
     staleTime: 30 * 60 * 1000,
   });

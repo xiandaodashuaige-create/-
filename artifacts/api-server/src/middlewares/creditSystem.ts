@@ -130,8 +130,8 @@ export async function deductCredits(req: Request, operationType?: string): Promi
   const user = req.dbUser;
   if (!user || user.role === "admin") return;
 
-  const op = operationType || req.creditOperation;
-  const cost = req.creditCost || CREDIT_COSTS[op as string] || 0;
+  const op: string = operationType || req.creditOperation || "unknown";
+  const cost = req.creditCost || CREDIT_COSTS[op] || 0;
   if (cost <= 0) return;
 
   const result = await db.update(usersTable)

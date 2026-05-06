@@ -151,7 +151,7 @@ ${context.imagePromptUsed ? `\n上次生成用的 prompt 摘要: ${context.image
   });
 
   const choice = response.choices[0]?.message;
-  const toolCall = choice?.tool_calls?.[0];
+  const toolCall = choice?.tool_calls?.[0] as { function?: { arguments?: string } } | undefined;
   if (toolCall && toolCall.function?.arguments) {
     try {
       const parsed = JSON.parse(toolCall.function.arguments);

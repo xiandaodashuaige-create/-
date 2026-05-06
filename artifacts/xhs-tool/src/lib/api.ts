@@ -217,6 +217,29 @@ export const api = {
     update: (data: any) => request<any>("/user/me", { method: "PATCH", body: JSON.stringify(data) }),
     transactions: (limit = 20) => request<any[]>(`/user/me/transactions?limit=${limit}`),
   },
+  brandProfile: {
+    get: (platform: "xhs" | "tiktok" | "instagram" | "facebook") =>
+      request<{
+        id: number; platform: string;
+        category: string | null; products: string | null; targetAudience: string | null;
+        priceRange: string | null; tone: string | null; forbiddenClaims: string[];
+        conversionGoal: string | null; region: string | null; language: string | null;
+        extras: Record<string, unknown> | null;
+      } | null>(`/brand-profile?platform=${platform}`),
+    upsert: (data: {
+      platform: "xhs" | "tiktok" | "instagram" | "facebook";
+      category?: string | null;
+      products?: string | null;
+      targetAudience?: string | null;
+      priceRange?: string | null;
+      tone?: string | null;
+      forbiddenClaims?: string[];
+      conversionGoal?: string | null;
+      region?: string | null;
+      language?: string | null;
+    }) =>
+      request<any>("/brand-profile", { method: "PUT", body: JSON.stringify(data) }),
+  },
   schedules: {
     list: (params?: { accountId?: number; startDate?: string; endDate?: string }) => {
       const q = new URLSearchParams();

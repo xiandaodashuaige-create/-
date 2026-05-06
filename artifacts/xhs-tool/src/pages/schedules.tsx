@@ -291,12 +291,12 @@ export default function Schedules() {
   }
 
   // ----- 已有计划按日分组 -----
-  const grouped = schedules.reduce((acc: Record<string, any[]>, s: any) => {
+  const grouped: Record<string, any[]> = (schedules as any[]).reduce<Record<string, any[]>>((acc, s: any) => {
     const date = new Date(s.scheduledAt).toLocaleDateString("zh-CN");
     if (!acc[date]) acc[date] = [];
     acc[date].push(s);
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {});
 
   function updatePlanItem(idx: number, patch: Partial<PlanItem>) {
     setPlanItems((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)));

@@ -11,6 +11,11 @@ interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
   maxFileSize?: number;
   /**
+   * MIME types or file extensions to allow (e.g. ["image/*", ".png", "video/mp4"]).
+   * Forwarded to Uppy `restrictions.allowedFileTypes`.
+   */
+  allowedFileTypes?: string[];
+  /**
    * Function to get upload parameters for each file.
    * IMPORTANT: This receives the file object - use file.name, file.size, file.type
    * to request per-file presigned URLs from your backend.
@@ -61,6 +66,7 @@ interface ObjectUploaderProps {
 export function ObjectUploader({
   maxNumberOfFiles = 1,
   maxFileSize = 10485760, // 10MB default
+  allowedFileTypes,
   onGetUploadParameters,
   onComplete,
   buttonClassName,
@@ -77,6 +83,7 @@ export function ObjectUploader({
       restrictions: {
         maxNumberOfFiles,
         maxFileSize,
+        ...(allowedFileTypes && allowedFileTypes.length > 0 ? { allowedFileTypes } : {}),
       },
       autoProceed: false,
     })

@@ -45,11 +45,11 @@ export default function SensitiveWords() {
     },
   });
 
-  const grouped = words.reduce((acc: Record<string, any[]>, w: any) => {
+  const grouped: Record<string, any[]> = (words as any[]).reduce<Record<string, any[]>>((acc, w: any) => {
     if (!acc[w.category]) acc[w.category] = [];
     acc[w.category].push(w);
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {});
 
   return (
     <div className="space-y-6">

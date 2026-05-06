@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { User, Sparkles, Coins, Globe, LogOut, Loader2, Check } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { User, Sparkles, Coins, Globe, LogOut, Loader2, Check, Briefcase } from "lucide-react";
 import { api } from "@/lib/api";
 import { useI18n, type Lang } from "@/lib/i18n";
 import { usePlatform } from "@/lib/platform-context";
@@ -189,7 +190,10 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* 3. 积分 */}
+      {/* 3. 品牌画像（按平台） — 注入 AI 策略生成 prompt */}
+      <BrandProfileCard platform={activePlatform as PlatformId} />
+
+      {/* 4. 积分 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -228,7 +232,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* 4. 语言 */}
+      {/* 5. 语言 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -257,7 +261,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* 5. 退出登录 */}
+      {/* 6. 退出登录 */}
       <Card className="border-red-200">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2 text-red-700">
@@ -284,5 +288,132 @@ export default function Settings() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ── 品牌画像卡（按平台 upsert）— 注入到 AI 策略生成 prompt ──
+function BrandProfileCard({ platform }: { platform: PlatformId }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const platformMeta = PLATFORMS[platform];
+
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ["brand-profile", platform],
+    queryFn: () => api.brandProfile.get(platform),
+  });
+
+  const [category, setCategory] = useState("");
+  const [products, setProducts] = useState("");
+  const [targetAudience, setTargetAudience] = useState("");
+  const [priceRange, setPriceRange] = useState("");
+  const [tone, setTone] = useState("");
+  const [forbiddenClaims, setForbiddenClaims] = useState("");
+  const [conversionGoal, setConversionGoal] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!profile) {
+      setCategory(""); setProducts(""); setTargetAudience(""); setPriceRange("");
+      setTone(""); setForbiddenClaims(""); setConversionGoal("");
+    } else {
+      setCategory(profile.category ?? "");
+      setProducts(profile.products ?? "");
+      setTargetAudience(profile.targetAudience ?? "");
+      setPriceRange(profile.priceRange ?? "");
+      setTone(profile.tone ?? "");
+      setForbiddenClaims((profile.forbiddenClaims ?? []).join(", "));
+      setConversionGoal(profile.conversionGoal ?? "");
+    }
+    setDirty(false);
+  }, [profile, platform]);
+
+  const saveMut = useMutation({
+    mutationFn: () => api.brandProfile.upsert({
+      platform,
+      category: category.trim() || null,
+      products: products.trim() || null,
+      targetAudience: targetAudience.trim() || null,
+      priceRange: priceRange.trim() || null,
+      tone: tone.trim() || null,
+      forbiddenClaims: forbiddenClaims.split(/[,，;；\n]+/).map((s) => s.trim()).filter(Boolean),
+      conversionGoal: conversionGoal.trim() || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["brand-profile", platform] });
+      toast({ title: "品牌画像已保存", description: `下次 ${platformMeta?.name} 生成策略会自动注入这些信息` });
+      setDirty(false);
+    },
+    onError: (e: any) => {
+      toast({ title: "保存失败", description: e?.message ?? "未知错误", variant: "destructive" });
+    },
+  });
+
+  function markDirty<T>(setter: (v: T) => void) {
+    return (v: T) => { setter(v); setDirty(true); };
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Briefcase className="h-4 w-4 text-blue-600" /> 品牌画像 · {platformMeta?.name}
+        </CardTitle>
+        <CardDescription>
+          填写后，AI 生成策略 / 文案时会自动按你的品牌定位输出，每个平台独立保存。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">品类</Label>
+                <Input value={category} onChange={(e) => markDirty(setCategory)(e.target.value)} placeholder="如：美妆护肤、母婴、宠物食品" maxLength={100} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">价格带</Label>
+                <Input value={priceRange} onChange={(e) => markDirty(setPriceRange)(e.target.value)} placeholder="如：100-300 RMB / 高端" maxLength={100} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">主推产品 / 服务</Label>
+              <Textarea value={products} onChange={(e) => markDirty(setProducts)(e.target.value)} placeholder="列出 1-3 个主推 SKU 或服务，每行一个" maxLength={2000} rows={3} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">目标受众</Label>
+              <Input value={targetAudience} onChange={(e) => markDirty(setTargetAudience)(e.target.value)} placeholder="如：25-35 岁都市女性、宝妈、运动爱好者" maxLength={500} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">品牌调性 / Tone</Label>
+                <Input value={tone} onChange={(e) => markDirty(setTone)(e.target.value)} placeholder="如：温暖治愈 / 专业理性 / 玩梗活泼" maxLength={200} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">转化目标</Label>
+                <Input value={conversionGoal} onChange={(e) => markDirty(setConversionGoal)(e.target.value)} placeholder="如：私信咨询 / 下单 / 留资" maxLength={200} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">禁用词 / 极限词</Label>
+              <Input value={forbiddenClaims} onChange={(e) => markDirty(setForbiddenClaims)(e.target.value)} placeholder="逗号分隔，如：最好,最便宜,治愈,根治" maxLength={1000} />
+              <p className="text-[11px] text-muted-foreground">AI 生成时会主动避开这些词</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2">
+              {dirty && <span className="text-[11px] text-amber-600">有未保存的修改</span>}
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || !dirty} size="sm">
+                {saveMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "保存品牌画像"}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

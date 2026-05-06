@@ -22,20 +22,20 @@ export default function OnboardingGuide() {
     const localSeen = localStorage.getItem("onboarding-completed");
     if (localSeen) return;
 
+    let timer: ReturnType<typeof setTimeout> | null = null;
     fetch("/api/user/me", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((user) => {
         if (user?.onboardingCompleted) {
           localStorage.setItem("onboarding-completed", "1");
         } else {
-          const timer = setTimeout(() => setVisible(true), 800);
-          return () => clearTimeout(timer);
+          timer = setTimeout(() => setVisible(true), 800);
         }
       })
       .catch(() => {
-        const timer = setTimeout(() => setVisible(true), 800);
-        return () => clearTimeout(timer);
+        timer = setTimeout(() => setVisible(true), 800);
       });
+    return () => { if (timer) clearTimeout(timer); };
   }, []);
 
   function handleClose() {

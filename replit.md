@@ -87,6 +87,9 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **`/credits` 是普通用户的积分页：** `/admin` 只 admin 可见，`/credits` 给所有用户看自己的「余额 + 累计 + 套餐 + 最近 100 条流水（含操作类型 emoji + 金额涨跌）+ 顾问联系方式」。流水通过 `api.user.transactions(100)` 取，operationType 复用 `cost.*` i18n key 显示。Layout 侧边栏 system 组里在 settings 上方。
 - **设置页 5 模块：** `/settings` = 个人资料（nickname via `PATCH /user/me`）+ 创作偏好（默认平台/地区/行业，存 localStorage `pref.region`/`pref.niche`，平台直连 `setActivePlatform`）+ 积分速览（链接到 /credits）+ 语言（同步保存到后端 `user.language`）+ 退出登录二次确认。系统信息卡已迁移到 `/admin` 底部。
 - **autopilot.tsx 已全 i18n：** 所有 toast、step 标签、setup/running/review/edit/schedule/done 6 步的 UI 字符串、按钮、placeholder、STRATEGY_ANGLES 的 labelKey/hintKey 都走 `t()`。`i18n.tsx` 三语段（zh/en/zh-HK）加了 `autopilot.*` 165+ key。仅 pipeline `pushLog` 控制台中文日志（30+ 处）未改，作低优先（用户看的是结果不是 log 文本）。
+- **品牌画像（按平台）：** `GET/PUT /api/brand-profile?platform=xhs|tiktok|instagram|facebook`，per-user per-platform upsert。`settings.tsx` 第 3 张卡片填写后会被注入到后续 AI 策略/文案生成 prompt（`category/products/targetAudience/priceRange/tone/forbiddenClaims/conversionGoal`）。前端 `api.brandProfile.{get,upsert}`。
+- **bulk-create schedules 幂等去重：** `POST /api/schedules/bulk-create` 写入前查 `accountId` 已有 `scheduledAt`，对 (1) DB 已有 (2) 同批 items 重复 三种重叠都跳过，返回 `{ created, skipped, items }`。注：跨请求并发仍可能撞日，后续应给 `schedules(account_id, scheduled_at)` 加唯一索引 + ON CONFLICT 才彻底闭环。
+- **ObjectUploader allowedFileTypes：** `@workspace/object-storage-web` 现支持 `allowedFileTypes?: string[]` prop（透传到 Uppy `restrictions.allowedFileTypes`），workflow / autopilot 等上传点用 `["image/*"]` / `["video/*"]` 限制。
 - **市场数据 trending 真接：** `/api/market-data/trending?platform=xhs` 已接 `hotTopics.searchXhsNotes`（TikHub 优先，RapidAPI 兜底，地区 SG/HK/MY→中文 region 词），返回 `source: "xhs"`。`platform=tiktok` 走 TikHub。FB/IG 仍 mock + 引导去同行库。前端按 `data.source === "mock"` 显示黄色提示横幅。
 
 ## Pointers
