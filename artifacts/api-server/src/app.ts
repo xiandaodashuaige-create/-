@@ -35,7 +35,24 @@ app.use(
 
 app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
-app.use(cors({ credentials: true, origin: true }));
+// CORS：origin: true 会回显任意来源给 ACAO，配合 credentials: true 等于允许任何站点
+// 携带用户 cookie 调本 API（CSRF）。改为白名单：本机开发 + REPLIT_DOMAINS（逗号分隔的生产域名）。
+const corsAllowlist = new Set<string>([
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://localhost:80",
+  "http://localhost",
+  ...(process.env.REPLIT_DOMAINS ?? "").split(",").map((d) => d.trim()).filter(Boolean).flatMap((d) => [`https://${d}`, `http://${d}`]),
+]);
+app.use(cors({
+  credentials: true,
+  origin: (origin, cb) => {
+    // 同源 / curl / SSR 等无 Origin header 的请求允许通过
+    if (!origin) return cb(null, true);
+    if (corsAllowlist.has(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked: ${origin}`));
+  },
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

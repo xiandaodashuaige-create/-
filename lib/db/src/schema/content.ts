@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
+import { type AnyPgColumn, pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { accountsTable } from "./accounts";
@@ -9,7 +9,8 @@ export const contentTable = pgTable("content", {
   // platform 维度：默认 xhs，未来支持 tiktok/instagram/facebook
   platform: text("platform").notNull().default("xhs"),
   // 一稿多发的源头：A→B 派生时 B.parentContentId = A.id
-  parentContentId: integer("parent_content_id"),
+  // 自引用 FK + onDelete: 'set null'，删父稿不再留下指向幽灵 ID 的孤儿子稿。
+  parentContentId: integer("parent_content_id").references((): AnyPgColumn => contentTable.id, { onDelete: "set null" }),
   // 媒体类型：image | video | mixed（默认 image，与现有 xhs 图文笔记兼容）
   mediaType: text("media_type").notNull().default("image"),
   title: text("title").notNull(),
