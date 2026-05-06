@@ -241,10 +241,16 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
           {platform === "instagram" && (
             <p className="text-xs text-muted-foreground">Instagram 通过授权 Facebook Page 自动接入（点击 Facebook 标签页授权）</p>
           )}
+          {(platform === "facebook" || platform === "instagram") && cfg?.ayrshare && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 flex items-start gap-1.5">
+              <Info className="h-3 w-3 mt-0.5 shrink-0" />
+              <span>Meta 应用还在审核中、无法对外开放?改用下方 <strong>Ayrshare 第三方授权</strong>,无需等待审核即可立即绑定 {meta.name} 并发布。</span>
+            </p>
+          )}
         </div>
 
-        {/* Ayrshare 替代路线 */}
-        <div className="rounded-md border bg-background p-3 space-y-2">
+        {/* Ayrshare 替代路线（FB/IG 在 Meta 审核期间作为推荐路线） */}
+        <div className={`rounded-md border bg-background p-3 space-y-2 ${(platform === "facebook" || platform === "instagram") && cfg?.ayrshare ? "ring-2 ring-primary/40" : ""}`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm">
               {cfg?.ayrshare ? (
@@ -252,7 +258,10 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
               ) : (
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
               )}
-              <span className="font-medium">Ayrshare（统一聚合）</span>
+              <span className="font-medium">Ayrshare 第三方授权</span>
+              {(platform === "facebook" || platform === "instagram") && cfg?.ayrshare && (
+                <Badge className="text-[10px] px-1.5 py-0 h-4 bg-primary/10 text-primary border-primary/20" variant="outline">推荐 · 无需审核</Badge>
+              )}
             </div>
             <div className="flex gap-2">
               {cfg?.ayrshareDashboardUrl && (
@@ -278,7 +287,12 @@ export function OAuthConnectPanel({ platform }: { platform: PlatformId }) {
           {!cfg?.ayrshare && (
             <p className="text-xs text-muted-foreground">
               需在 Replit Secrets 配置：<code className="text-[10px] bg-muted px-1 py-0.5 rounded">AYRSHARE_API_KEY</code>
-              ，先到 ayrshare.com 注册并授权 {meta.name}，然后点"同步账号"。
+              ,先到 ayrshare.com 注册并授权 {meta.name},然后点"同步账号"。
+            </p>
+          )}
+          {cfg?.ayrshare && (
+            <p className="text-xs text-muted-foreground">
+              通过 <a href="https://app.ayrshare.com" target="_blank" rel="noopener noreferrer" className="underline">Ayrshare</a> 第三方代理完成 {meta.name} 授权 —— 不依赖你自己的 Meta App 审核状态。点"授权登录"会跳转到 Ayrshare 后台,完成后系统会自动检测并同步绑定。
             </p>
           )}
         </div>
