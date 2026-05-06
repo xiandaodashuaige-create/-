@@ -65,7 +65,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **OAuth Account Binding:** `POST /api/strategy/:id/approve` returns `400 no_account` if no platform account is bound.
 - **Ayrshare profileKey:** Do not use "default" as `ayrshareProfileKey` in the `Profile-Key` header.
 - **XHS Specifics:** XHS uses `/workflow`, requires direct account details, and has an exclusive editor at `/content/:id`. XHS CDN images must be wrapped with `proxyXhsImage()` from `xhs-tool/src/lib/image-proxy.ts`.
-- **Autopilot Workflow:** Multi-step wizard (`setup → running → review → edit → schedule → done` for single refinement or `setup → running → review → weekly-review → done` for weekly content packs). Account selector disables unauthorized accounts.
+- **Autopilot Workflow:** Multi-step wizard (`setup → running → review → edit → schedule → done` for single refinement or `setup → running → review → weekly-review → done` for weekly content packs). Account selector disables unauthorized accounts. **全 4 平台 (XHS/TT/FB/IG) 已统一接入** —— 后端 strategyGenerator / publishDispatcher / metaCompetitorScraper / autoMediaForDraft / content schedule+publish 端到端支持。FB/IG 局限:Meta 无公开 KOL 关键词搜索 API → autopilot 在 stage 2 会优雅退化为 "基于行业知识 + 已添加同行" 模式;setup 卡片对 FB/IG 显示 amber 提示引导用户先去 `/competitors` 手动加 handle (使用 Meta Graph `business_discovery`,需先绑 FB Page Token)。FB Page 默认 16:9,IG 默认 1:1 — Reels (9:16) 暂未做平台子类型切换。
 - **Sensitive Word Check:** Dual-layer check: local DFA first, then `gpt-4o-mini`.
 - **Media URLs:** Must be absolute HTTPS.
 - **Sora Pro Video Generation:** Gated by `user.plan === "pro"` and requires `OPENAI_API_KEY` with Sora access. Daily limit applies, admin exempted.

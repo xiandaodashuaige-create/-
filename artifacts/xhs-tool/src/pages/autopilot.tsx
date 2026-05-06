@@ -1398,43 +1398,11 @@ export default function AutopilotPage() {
     startPipelineWith(niche.trim());
   }
 
-  // FB / IG 自动驾驶尚未真正接入（platform endpoints + onboarding 流水线 only XHS+TikTok adapted）。
-  // 不能让用户走完 4 步流程到最后失败 → 在入口直接拦截显示 Coming Soon 占位。
-  // 用 boolean 中转避免 TS narrow 影响下游 platform 比较
-  const isAutopilotUnsupported: boolean = (platform as string) === "facebook" || (platform as string) === "instagram";
-  if (isAutopilotUnsupported) {
-    return (
-      <div className="space-y-6 max-w-4xl mx-auto">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center">
-            <Rocket className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">{t("autopilot.header.title")} · {platformMeta.name}</h1>
-            <p className="text-sm text-muted-foreground">{t("autopilot.header.desc")}</p>
-          </div>
-        </div>
-        <Card className="p-8 text-center space-y-4">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-muted">
-            <Rocket className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold">{platformMeta.name} 自动驾驶 · Coming Soon</h2>
-            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-              {platformMeta.name} 的一键养号流水线（市场分析 → 内容生成 → 自动发布）尚未上线。
-              目前可使用<Link href="/workflow" className="underline mx-1 text-primary">小红书自动创作</Link>
-              或<Link href="/content" className="underline mx-1 text-primary">手动创建 {platformMeta.name} 内容</Link>。
-            </p>
-          </div>
-          <div className="flex gap-2 justify-center">
-            <Button variant="outline" onClick={() => setLocation("/dashboard")}>返回仪表盘</Button>
-            <Button onClick={() => setLocation("/content")}>去内容管理</Button>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
+  // FB / IG / TikTok / XHS 全平台 autopilot 已统一接入：
+  //   · setup→running→review→edit→schedule→done 走通用 pipeline
+  //   · FB/IG 在 Stage 2 走"基于行业知识 + 用户已添加同行"的优雅退化（见 L685-687）
+  //   · 后端 strategyGenerator / publishDispatcher / metaCompetitorScraper 已支持 FB/IG
+  //   · 账号未绑定时由 ProtectedRoute guard="needs-auth" → OAuthRedirectGate 处理
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* Header */}
@@ -1640,6 +1608,15 @@ export default function AutopilotPage() {
                 <> · {t("autopilot.setup.poolHintPrefix")} <strong className="text-foreground">{existingCompetitors.length}</strong> {t("autopilot.setup.poolHintSuffix")}</>
               )}
             </div>
+            {(platform === "facebook" || platform === "instagram") && existingCompetitors.length === 0 && (
+              <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 flex items-start gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  {t("autopilot.setup.metaNoDiscoverHint")}
+                  <Link href="/competitors" className="underline ml-1 text-amber-800">{t("autopilot.setup.metaNoDiscoverCta")}</Link>
+                </span>
+              </div>
+            )}
           </div>
 
           {/* 视频脚本开关 —— 仅 TT/IG 主推；FB 以图文为主但也可选 */}
