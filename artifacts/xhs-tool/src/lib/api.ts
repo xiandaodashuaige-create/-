@@ -243,9 +243,16 @@ export const api = {
       accountId: number;
       startDate: string;
       items: Array<{ dayOffset: number; time: string; title: string; body: string; tags?: string[]; imagePrompt?: string }>;
+      tz?: string;
     }) => request<{ created: number; items: Array<{ contentId: number; scheduleId: number; scheduledAt: string }> }>(
       "/schedules/bulk-create",
-      { method: "POST", body: JSON.stringify(data) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          tz: data.tz || Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
+          ...data,
+        }),
+      },
     ),
     duplicateWeeks: (data: { accountId: number; startDate: string; endDate: string; weeks: number }) =>
       request<{ created: number; weeks: number }>(

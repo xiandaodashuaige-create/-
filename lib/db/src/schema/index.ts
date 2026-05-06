@@ -15,3 +15,4 @@ export * from "./competitorPosts";
 export * from "./strategies";
 export * from "./categoryTrainingProfiles";
 export * from "./oauthStates";
+export * from "./publishLogs";

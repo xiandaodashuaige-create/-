@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { ensureUser, requireCredits, deductCredits } from "../middlewares/creditSystem";
 import { logger } from "../lib/logger";
+import { transcribeVideoUrl } from "../services/whisperTranscribe.js";
 import {
   fetchTikTokProfile,
   fetchTikTokUserVideos,
@@ -743,6 +744,44 @@ ${sampleBlock}
   } catch (err: any) {
     logger.error({ err: err?.message, platform, niche }, "competitors strategy generation failed");
     res.status(500).json({ error: "ai_failed", message: err?.message ?? "AI 生成失败" });
+  }
+});
+
+// 同行视频 Whisper 口播转录 — 提取 viral hooks 给 AI 创作参考
+// 命中已转录则直接返回缓存（competitorPostsTable.transcript），否则下载 + 调 Whisper
+router.post("/competitor-posts/:id/transcribe", requireCredits("ai-operations-rewrite"), async (req, res): Promise<void> => {
+  const user = await ensureUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) { res.status(400).json({ error: "invalid_id" }); return; }
+
+  // ownership join
+  const [row] = await db.select({ post: competitorPostsTable, ownerId: competitorProfilesTable.userId })
+    .from(competitorPostsTable)
+    .innerJoin(competitorProfilesTable, eq(competitorPostsTable.competitorId, competitorProfilesTable.id))
+    .where(eq(competitorPostsTable.id, id));
+  if (!row || row.ownerId !== user.id) { res.status(404).json({ error: "not_found" }); return; }
+
+  // 缓存命中
+  if (row.post.transcript && row.post.transcript.length > 10) {
+    res.json({ id, transcript: row.post.transcript, cached: true });
+    return;
+  }
+
+  const videoUrl = row.post.mediaUrl;
+  if (!videoUrl) { res.status(400).json({ error: "no_video", message: "该作品无视频链接" }); return; }
+
+  try {
+    const transcript = await transcribeVideoUrl(videoUrl);
+    const [updated] = await db.update(competitorPostsTable)
+      .set({ transcript })
+      .where(eq(competitorPostsTable.id, id))
+      .returning({ id: competitorPostsTable.id, transcript: competitorPostsTable.transcript });
+    await deductCredits(req, "ai-operations-rewrite");
+    res.json({ id: updated.id, transcript: updated.transcript, cached: false });
+  } catch (err: any) {
+    logger.error({ err: err?.message, postId: id }, "transcribe failed");
+    res.status(500).json({ error: "transcribe_failed", message: err?.message ?? "转录失败" });
   }
 });
 

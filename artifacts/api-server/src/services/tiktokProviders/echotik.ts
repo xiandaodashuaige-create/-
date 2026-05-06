@@ -1,0 +1,13 @@
+// EchoTik 适配器 — 需要 ECHOTIK_API_KEY 才能启用
+// 文档：https://echotik.live/docs (需付费订阅)
+function notConfigured(): never {
+  throw new Error("EchoTik provider 未实现 — 请订阅 EchoTik 并设置 ECHOTIK_API_KEY，然后实现 services/tiktokProviders/echotik.ts");
+}
+
+export async function fetchProfile(_handle: string): Promise<null> {
+  notConfigured();
+}
+
+export async function fetchUserPosts(_handleOrId: string, _count: number): Promise<never> {
+  notConfigured();
+}

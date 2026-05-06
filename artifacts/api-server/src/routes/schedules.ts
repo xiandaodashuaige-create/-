@@ -35,20 +35,74 @@ type PlanItemBody = {
   imagePrompt?: string;
 };
 
-function combineDateTime(startDateIso: string, dayOffset: number, time: string): Date {
+// 把 (startDate, dayOffset, "HH:mm") 在指定时区下解析为 UTC Date。
+// tz 默认 Asia/Shanghai（覆盖 CN/HK/SG/MY 主要市场，UTC+8）。
+// 修复：旧实现用 base.setHours() 隐式按服务器本地时区解释 — 在 UTC 服务器上会
+// 把用户输入的"上午10点"错误存为 10:00 UTC = 北京时间 18:00。
+function combineDateTime(
+  startDateIso: string,
+  dayOffset: number,
+  time: string,
+  tz: string = "Asia/Shanghai",
+): Date {
   const base = new Date(startDateIso);
   if (Number.isNaN(base.getTime())) throw new Error("invalid startDate");
-  const m = /^(\d{1,2}):(\d{2})$/.exec(time);
-  if (!m) throw new Error("invalid time");
-  const hh = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) throw new Error("invalid time range");
-  const off = Math.max(0, Math.min(6, Math.floor(dayOffset)));
-  const d = new Date(base);
-  d.setDate(d.getDate() + off);
-  d.setHours(hh, mm, 0, 0);
-  return d;
+  const [hhStr, mmStr] = time.split(":");
+  const hh = parseInt(hhStr || "", 10);
+  const mm = parseInt(mmStr || "0", 10);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+    throw new Error("invalid time");
+  }
+
+  // Step 1: 在 tz 下取出 startDate 的 Y-M-D
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const partsBase = Object.fromEntries(
+    fmt.formatToParts(base).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  const y0 = parseInt(partsBase.year!, 10);
+  const m0 = parseInt(partsBase.month!, 10);
+  const d0 = parseInt(partsBase.day!, 10);
+
+  // Step 2: 加 dayOffset（UTC 算术避免 DST 边界 glitch）
+  const dayUtc = new Date(Date.UTC(y0, m0 - 1, d0));
+  dayUtc.setUTCDate(dayUtc.getUTCDate() + dayOffset);
+  const yy = dayUtc.getUTCFullYear();
+  const mo = dayUtc.getUTCMonth() + 1;
+  const dd = dayUtc.getUTCDate();
+
+  // Step 3: 把 "yy-mo-dd hh:mm in tz" 转成正确的 UTC Date
+  // 技巧：先按 UTC 构造一个"假"时间，再用 Intl 反查它在 tz 下读作几点，差值即为 tz 偏移。
+  const naiveUtc = Date.UTC(yy, mo - 1, dd, hh, mm, 0);
+  const tzFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const partsTz = Object.fromEntries(
+    tzFmt.formatToParts(new Date(naiveUtc)).filter((p) => p.type !== "literal").map((p) => [p.type, p.value]),
+  ) as Record<string, string>;
+  const asTz = Date.UTC(
+    parseInt(partsTz.year!, 10),
+    parseInt(partsTz.month!, 10) - 1,
+    parseInt(partsTz.day!, 10),
+    parseInt(partsTz.hour!, 10),
+    parseInt(partsTz.minute!, 10),
+    parseInt(partsTz.second!, 10),
+  );
+  const tzOffsetMs = asTz - naiveUtc;
+  return new Date(naiveUtc - tzOffsetMs);
 }
+
 
 const MAX_BULK_ITEMS = 20;
 
@@ -155,11 +209,13 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
     const u = await ensureUser(req);
     if (!u) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-    const { accountId, startDate, items } = req.body as {
+    const { accountId, startDate, items, tz } = req.body as {
       accountId?: number;
       startDate?: string;
       items?: PlanItemBody[];
+      tz?: string;
     };
+    const userTz = typeof tz === "string" && tz.length > 0 ? tz : "Asia/Shanghai";
 
     if (!accountId || !startDate || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ error: "accountId, startDate, items 必填" });
@@ -174,7 +230,7 @@ router.post("/schedules/bulk-create", async (req, res): Promise<void> => {
     const prepared: Array<{ item: PlanItemBody; scheduledAt: Date }> = [];
     for (const item of items) {
       try {
-        const scheduledAt = combineDateTime(startDate, item.dayOffset, item.time);
+        const scheduledAt = combineDateTime(startDate, item.dayOffset, item.time, userTz);
         prepared.push({ item, scheduledAt });
       } catch {
         res.status(400).json({ error: `item 时间非法：dayOffset=${item.dayOffset} time=${item.time}` });

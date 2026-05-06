@@ -47,7 +47,15 @@ export async function ensureUser(req: Request): Promise<any> {
     const email = auth?.sessionClaims?.email || auth?.sessionClaims?.primaryEmail || null;
     const nickname = auth?.sessionClaims?.firstName || auth?.sessionClaims?.name || null;
 
-    const adminEmails = ["xiandao456@gmail.com", "xiandaodashuaige@gmail.com"];
+    // 初始 admin 邮箱白名单 — 仅在新用户首次注册时生效（决定 role 字段初值）
+    // 现有用户的管理员状态以 users.role 为准；env 变更不影响存量数据。
+    // 修改方式：在 Replit Secrets / env 设置 INITIAL_ADMIN_EMAILS（逗号分隔）
+    const adminEmailsEnv = process.env.INITIAL_ADMIN_EMAILS
+      || "xiandao456@gmail.com,xiandaodashuaige@gmail.com";
+    const adminEmails = adminEmailsEnv
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
     const isAdmin = email && adminEmails.includes(email.toLowerCase());
 
     [user] = await db.insert(usersTable).values({

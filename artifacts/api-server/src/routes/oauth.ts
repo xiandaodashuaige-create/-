@@ -6,6 +6,7 @@ import * as TikTokOAuth from "../lib/oauth/tiktok.js";
 import * as Ayrshare from "../lib/oauth/ayrshare.js";
 import { ensureUser } from "../middlewares/creditSystem.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
+import { encryptToken } from "../lib/crypto.js";
 
 // 仅 OAuth 回调路由（必须 public，浏览器跳转回来时无 Clerk 头）
 export const oauthPublicRouter: IRouter = Router();
@@ -41,6 +42,10 @@ async function upsertOAuthAccount(args: {
   region?: string;
 }) {
   // 原子 UPSERT — 依赖 accounts_owner_platform_account_id_uniq 唯一索引
+  // OAuth tokens 落盘前用 AES-256-GCM 加密（OAUTH_TOKEN_ENCRYPTION_KEY 未配置时
+  // 退化为明文，并在启动日志告警 — 详见 lib/crypto.ts）
+  const encAccess = encryptToken(args.accessToken);
+  const encRefresh = args.refreshToken ? encryptToken(args.refreshToken) : null;
   const [row] = await db
     .insert(accountsTable)
     .values({
@@ -50,8 +55,8 @@ async function upsertOAuthAccount(args: {
       region: args.region ?? "GLOBAL",
       nickname: args.nickname,
       avatarUrl: args.avatarUrl ?? null,
-      oauthAccessToken: args.accessToken,
-      oauthRefreshToken: args.refreshToken ?? null,
+      oauthAccessToken: encAccess,
+      oauthRefreshToken: encRefresh,
       oauthExpiresAt: args.expiresAt ?? null,
       authStatus: "authorized",
       status: "active",
@@ -61,8 +66,8 @@ async function upsertOAuthAccount(args: {
       set: {
         nickname: args.nickname,
         avatarUrl: args.avatarUrl ?? null,
-        oauthAccessToken: args.accessToken,
-        oauthRefreshToken: args.refreshToken ?? null,
+        oauthAccessToken: encAccess,
+        oauthRefreshToken: encRefresh,
         oauthExpiresAt: args.expiresAt ?? null,
         authStatus: "authorized",
         status: "active",
