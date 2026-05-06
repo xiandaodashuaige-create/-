@@ -185,7 +185,7 @@ export async function generateStrategyCard(input: GenerateStrategyInput): Promis
   "theme": "本次主推主题（一句话）",
   "hookFormula": "钩子公式（前3秒/前3行的具体模板）",
   "scriptOutline": [{"order": 1, "description": "场景", "dialogue": "台词或文案", "duration": 秒}, ... 3-4 个],
-  "voiceoverScript": "完整旁白稿/正文初稿",
+  "voiceoverScript": "<纯文本，直接给最终旁白；不要写任何前缀如『旁白：』『正文初稿：』等>",
   "bgmStyle": "upbeat | emotional | epic | calm | corporate",
   "bgmReason": "为什么选这个 BGM",
   "estimatedDuration": ${avgDuration},
@@ -196,9 +196,12 @@ export async function generateStrategyCard(input: GenerateStrategyInput): Promis
   "reasoning": ["决策理由 1", "理由 2", "理由 3"],
   "targetAudience": "目标受众一句话画像",
   "coverPrompt": "若需 AI 出封面图，给一段中文 prompt",
-  "bodyDraft": "若是图文平台（IG/FB/XHS），给完整可发的正文初稿"
+  "bodyDraft": "<纯正文文本；用户复制即发；不要任何前缀/标签/括号说明，例如禁止写『正文初稿（图文/FB 发布可直接用）：』『正文：』『Body Draft:』之类的开头>"
 }
-只返回 JSON。${nicheConstraint}`;
+只返回 JSON。
+⚠️ 关键格式约束：
+- voiceoverScript / bodyDraft / coverPrompt 等所有文本字段，值必须是「成品」本身，不要在开头加任何形如「正文：」「旁白稿：」「（FB 可发）」「初稿如下：」的标签或解说。
+- 用户会把字段值原样发到平台，任何标签都会泄漏成正文，是严重错误。${nicheConstraint}`;
 
   const userPrompt = `【账号定位】
 - 平台：${platform}

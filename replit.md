@@ -7,9 +7,9 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Run:** `pnpm dev`
 - **Build:** `pnpm build`
 - **Typecheck:** `pnpm typecheck`
-- **Codegen:** `pnpm codegen` (for Drizzle ORM)
+- **Codegen:** `pnpm codegen`
 - **DB Push:** `pnpm db:push`
-- **Required Env Vars:** `PORT`, `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `SESSION_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY` (32-byte hex), `META_APP_ID`, `META_APP_SECRET`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `AYRSHARE_API_KEY`. Optional: `OPENAI_API_KEY`, `VOLCANO_ENGINE_API_KEY`, `TIKHUB_API_KEY`, `RAPIDAPI_KEY`, `INITIAL_ADMIN_EMAILS`, `TIKTOK_DATA_PROVIDER`.
+- **Required Env Vars:** `PORT`, `DATABASE_URL`, `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `SESSION_SECRET`, `OAUTH_TOKEN_ENCRYPTION_KEY`, `META_APP_ID`, `META_APP_SECRET`, `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `AYRSHARE_API_KEY`. Optional: `OPENAI_API_KEY`, `VOLCANO_ENGINE_API_KEY`, `TIKHUB_API_KEY`, `RAPIDAPI_KEY`, `INITIAL_ADMIN_EMAILS`, `TIKTOK_DATA_PROVIDER`.
 
 ## Stack
 
@@ -27,7 +27,7 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 - **Database Schema:** `src/db/schema.ts`
 - **API Routes:** `src/routes/api/`
 - **Frontend Pages:** `src/pages/`
-- **UI Components:** `src/components/ui/` (shadcn/ui), `src/components/` (custom)
+- **UI Components:** `src/components/ui/`, `src/components/`
 - **Shared Utilities:** `src/lib/`
 - **AI Services:** `src/services/ai/`
 - **OAuth Callbacks:** `src/routes/api/oauth/`
@@ -35,23 +35,21 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 
 ## Architecture decisions
 
-- **Monorepo Structure:** Uses pnpm workspaces for managing multiple packages within a single repository.
-- **Tenant Isolation:** All user data (accounts, content, schedules) are strictly scoped per user via `owner_user_id` and `ensureUser` middleware.
+- **Monorepo Structure:** Uses pnpm workspaces for managing multiple packages.
+- **Tenant Isolation:** All user data is strictly scoped per user via `owner_user_id` and `ensureUser` middleware.
 - **Multi-Platform Focus:** Content creation and publishing workflow treats "platform" (XHS, TikTok, Instagram, Facebook) as a primary dimension, managed via a `PlatformProvider` React context.
-- **AI-Driven Content Workflow:** Integrates multiple AI models (GPT-4o, Seedream, ComfyUI) for strategy analysis, content generation, image/video creation, and agentic user interaction.
-- **Robust OAuth & Publishing:** Employs a dedicated `oauth_states` table for secure, atomic state management across multi-instance deployments and a `publishDispatcher` cron for resilient, retriable multi-platform publishing.
-- **OAuth Token Encryption:** All sensitive OAuth tokens are encrypted at rest using AES-256-GCM for enhanced security.
+- **AI-Driven Content Workflow:** Integrates multiple AI models for strategy analysis, content generation, image/video creation, and agentic user interaction.
+- **Robust OAuth & Publishing:** Employs a dedicated `oauth_states` table for secure state management and a `publishDispatcher` cron for resilient multi-platform publishing. OAuth tokens are encrypted at rest.
 
 ## Product
 
 - AI-powered content strategy and generation for XHS, TikTok, Instagram, Facebook.
 - Multi-platform publishing with direct OAuth and Ayrshare integration.
 - AI-driven rewriting, image/video generation, and sensitive word detection.
-- Competitor analysis and tracking across multiple social platforms.
-- Market data exploration, including trending content and optimal posting times.
-- Note tracking with engagement metrics and keyword ranking for published content.
-- Credit-based system for AI and content operations, with admin management.
-- Multi-region support (SG/HK/MY for XHS, GLOBAL for others) with region-aware AI.
+- Competitor analysis and market data exploration.
+- Note tracking with engagement metrics and keyword ranking.
+- Credit-based system for AI and content operations.
+- Multi-region support with region-aware AI.
 
 ## User preferences
 
@@ -64,24 +62,23 @@ An AI-powered content creation and multi-platform publishing monorepo that helps
 
 ## Gotchas
 
-- **OAuth Account Binding:** `POST /api/strategy/:id/approve` returns `400 no_account` if a user attempts to approve a strategy without a bound platform account.
-- **Ayrshare profileKey:** When using Ayrshare, ensure `ayrshareProfileKey` is not "default" when sending as a `Profile-Key` header, as this will cause a 404; "default" signifies using Ayrshare's default profile.
-- **Strategy Generation:** The strategy generator uses `gpt-5-mini` (minimal reasoning) and performs niche-relevance scoring; irrelevant samples are ignored, and users are warned.
-- **XHS Quick Add:** For XHS, users provide account details (nickname, region, persona) directly within the `PlatformGuard` card instead of OAuth, as XHS does not support OAuth.
-- **XHS uses /workflow, not /autopilot:** XHS is the native platform with its own wizard at `/workflow` (xhs-only). `/autopilot` is the unified one-click pipeline for TikTok/IG/FB only. `AutopilotPage` auto-redirects to `/workflow` when `activePlatform === 'xhs'` (via `useEffect` + `setLocation` to keep React hooks order stable).
-- **Schedules empty state:** When no schedules exist for the active platform, `AutoPlanReview` **auto-fires** `api.ai.generateWeeklyPlan` (defaults: account[0], niche from account.notes/nickname, frequency=daily) and shows the 7-day draft inline as editable cards. User clicks「全部确认」→ `bulkCreate` → schedules go live. Per-platform auto-trigger is gated by `sessionStorage["schedules:autoGen:<platform>"]` so it never re-fires after a manual delete or page revisit; the explicit「重新生成」button clears that key. Date display uses `new Date(planStartDate + "T00:00:00")` to avoid UTC weekday off-by-one.
-- **Competitor 24h cache:** `POST /api/competitors` and `POST /api/competitors/:id/sync` skip the external fetch (TikHub / Meta Graph) when the row's `lastSyncedAt < 24h`. `:id/sync` accepts `?force=true` (or `{force:true}` body) to bypass. This significantly cuts third-party API costs when autopilot reuses the same handles. Cache returns `_cached: true` flag so client can show "from cache" hint if needed.
-- **Autopilot custom competitors + video script:** `/autopilot` now mirrors XHS workflow's competitor-link input. `customCompetitors` (textarea, comma/newline separated) is parsed for `@handle` or platform URLs (`tiktok.com/@x`, `instagram.com/x`, `facebook.com/x`); each is `competitors.add`-ed and prepended to the competitor pool, skipping `api.competitors.discover` when present. `wantVideoScript` (default true for TT/IG, false for FB) appends a hook + 分镜 + 字幕 + 封面字 spec into `customRequirements` of `strategy.generate`.
-- **Sidebar grouping:** `Layout.tsx` `navItemsConfig` items now have `group: "main" | "history" | "system"`. The "历史与素材" (history) group is collapsed by default and auto-expands when on a history route. Add new menu items by setting their `group` field — don't put history items into `main`.
-- **Autopilot niche-fit guard:** `/autopilot` 启动前会先调 `POST /api/ai/check-niche-fit { accountId, niche }`（gpt-4o-mini，零 credit、无 `requireCredits`），把账号 `nickname + notes + 最近 5 条 content.title` 喂给 AI 打 0-1 一致性分。`fit < 0.5 && hasHistory === true` 时弹 AlertDialog 三选一：①「改用「{suggestedNiche}」跑」用 AI 推断的赛道 ②「仍按「{niche}」跑」按用户原输入（转型场景）③ 取消。账号无内容历史时返回 `fit=1` 不拦截。校验本身失败也降级 fit=1，不阻塞主流程。`startPipelineWith(finalNiche)` 用 `setNiche + setTimeout(()=>runPipeline(),0)` 等下一帧 state 更新（runPipeline 内部读 niche state 而不是入参）。
-- **Autopilot 4-step wizard:** `/autopilot` (TT/IG/FB) is a 4-step wizard mirroring `/workflow`: `setup → running → review (3 strategies) → schedule → done`. Stage 3 of `runPipeline` calls `api.strategy.generate` **3× in parallel** via `Promise.allSettled`, each with a different angle hint appended to `customRequirements` (`STRATEGY_ANGLES` const: 教学/科普, 情感共鸣, 数据反差). **One-click mode (`customMode=false`, default):** auto-picks the first surviving option → `strategy.approve` → `content.schedule` to the prefilled best-time → jumps straight to `done`. **Custom mode:** stops at `review`, user picks card → `setStep("schedule")` with prefilled time + quick picks (30min/今晚/明早) + datetime-local input → confirm. Schedule step has 「返回重选方案」 button. Mount-time `useEffect` normalizes any non-`Step` value (HMR safety against old `step="approved"`). `handleAdoptStrategy` / `handleScheduleNow` hard-guard with `isPending` checks (frontend-only debounce; backend approve+schedule are NOT yet idempotent — fast double-click via curl could still produce duplicate content/schedule rows). Costs 3× AI tokens per autopilot run vs. previous 1×.
-
-- **`/content/:id` 是 XHS 专属编辑器：** `ContentEditPage` 标题就是「使用 AI 辅助创建小红书内容」，UI 和文案全部按 XHS 设计。**绝对不要**在 TT/IG/FB 的 autopilot 流程里加任何 `<Link href={`/content/${contentId}`}>` —— 那会让用户从 TikTok 自动驾驶里被甩到小红书编辑器。autopilot 的所有「编辑/微调」入口必须用 `setStep("edit")` 内部切换到 inline edit 步骤。如果将来要把 `/content/:id` 改成全平台通用，需要先按 `activePlatform` 切换 UI 文案和素材区。
-- **`UpdateContentBody` schema 不接受 null：** `PATCH /api/content/:id` 的 zod schema 中 `videoUrl` 是 `z.string().optional()`，传 `null` 会 400。前端清空视频时**省略字段**而不是传 `null`（autopilot `handleSaveEditAndProceed` 用 `if (editForm.videoUrl) payload.videoUrl = ...` 模式）。
-- **Autopilot done 步必须主动回填 editForm：** 一键模式（默认）从 review→approve→自动 schedule→done 全程不经过 edit 步，所以 `editForm` 一直是空的，done 页那块「真实素材预览」（封面/视频/标题/正文/标签）的 `editForm.title || imageUrls.length || videoUrl` 条件判断一直 false → 用户只能看到干巴巴的策略文字，看不到生成结果。修法：done 步加 `useEffect`，`step==="done" && contentId && editForm 空` 时主动调 `loadContentIntoEditForm(contentId)` 拉一次。custom 模式经过 edit 步已经有 editForm，不会重复拉。
-
-- **Autopilot 推荐时段卡片：** schedule 步不再用硬编码快选（30min/今晚/明早），改成基于 `marketInsights.bestTimes.bestHours + bestDays` 动态生成 5 张候选时段卡片（今天/明天/后天/周X · HH:00 + 「同行该时段流量最高」/「高峰日 🔥」徽章）。算法在 `recommendedSlots = useMemo([marketInsights?.bestTimes])`：从今天起 7 天内、bestHours 排序遍历，过滤 < now+15min 的，凑满 5 个。无 bestTimes 时兜底 [12,19,21]。`bestDays` 用全称匹配（"Wednesday"），WEEKDAY_MAP 同时容错 3 字母缩写。进 schedule 步用 `useEffect` 自动预选第一张卡（`!scheduledAt && recommendedSlots[0]` → setScheduledAt）。datetime-local 输入折叠到「想自己挑时间？」按钮后默认收起，让用户聚焦 AI 推荐而不是陷入选择困难。**只改了 autopilot**；editor.tsx Dialog 和 quick-publish.tsx 同款硬编码快选还是旧版（editor.tsx 没接 marketInsights，要推广得先把 bestTimes API 接进去）。
-- **Autopilot inline edit step:** Custom-mode autopilot inserts a new `step === "edit"` between `review` and `schedule` (full Step type now `setup|running|review|edit|schedule|done`, indicator shows 5 stages with Wand2 icon for edit). After `approveMut.onSuccess`, calls `loadContentIntoEditForm(contentId)` which fetches `api.content.get` and populates `editForm = {title, body, tags, tagInput, imageUrls, videoUrl}`. Edit page is 2-col: left = live preview card (video/cover + title + body + tags + thumbnail strip); right = editable form with title input, body textarea, tag chips with inline add/remove, image grid (delete X / `AssetPicker type=image` / `ObjectUploader` 10MB / 「AI 生成」 button calling `api.ai.generateImage`), and video block (`AssetPicker type=video` / `ObjectUploader` 100MB). 「保存并去排期」calls `api.content.update` then `setStep("schedule")`. Reuses `handleGetUploadParameters` pattern from xhs workflow (`POST /api/storage/uploads/request-url` → presigned PUT → `/api/storage{objectPath}` URL). One-click mode bypasses edit (still goes review→approve→auto-schedule→done). HMR-safety valid steps array updated. `resetAll` clears `editForm`. Done step also enriched: shows real cover/video + title/body/tags from `editForm`, not just strategy summary. Mount-time normalizer accepts "edit" as valid.
+- **OAuth Account Binding:** `POST /api/strategy/:id/approve` returns `400 no_account` if no platform account is bound.
+- **Ayrshare profileKey:** Do not use "default" as `ayrshareProfileKey` in the `Profile-Key` header; it causes a 404.
+- **Strategy Generation:** Uses `gpt-5-mini` and performs niche-relevance scoring; irrelevant samples are ignored.
+- **XHS Quick Add:** For XHS, users provide account details directly within the `PlatformGuard` card as XHS does not support OAuth.
+- **XHS uses /workflow, not /autopilot:** XHS has its own wizard at `/workflow`. `/autopilot` is for TikTok/IG/FB and auto-redirects to `/workflow` for XHS.
+- **Schedules empty state:** If no schedules exist, `AutoPlanReview` automatically triggers `api.ai.generateWeeklyPlan` and displays a 7-day draft. This auto-trigger is gated by `sessionStorage` to prevent re-firing.
+- **Competitor 24h cache:** `POST /api/competitors` and `POST /api/competitors/:id/sync` skip external fetches if `lastSyncedAt < 24h`. `?force=true` bypasses this.
+- **Autopilot custom competitors + video script:** `/autopilot` accepts `customCompetitors` (parsed for handles/URLs) and `wantVideoScript` (influences `customRequirements` for `strategy.generate`).
+- **Sidebar grouping:** `Layout.tsx` `navItemsConfig` items have `group` (`main`, `history`, `system`). History group is collapsed by default.
+- **Autopilot niche-fit guard:** Before starting `/autopilot`, `POST /api/ai/check-niche-fit` checks niche consistency (0-1 score). Low fit (<0.5) with history prompts user to confirm or change niche.
+- **Autopilot 4-step wizard:** `/autopilot` (TT/IG/FB) is a 4-step wizard: `setup → running → review (3 strategies) → schedule → done`. One-click mode auto-picks and schedules. Custom mode allows user selection and manual scheduling.
+- **`/content/:id` is XHS-exclusive editor:** This page is designed specifically for XHS content. Do not link to it from TikTok/IG/FB autopilot flows.
+- **`UpdateContentBody` schema does not accept null:** When clearing video, omit the `videoUrl` field from the payload, do not send `null`.
+- **AI strategy generation schema description leakage:** The `strategyGenerator.ts` system prompt's field descriptions (`"bodyDraft": "若是图文平台..."`) can be echoed into generated content. This is mitigated by prompt refinements and a `stripLeakedLabel` regex.
+- **Autopilot done step must actively backfill editForm:** In one-click mode, the `editForm` is empty in the "done" step. A `useEffect` loads content into `editForm` for preview if `editForm` is empty.
+- **Autopilot recommended timeslot cards:** The schedule step dynamically generates 5 candidate timeslot cards based on `marketInsights.bestTimes`. The first card is pre-selected.
+- **Autopilot inline edit step:** Custom-mode autopilot includes an `edit` step where users can live-preview and edit content (title, body, tags, images, video) before scheduling.
 
 ## Pointers
 

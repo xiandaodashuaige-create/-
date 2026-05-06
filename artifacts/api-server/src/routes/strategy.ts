@@ -183,7 +183,21 @@ router.post("/strategy/:id/approve", async (req, res): Promise<void> => {
 
   const mediaType = s.platform === "tiktok" ? "video" : "image";
   const title = card?.theme ?? `策略 #${s.id}`;
-  const body = card?.bodyDraft || card?.voiceoverScript || card?.scriptOutline?.map((sc: any) => sc.dialogue).join("\n") || "";
+  // 兜底：剥掉 AI 偶尔回声 schema 描述写出来的开头标签
+  // 比如「正文初稿（图文/FB 发布可直接用）：xxx」「正文：xxx」「Body Draft: xxx」
+  // 不删 xxx 本身，只剥前缀；命中失败也不报错
+  const stripLeakedLabel = (s: string): string => {
+    if (!s) return s;
+    let out = s.trimStart();
+    // 反复剥 1-2 层（有时既有「正文初稿(...)：」又紧跟另一层）
+    for (let i = 0; i < 2; i++) {
+      const m = out.match(/^\s*(?:正文(?:初稿)?|旁白(?:稿|初稿)?|文案(?:初稿)?|内容|Body\s*Draft|Caption|Script|Voiceover)\s*(?:[（(][^）)]{0,40}[）)])?\s*[:：\-—]\s*/i);
+      if (!m) break;
+      out = out.slice(m[0].length).trimStart();
+    }
+    return out;
+  };
+  const body = stripLeakedLabel(card?.bodyDraft || card?.voiceoverScript || card?.scriptOutline?.map((sc: any) => sc.dialogue).join("\n") || "");
   const tags = Array.isArray(card?.hashtags) ? card.hashtags.map((h: string) => h.replace(/^#/, "")) : [];
 
   const [content] = await db.insert(contentTable).values({
